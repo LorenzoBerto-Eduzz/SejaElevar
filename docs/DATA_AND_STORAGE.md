@@ -12,6 +12,8 @@ This keeps the first version practical and inspectable: the user can open the fi
 
 The most important early data source is the apprentices/students spreadsheet. The same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
 
+The first app should focus on useful operations rather than a fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from the selected data and templates.
+
 ## Proposed Workspace Model
 
 The actual live data should not be confused with `asset_staging/`. `asset_staging/` is an inbox/staging area for raw files, references, transfers, or test imports. The app's active data should live in a clearer workspace folder.
@@ -22,6 +24,12 @@ The released app and the data workspace are separate:
 - The workspace contains the user's current operational data.
 - Updating the app should not overwrite the workspace.
 - Replacing or syncing the workspace should not require rebuilding the app.
+
+Think of the project as three separate layers:
+
+- The dev/meta repo: source code, docs, AI memory, notes, staging assets, Git, and project setup.
+- The baked/local app: the usable SejaElevar folder/app that a coworker can open through a browser address/bookmark.
+- The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config.
 
 Exact folders are not created yet. A likely local direction is:
 
@@ -63,6 +71,8 @@ SejaElevar_Data/
 
 The app should be able to point at a chosen workspace path, so development data, real work data, and future synced data can be swapped without changing source code.
 
+For the first usable version, it is acceptable for the data to be pure local: the user imports spreadsheet/template/logo files into the app/workspace, and the app copies or organizes them under the workspace folders. Later, the same workspace can be moved to or selected from a synced Google Drive for desktop folder.
+
 ## Import Behavior
 
 When a user adds operational files through the app, the app should copy or create them inside the chosen workspace instead of leaving references scattered around the computer.
@@ -76,6 +86,8 @@ Examples:
 - Workspace settings live under `config/`.
 
 The app can later show a "missing data" or "choose/import workspace files" screen when required files are absent.
+
+Import should not be the only daily workflow forever. Once a workspace is configured, the normal experience should be: open SejaElevar in the browser, the app loads the configured workspace, and the user works with the current files there.
 
 ## Storage Boundary
 
@@ -102,6 +114,8 @@ This is not a public hosted server. It is local app plumbing so the web UI can s
 
 The planned initial implementation stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for workspace file access and document generation.
 
+The intended user experience should still be friendly: the user opens a local browser address or bookmark for SejaElevar instead of using developer commands. Packaging/startup details can be improved after the first working version.
+
 ## Future Sync Direction
 
 The current idea for future multi-worker use is that the app can point at a shared/synced workspace, possibly a Google Drive folder.
@@ -114,6 +128,8 @@ Possible staged path:
 4. If the app grows beyond file sync, move to a hosted backend/database while keeping the same storage adapter boundary.
 
 This lets the project stay simple now while preserving a path to shared data later.
+
+For now, do not start with Google APIs unless the user explicitly redirects. The simpler starting path is local files/imports plus a workspace boundary. Google Drive for desktop sync is the likely first shared-data improvement; formal Google Drive/Sheets API access can come later if the synced-folder workflow is not enough.
 
 The expected path from development to shared use is:
 
@@ -151,6 +167,6 @@ Use sample/anonymized data for code examples, tests, demos, and commits.
 - Exact first file formats: XLSX, CSV, JSON, SQLite, or a mix. The current mental model favors real spreadsheets as first-class operational files, especially for `Aprendizes`.
 - Exact live workspace folder name: likely `local_data/`, but not final.
 - Exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
-- Whether real data should sync through Git, cloud storage, Google Drive/Sheets, or another private mechanism.
+- Whether real data should sync through local-only workspaces first, Google Drive for desktop synced folders, Google Drive/Sheets APIs, or another private mechanism.
 - Whether generated documents live inside the project folder, an ignored local folder, or a user-selected external folder.
 - Future hosting target, if any.

@@ -7,11 +7,11 @@ This file is the portable continuity note for AI coding sessions working on this
 - Project name: `SejaElevar`.
 - Project kind: local-first internal web platform / administrative tool.
 - Main project folder: `project/`.
-- Primary language/stack: planned initial stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for file access and document generation. No scaffold exists yet.
+- Primary language/stack: planned initial stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for workspace file access and document generation. No scaffold exists yet.
 - Run command: unknown; no app scaffold exists yet.
 - Test command: unknown; no app scaffold exists yet.
-- Remote: not configured yet.
-- Git: not initialized yet at the time this handoff was adapted.
+- Remote: `origin` points to `https://github.com/LorenzoBerto-Eduzz/SejaElevar.git`.
+- Git: initialized on `main`, tracking `origin/main`.
 - The repository is organized as an AI-ready project frame: actual source code in `project/`, durable project memory in `docs/`, user scratch notes in `notes/`, and raw/reference assets in `asset_staging/`.
 - `AGENTS.md` is the boot file for AI sessions.
 - `docs/AI_MEMORY_PROTOCOL.md` defines how durable memory works and how to avoid stale chat assumptions.
@@ -27,15 +27,21 @@ The user wants to build SejaElevar as a browser-accessed platform for internal a
 
 The user wants the app UI in Brazilian Portuguese. Planning discussion may happen in English.
 
+The project should prioritize practical functionality over fancy presentation at first: view data, search/filter it, edit it, and generate documents from that data plus values filled in through the web UI.
+
 The first likely module is `Aprendizes`: list, search, filter, register/edit students, inspect related info, and eventually generate documents.
 
 The user currently prefers a practical local-first file-based setup before deciding any hosted architecture. Files/spreadsheets/templates/logos are thought of as the initial "database". The most important first data source is the real apprentices/students spreadsheet, which should be usable both by manual spreadsheet editing and by app edits. Future hosting or sync should remain possible, but should not drive premature complexity.
 
-The user is considering a future shared Google Drive folder as a workspace/database source, so multiple workers can use the same synced files/config instead of each PC drifting separately. This should be treated as a future-compatible storage path, not a requirement to overbuild immediately.
+The intended model has three separate layers:
 
-The intended release/data model is: app releases are separate from the data workspace. A user installs/runs the app, then chooses/imports a workspace. Imported spreadsheets, company logos, templates, generated documents, and config should be copied/kept in organized workspace folders. Later the workspace can be a Google Drive for desktop synced folder so multiple installed app instances share the same data.
+- The dev/meta repo: source code in `project/`, durable docs, staging assets, notes, Git, and AI memory.
+- The baked/local app: a simple browser-accessed tool that can be passed to a coworker for testing/use, ideally experienced as opening a local browser address/bookmark rather than running developer commands.
+- The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config, kept out of Git.
 
-The user also wants Git set up soon so the project can move across PCs and AI sessions, using the existing `memcheck` and `gitcheckpoint` workflow.
+The first data workspace can be pure local and populated by importing files into organized workspace folders. Later the same workspace model should be able to point at a Google Drive for desktop synced folder so multiple installed app instances stay on the same data, before considering formal Google APIs or hosting.
+
+The user wants Git continuity through the existing `memcheck` and `gitcheckpoint` workflow.
 
 ## Working Procedure For Future AI Sessions
 
@@ -53,12 +59,11 @@ The user also wants Git set up soon so the project can move across PCs and AI se
 
 ## Suggested Near-Term Next Steps
 
-- Initialize Git and create the first project-frame checkpoint when the user asks.
-- Use `main` as the initial branch unless the user changes their mind.
-- Decide how cross-PC sync should treat real operational data versus sample/anonymized data.
 - Scaffold the app using the approved initial stack.
+- Keep the first UI simple and functional: workspace status, `Aprendizes` entry point, and placeholders for data/document tools.
 - First product slice: `Aprendizes` list over a local workspace spreadsheet, using anonymized/demo rows when committing examples.
 - Decide the exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
+- Add document generation after the workspace and apprentice listing flow are reliable.
 
 ## Durable Decisions
 
@@ -71,3 +76,4 @@ The user also wants Git set up soon so the project can move across PCs and AI se
 - Start local-first and file-based; keep future hosting/sync possible through storage boundaries.
 - Treat `asset_staging/` as staging/inbox, not the active app database by default.
 - Keep app releases separate from the active data workspace.
+- Use local workspace import/storage first; keep Google Drive synced folders and later Google APIs/hosting as future-compatible paths, not first implementation requirements.
