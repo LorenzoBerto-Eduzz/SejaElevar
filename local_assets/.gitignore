@@ -1,0 +1,3 @@
+# Keep this folder available locally, but do not commit its contents.
+*
+!.gitignore
