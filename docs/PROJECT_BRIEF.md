@@ -7,7 +7,7 @@ This file is the durable identity card for the project. Keep it current when the
 - Project name: `SejaElevar`
 - Project kind: Local-first internal web platform / administrative tool
 - Main project folder: `project/`
-- Primary language/stack: Planned initial stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for workspace file access and document generation. No app scaffold exists yet.
+- Primary language/stack: Vite + React + TypeScript for the browser UI. A small local Node service/backend is still expected later when workspace file access and document generation require it.
 
 ## Purpose
 
@@ -25,30 +25,32 @@ The application UI should be in Brazilian Portuguese (`pt-BR`), even when planni
 
 ## Current Scope
 
-Current scope is planning and setup:
+Current scope is first prototype development:
 
-- Adapt the AI-ready template from a generic project frame into the `SejaElevar` project frame.
 - Keep the actual app/project code inside `project/`.
 - Start with local development and local file-based data.
 - Keep the released app separate from the live data workspace.
 - Preserve a path toward future hosting or sync, without overcommitting to a platform yet.
-- Define a first MVP around the `Aprendizes` section before implementing the broader platform.
+- Build the first MVP around the `Aprendizes` section before implementing the broader platform.
+- Use the current Vite/React prototype shell as the base: sidebar navigation, Elevar logo, one `Aprendizes` tab, settings popup, and an `.xlsx` import/dropzone placeholder.
 
 ## Run And Test Commands
 
 ```text
-Run: unknown; no app scaffold exists yet.
-Test: unknown; no app scaffold exists yet.
+Run dev: cd project && npm run dev:open
+Build direct-open prototype: cd project && npm run build:single
+Open direct HTML: project/dist/SejaElevar.html
+Test: no dedicated test suite yet; use npm run build:single as the current verification check.
 ```
 
-Do not invent run/test commands before the stack is selected and `project/` contains the real app.
+Do not treat `dist/` as source; it is a generated build output.
 
 ## Important Constraints
 
 - Local-first development is required at the beginning.
 - The app should run as a browser-accessed local web app during early development. The user wants coworkers to experience it as a simple browser address/bookmark, not as a developer workflow.
 - Data starts as files/folders: real operational spreadsheets, structured data files, document templates, generated documents, company logos/images, and related assets.
-- The first data workflow should support using a real student/apprentice spreadsheet as the active source: manual edits in the sheet and app edits should both affect the same data source.
+- The first data workflow should support using a real student/apprentice `.xlsx` spreadsheet as the active source: manual edits in the sheet and app edits should both affect the same data source.
 - Real student/person/company data may be sensitive. Do not commit real operational data unless the user explicitly decides that the repository/privacy setup makes that acceptable.
 - Keep any sample/anonymized demo data separate from private local data. Demo data is optional and should not replace the real local workspace concept.
 - Design the storage boundary so future adapters can target Google Drive synced folders, Google Sheets/Drive APIs, a hosted database, or another backend without rewriting every UI feature.
@@ -61,10 +63,10 @@ Do not invent run/test commands before the stack is selected and `project/` cont
 
 ## Current Priorities
 
-1. Scaffold the first local browser app using Vite + React + TypeScript, plus a small local Node service when workspace/document operations require it.
-2. Establish a workspace model where the app can import/use local spreadsheets, templates, logos/assets, generated documents, and config without committing private data.
-3. Build the first MVP slice: `Aprendizes` list with search/filtering over a local workspace spreadsheet, using anonymized/demo rows when committing examples.
-4. Decide the exact `Aprendizes` spreadsheet columns and whether the first slice is read-only before editing support.
+1. Continue the first local browser app prototype using the Vite + React + TypeScript scaffold already in `project/`.
+2. Implement the first `Aprendizes` data slice: import/read an `.xlsx`, map the real columns, and show the real list without fake data.
+3. Establish a workspace model where the app can import/use local spreadsheets, templates, logos/assets, generated documents, and config without committing private data.
+4. Decide whether the first `Aprendizes` slice is read-only before editing support.
 5. Add document generation after the workspace and apprentice listing flow are reliable.
 
 ## Glossary
@@ -84,7 +86,7 @@ Do not invent run/test commands before the stack is selected and `project/` cont
 ## Known Pitfalls
 
 - This repo is initialized as Git on `main` and tracks `origin/main`.
-- `project/` currently has no real app scaffold.
+- `project/` now has the first app scaffold, but no real XLSX parsing, row display, workspace persistence, or document generation yet.
 - Do not treat `notes/todos.txt` as instructions unless the user explicitly asks.
 - Do not commit dependency folders, build outputs, local secrets, or real private data.
-- The initial stack is planned, but not scaffolded. Future AI sessions should inspect `project/` before assuming commands, dependencies, or folder structure.
+- Future AI sessions should inspect `project/` before assuming the current UI state, commands, dependencies, or folder structure.

@@ -1,0 +1,470 @@
+:root {
+  color: #1b2430;
+  background: #f8fbfd;
+  font-family:
+    Aptos, "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-synthesis: none;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--brand-surface, #f8fbfd);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+svg {
+  display: block;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100vh;
+  color: var(--brand-text);
+  background: var(--brand-surface);
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 82px minmax(0, 1fr);
+}
+
+.sidebar {
+  display: flex;
+  position: sticky;
+  top: 0;
+  flex-direction: column;
+  height: 100vh;
+  padding: 14px 14px 18px;
+  border-right: 1px solid #c7deec;
+  background: var(--brand-tertiary);
+}
+
+.sidebar-logo {
+  display: grid;
+  place-items: center;
+  min-height: 92px;
+  margin-bottom: 36px;
+  margin-top: var(--sidebar-top-offset, 0);
+}
+
+.brand-logo-image,
+.brand-logo-text {
+  width: 202px;
+  height: 78px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.sidebar-collapsed .sidebar {
+  padding-inline: 14px;
+}
+
+.sidebar-collapsed .sidebar-logo {
+  min-height: 92px;
+  margin-bottom: 36px;
+}
+
+.sidebar-collapsed .brand-logo-image,
+.sidebar-collapsed .brand-logo-text {
+  width: 54px;
+  height: 54px;
+  min-height: 54px;
+  font-size: 0;
+}
+
+.sidebar-collapsed .brand-logo-text::first-letter {
+  color: var(--brand-primary);
+  font-size: 1.35rem;
+}
+
+.sidebar-collapsed .sidebar-link,
+.sidebar-collapsed .icon-action {
+  padding: 10px 12px;
+}
+
+.sidebar-collapsed .sidebar-link span,
+.sidebar-collapsed .icon-action span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.brand-logo-image {
+  object-fit: contain;
+  padding: 0;
+}
+
+.brand-logo-text {
+  display: grid;
+  place-items: center;
+  color: var(--brand-primary);
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 8px;
+}
+
+.sidebar-link,
+.icon-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #21465d;
+  background: transparent;
+  font-family: inherit;
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: left;
+}
+
+.sidebar-link svg,
+.icon-action svg {
+  width: 29px;
+  height: 29px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.sidebar-link svg.filled-icon,
+.icon-action svg.filled-icon {
+  fill: currentColor;
+  stroke: none;
+}
+
+.sidebar-link span,
+.icon-action span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 29px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.sidebar-link span {
+  transform: translateY(1px);
+}
+
+.icon-action .collapse-label {
+  transform: translateY(0);
+}
+
+.sidebar-link:hover,
+.sidebar-link:focus-visible,
+.icon-action:hover,
+.icon-action:focus-visible {
+  background: rgba(255, 255, 255, 0.64);
+  outline: none;
+}
+
+.sidebar-link.active {
+  color: #fff;
+  background: var(--brand-primary);
+  box-shadow: 0 8px 18px rgba(31, 95, 139, 0.18);
+}
+
+.sidebar-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.icon-action {
+  min-height: 44px;
+  color: #426172;
+}
+
+.app-content {
+  min-width: 0;
+  padding: var(--page-top-offset, 42px) clamp(22px, 4vw, 42px)
+    clamp(22px, 4vw, 42px);
+}
+
+.settings-panel {
+  position: fixed;
+  z-index: 10;
+  bottom: 18px;
+  left: 262px;
+  width: 360px;
+  padding: 18px;
+  border: 1px solid #c7deec;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(27, 36, 48, 0.16);
+}
+
+.sidebar-collapsed .settings-panel {
+  left: 96px;
+}
+
+.settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.settings-heading h2 {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 1.05rem;
+}
+
+.settings-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: #4c6474;
+  background: #eef6fa;
+}
+
+.settings-close svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.settings-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #405060;
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.color-field input {
+  width: 52px;
+  height: 34px;
+  border: 1px solid #cbd8e0;
+  border-radius: 8px;
+  padding: 3px;
+  background: #fff;
+}
+
+.slider-field {
+  display: grid;
+  grid-template-columns: 1fr 132px 36px;
+  align-items: center;
+  gap: 10px;
+  color: #405060;
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.slider-field input {
+  width: 100%;
+  accent-color: var(--brand-primary);
+}
+
+.slider-field output {
+  color: #607281;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.settings-export {
+  margin-top: 4px;
+  color: #405060;
+  font-size: 0.88rem;
+}
+
+.settings-export summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.settings-export textarea {
+  width: 100%;
+  min-height: 118px;
+  margin-top: 8px;
+  resize: vertical;
+  border: 1px solid #cbd8e0;
+  border-radius: 8px;
+  padding: 8px;
+  color: #203242;
+  background: #f8fbfd;
+  font: 0.78rem Consolas, "Courier New", monospace;
+}
+
+.feature-page {
+  display: grid;
+  gap: 22px;
+}
+
+.feature-heading {
+  display: block;
+}
+
+.feature-heading h1 {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: clamp(1.75rem, 3vw, 2.35rem);
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.empty-data-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: min(520px, calc(100vh - 210px));
+  margin-top: var(--content-top-offset, 24px);
+  padding: clamp(28px, 5vw, 64px);
+  border: 1px dashed #b7cfde;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.empty-data-state.dragging {
+  border-color: var(--brand-secondary);
+  background: #f6fffc;
+  box-shadow: inset 0 0 0 2px rgba(15, 123, 104, 0.12);
+}
+
+.empty-data-icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  color: var(--brand-primary);
+  background: #eaf6fc;
+}
+
+.empty-data-icon svg {
+  width: 38px;
+  height: 38px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.empty-data-state h2 {
+  margin: 0;
+  color: #203242;
+  font-size: 1.4rem;
+  letter-spacing: 0;
+}
+
+.file-input {
+  display: none;
+}
+
+.import-feedback,
+.import-error {
+  margin: 10px 0 0;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.import-feedback {
+  color: var(--brand-secondary);
+}
+
+.import-error {
+  color: #b3261e;
+}
+
+.primary-action {
+  margin-top: 16px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  color: #fff;
+  background: var(--brand-secondary);
+  font-weight: 800;
+}
+
+.primary-action:hover,
+.primary-action:focus-visible {
+  background: #0b6a59;
+  outline: 3px solid rgba(15, 123, 104, 0.18);
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid #c7deec;
+  }
+
+  .sidebar-logo {
+    justify-content: start;
+    min-height: 76px;
+    margin-bottom: 14px;
+  }
+
+  .sidebar-actions {
+    grid-template-columns: 1fr 1fr;
+    margin-top: 12px;
+    padding-top: 0;
+  }
+
+  .settings-panel,
+  .sidebar-collapsed .settings-panel {
+    top: auto;
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    width: auto;
+  }
+}

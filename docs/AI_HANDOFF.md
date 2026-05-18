@@ -7,9 +7,9 @@ This file is the portable continuity note for AI coding sessions working on this
 - Project name: `SejaElevar`.
 - Project kind: local-first internal web platform / administrative tool.
 - Main project folder: `project/`.
-- Primary language/stack: planned initial stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for workspace file access and document generation. No scaffold exists yet.
-- Run command: unknown; no app scaffold exists yet.
-- Test command: unknown; no app scaffold exists yet.
+- Primary language/stack: Vite + React + TypeScript for the browser UI. A small local Node service/backend is still expected later when workspace file access and document generation need it.
+- Run command: from `project/`, use `npm run dev:open` for dev or `npm run build:single` then open `dist/SejaElevar.html` for the direct-open prototype.
+- Test command: no dedicated test suite yet; use `npm run build:single` as the current verification/build check.
 - Remote: `origin` points to `https://github.com/LorenzoBerto-Eduzz/SejaElevar.git`.
 - Git: initialized on `main`, tracking `origin/main`.
 - The repository is organized as an AI-ready project frame: actual source code in `project/`, durable project memory in `docs/`, user scratch notes in `notes/`, and raw/reference assets in `asset_staging/`.
@@ -29,7 +29,7 @@ The user wants the app UI in Brazilian Portuguese. Planning discussion may happe
 
 The project should prioritize practical functionality over fancy presentation at first: view data, search/filter it, edit it, and generate documents from that data plus values filled in through the web UI.
 
-The first likely module is `Aprendizes`: list, search, filter, register/edit students, inspect related info, and eventually generate documents.
+The first module is `Aprendizes`: list, search, filter, register/edit students, inspect related info, and eventually generate documents.
 
 The user currently prefers a practical local-first file-based setup before deciding any hosted architecture. Files/spreadsheets/templates/logos are thought of as the initial "database". The most important first data source is the real apprentices/students spreadsheet, which should be usable both by manual spreadsheet editing and by app edits. Future hosting or sync should remain possible, but should not drive premature complexity.
 
@@ -40,6 +40,10 @@ The intended model has three separate layers:
 - The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config, kept out of Git.
 
 The first data workspace can be pure local and populated by importing files into organized workspace folders. Later the same workspace model should be able to point at a Google Drive for desktop synced folder so multiple installed app instances stay on the same data, before considering formal Google APIs or hosting.
+
+Current UI tuning direction: development-only settings may include temporary sliders/colors used for fast visual tuning. When the user settles on those values, future AI should bake them into source defaults. Release/user settings are a separate concept: only real user-facing options should remain, and those should persist through a configuration file or workspace config read by the app.
+
+Current prototype state: `project/` now contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, one `Aprendizes` tab, settings popup, hide/show sidebar behavior, development tuning controls, and an `Importar .xlsx` dropzone/button placeholder. The XLSX file is accepted and named in the UI, but rows are not parsed or displayed yet.
 
 The user wants Git continuity through the existing `memcheck` and `gitcheckpoint` workflow.
 
@@ -59,11 +63,12 @@ The user wants Git continuity through the existing `memcheck` and `gitcheckpoint
 
 ## Suggested Near-Term Next Steps
 
-- Scaffold the app using the approved initial stack.
-- Keep the first UI simple and functional: workspace status, `Aprendizes` entry point, and placeholders for data/document tools.
-- First product slice: `Aprendizes` list over a local workspace spreadsheet, using anonymized/demo rows when committing examples.
-- Decide the exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
+- Continue the `Aprendizes` XLSX flow once the user brings the real spreadsheet structure: parse rows, map columns, and display the real list.
+- Keep the first UI simple and functional: no fake data, clear missing/import state, and clean controls.
+- First product slice: `Aprendizes` list over a local XLSX spreadsheet, using anonymized/demo rows only if committed examples become useful.
+- Decide the exact `Aprendizes` spreadsheet columns and whether the first displayed slice is read-only before editing support.
 - Add document generation after the workspace and apprentice listing flow are reliable.
+- Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build.
 
 ## Durable Decisions
 
@@ -77,3 +82,4 @@ The user wants Git continuity through the existing `memcheck` and `gitcheckpoint
 - Treat `asset_staging/` as staging/inbox, not the active app database by default.
 - Keep app releases separate from the active data workspace.
 - Use local workspace import/storage first; keep Google Drive synced folders and later Google APIs/hosting as future-compatible paths, not first implementation requirements.
+- Dev tuning values should be treated as source defaults once approved; final user configuration should be stored/read from app or workspace config, not confused with temporary AI tuning controls.

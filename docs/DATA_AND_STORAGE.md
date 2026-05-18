@@ -10,7 +10,7 @@ At first, the app should read and write files on the developer/user machine. The
 
 This keeps the first version practical and inspectable: the user can open the files directly, and the app can provide a nicer browser interface over the same information.
 
-The most important early data source is the apprentices/students spreadsheet. The same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
+The most important early data source is the apprentices/students spreadsheet. The first expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow. The same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
 
 The first app should focus on useful operations rather than a fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from the selected data and templates.
 
@@ -104,6 +104,30 @@ Use a storage/data adapter boundary so UI features call clear operations such as
 
 The first adapter can be local files. Later adapters could target Google Sheets/Drive, a hosted database, or another service.
 
+## Configuration Model
+
+Treat development tuning controls and release/user configuration as different systems.
+
+During development, the app may expose temporary controls such as alignment sliders, spacing sliders, color pickers, or icon offsets so the user and AI can quickly tune the interface. Those values are not automatically part of the final product. When the user approves a tuning result, future AI should bake the chosen values into source defaults and remove or hide dev-only controls before a release build.
+
+The release app should expose only user-facing configuration that makes sense for workers or the institution, such as:
+
+- company/institution name
+- logo
+- app colors/theme
+- active workspace/data folder
+- import/export preferences
+- document/template-related options
+
+Release configuration should be persisted and read back by the app on startup. The target shape is a config file in the app/workspace configuration area, such as:
+
+```text
+config/
+  app-config.json
+```
+
+The app should load this configuration, apply the saved logo/colors/settings, and save changes made by the user so the same settings are used next time. While the current direct-open HTML prototype cannot silently write files due to browser security, this remains the intended behavior for the baked/local app once the workspace/file access approach is implemented.
+
 ## Local App Shape
 
 The app can still feel like a simple local webpage: one local address in the browser with tabs/tools for `Aprendizes`, companies, agendas, documents, and settings.
@@ -163,8 +187,8 @@ Use sample/anonymized data for code examples, tests, demos, and commits.
 
 ## Open Decisions
 
-- Exact run/test/package commands; the stack is planned but not scaffolded yet.
-- Exact first file formats: XLSX, CSV, JSON, SQLite, or a mix. The current mental model favors real spreadsheets as first-class operational files, especially for `Aprendizes`.
+- Exact package/release flow for the coworker-facing baked app.
+- Exact first internal data shape: first import format is `.xlsx`, but the app still needs column mapping, validation, and later save/edit behavior.
 - Exact live workspace folder name: likely `local_data/`, but not final.
 - Exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
 - Whether real data should sync through local-only workspaces first, Google Drive for desktop synced folders, Google Drive/Sheets APIs, or another private mechanism.
