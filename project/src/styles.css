@@ -1,4 +1,7 @@
 :root {
+  --menu-button-size: 44px;
+  --menu-icon-size: 29px;
+  --menu-icon-inset: calc((var(--menu-button-size) - var(--menu-icon-size)) / 2);
   color: #1b2430;
   background: #f8fbfd;
   font-family:
@@ -31,15 +34,16 @@ svg {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  display: flex;
   min-height: 100vh;
   color: var(--brand-text);
   background: var(--brand-surface);
 }
 
-.app-shell.sidebar-collapsed {
-  grid-template-columns: 82px minmax(0, 1fr);
+.app-shell.no-start-motion,
+.app-shell.no-start-motion * {
+  transition: none !important;
+  animation: none !important;
 }
 
 .sidebar {
@@ -47,73 +51,63 @@ svg {
   position: sticky;
   top: 0;
   flex-direction: column;
+  align-items: flex-end;
+  flex: 0 0 auto;
+  width: 248px;
+  min-width: 248px;
+  max-width: 248px;
   height: 100vh;
+  margin-left: 0;
   padding: 14px 14px 18px;
   border-right: 1px solid #c7deec;
   background: var(--brand-tertiary);
+  overflow: hidden;
+  transition:
+    margin-left 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms ease,
+    border-color 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  margin-left: -248px;
+  pointer-events: none;
 }
 
 .sidebar-logo {
   display: grid;
   place-items: center;
+  width: 226px;
+  flex: 0 0 auto;
   min-height: 92px;
   margin-bottom: 36px;
   margin-top: var(--sidebar-top-offset, 0);
+  transition:
+    min-height 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .brand-logo-image,
 .brand-logo-text {
-  width: 202px;
-  height: 78px;
+  width: 226px;
   border-radius: 0;
   background: transparent;
-}
-
-.sidebar-collapsed .sidebar {
-  padding-inline: 14px;
-}
-
-.sidebar-collapsed .sidebar-logo {
-  min-height: 92px;
-  margin-bottom: 36px;
-}
-
-.sidebar-collapsed .brand-logo-image,
-.sidebar-collapsed .brand-logo-text {
-  width: 54px;
-  height: 54px;
-  min-height: 54px;
-  font-size: 0;
-}
-
-.sidebar-collapsed .brand-logo-text::first-letter {
-  color: var(--brand-primary);
-  font-size: 1.35rem;
-}
-
-.sidebar-collapsed .sidebar-link,
-.sidebar-collapsed .icon-action {
-  padding: 10px 12px;
-}
-
-.sidebar-collapsed .sidebar-link span,
-.sidebar-collapsed .icon-action span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
+  transition:
+    width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    font-size 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .brand-logo-image {
+  height: var(--logo-image-height, 102px);
   object-fit: contain;
   padding: 0;
+  transform: translateX(3px);
 }
 
 .brand-logo-text {
   display: grid;
   place-items: center;
+  height: 96px;
   color: var(--brand-primary);
   font-size: 1.45rem;
   font-weight: 800;
@@ -122,18 +116,22 @@ svg {
 .sidebar-nav {
   display: grid;
   gap: 8px;
+  width: 220px;
+  flex: 0 0 auto;
+  margin-top: var(--tab-list-top-offset, 0px);
 }
 
 .sidebar-link,
 .icon-action {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0;
   width: 100%;
-  min-height: 44px;
+  height: var(--menu-button-size);
+  min-height: var(--menu-button-size);
   border: 0;
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 0;
   color: #21465d;
   background: transparent;
   font-family: inherit;
@@ -141,13 +139,21 @@ svg {
   font-weight: 700;
   line-height: 1;
   text-align: left;
+  overflow: hidden;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    padding 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .sidebar-link svg,
-.icon-action svg {
-  width: 29px;
-  height: 29px;
+.icon-action svg,
+.menu-toggle-button svg {
+  width: var(--menu-icon-size);
+  height: var(--menu-icon-size);
   flex: 0 0 auto;
+  margin: 0 var(--menu-icon-inset);
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -162,27 +168,29 @@ svg {
 }
 
 .sidebar-link span,
-.icon-action span {
+.icon-action span,
+.menu-toggle-button span {
   display: inline-flex;
   align-items: center;
-  min-height: 29px;
+  min-height: var(--menu-icon-size);
+  margin-left: 6px;
+  max-width: 160px;
   line-height: 1;
-  transform: translateY(-1px);
-}
-
-.sidebar-link span {
-  transform: translateY(1px);
-}
-
-.icon-action .collapse-label {
+  overflow: hidden;
+  white-space: nowrap;
   transform: translateY(0);
+  opacity: 1;
+  transition:
+    max-width 240ms ease,
+    opacity 180ms ease,
+    transform 160ms ease;
 }
 
 .sidebar-link:hover,
 .sidebar-link:focus-visible,
 .icon-action:hover,
 .icon-action:focus-visible {
-  background: rgba(255, 255, 255, 0.64);
+  background: #fff;
   outline: none;
 }
 
@@ -195,19 +203,170 @@ svg {
 .sidebar-actions {
   display: grid;
   gap: 6px;
+  width: 220px;
+  flex: 0 0 auto;
   margin-top: auto;
+  margin-bottom: 50px;
   padding-top: 18px;
 }
 
 .icon-action {
-  min-height: 44px;
+  min-height: var(--menu-button-size);
   color: #426172;
 }
 
+.menu-toggle-dock {
+  position: fixed;
+  z-index: 20;
+  bottom: 18px;
+  left: 14px;
+  width: 220px;
+  height: var(--menu-button-size);
+  transition: width 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.menu-toggle-dock.mini-menu-open::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  right: -30px;
+  bottom: -24px;
+  left: -30px;
+  height: 210px;
+}
+
+.app-shell.sidebar-collapsed .menu-toggle-dock {
+  width: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  max-width: var(--menu-button-size);
+}
+
+.menu-toggle-popover {
+  position: absolute;
+  z-index: 1;
+  bottom: 50px;
+  left: -6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
+  max-height: 0;
+  padding: 6px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(27, 36, 48, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transform-origin: bottom center;
+  transition:
+    max-height 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 300ms ease,
+    visibility 0s linear 400ms;
+}
+
+.app-shell.sidebar-collapsed .menu-toggle-dock.mini-menu-open .menu-toggle-popover {
+  max-height: 112px;
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition:
+    max-height 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 300ms ease,
+    visibility 0s linear;
+}
+
+.menu-toggle-button {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  height: var(--menu-button-size);
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  color: #426172;
+  background: var(--brand-tertiary);
+  font-family: inherit;
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1;
+  overflow: hidden;
+  text-align: left;
+  transition: background-color 160ms ease;
+}
+
+.mini-menu-button-crop {
+  flex: 0 0 var(--menu-button-size);
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  max-width: var(--menu-button-size);
+  min-height: var(--menu-button-size);
+  max-height: var(--menu-button-size);
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.mini-menu-button-crop .sidebar-link,
+.mini-menu-button-crop .icon-action {
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  height: var(--menu-button-size);
+  min-height: var(--menu-button-size);
+  max-height: var(--menu-button-size);
+}
+
+.menu-toggle-button {
+  position: relative;
+  z-index: 2;
+  gap: 0;
+  width: 100%;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.menu-toggle-button:hover,
+.menu-toggle-dock:hover .menu-toggle-button {
+  background: #fff;
+}
+
+.app-shell.sidebar-collapsed .menu-toggle-button,
+.app-shell.sidebar-collapsed .menu-toggle-dock:hover .menu-toggle-button {
+  background: transparent;
+}
+
+.menu-toggle-button .collapse-label {
+  transform: translateX(var(--collapse-label-offset, 0px));
+}
+
+.app-shell.sidebar-collapsed .menu-toggle-button {
+  width: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  max-width: var(--menu-button-size);
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+
+.app-shell.sidebar-collapsed .menu-toggle-button span {
+  margin-left: 0;
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(-18px);
+}
+
 .app-content {
+  flex: 1 1 auto;
   min-width: 0;
   padding: var(--page-top-offset, 42px) clamp(22px, 4vw, 42px)
     clamp(22px, 4vw, 42px);
+  transition: padding 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .settings-panel {
@@ -221,10 +380,11 @@ svg {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 18px 40px rgba(27, 36, 48, 0.16);
+  transition: left 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .sidebar-collapsed .settings-panel {
-  left: 96px;
+  left: 72px;
 }
 
 .settings-heading {
@@ -340,7 +500,7 @@ svg {
 }
 
 .feature-heading h1 {
-  margin: 0;
+  margin: 0 0 0 12px;
   color: var(--brand-primary);
   font-size: clamp(1.75rem, 3vw, 2.35rem);
   line-height: 1.15;
@@ -434,17 +594,31 @@ svg {
   outline: 3px solid rgba(15, 123, 104, 0.18);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 560px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .sidebar {
     position: static;
+    width: 100%;
     height: auto;
     min-height: 0;
     border-right: 0;
     border-bottom: 1px solid #c7deec;
+  }
+
+  .sidebar-collapsed .sidebar {
+    width: 100%;
+    padding: 14px 14px 18px;
+    border-right: 0;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .menu-toggle-dock {
+    display: none;
   }
 
   .sidebar-logo {

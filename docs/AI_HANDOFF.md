@@ -45,6 +45,12 @@ Current UI tuning direction: development-only settings may include temporary sli
 
 Current prototype state: `project/` now contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, one `Aprendizes` tab, settings popup, hide/show sidebar behavior, development tuning controls, and an `Importar .xlsx` dropzone/button placeholder. The XLSX file is accepted and named in the UI, but rows are not parsed or displayed yet.
 
+Current app shell details: the menu has a shown sidebar and a hidden state where the sidebar slides fully offscreen while a fixed square toggle remains. Hovering that square opens a small mini-menu above it. The mini-menu buttons are the same real sidebar buttons cropped to square size, so icon sizing and positioning should be changed through the shared sidebar button CSS, not separate mini-menu icon rules. When the settings popup is open, the mini-menu should remain open even if the mouse leaves its normal hover buffer; it should only become free to close after the settings popup closes and the pointer is outside the buffer.
+
+Current persisted UI state: theme/layout development settings are stored in `localStorage` under `sejaelevar.settings`; sidebar hidden/shown state is stored under `sejaelevar.sidebarCollapsed`. Startup motion is disabled on initial render to avoid sidebar/settings values animating or shifting during refresh/open.
+
+Current app icon: `project/src/assets/app-icon.png` comes from the user's local `local_assets/LOGOEYnco.png`, and `project/index.html` references it as the favicon.
+
 The user wants Git continuity through the existing `memcheck` and `gitcheckpoint` workflow.
 
 ## Working Procedure For Future AI Sessions
@@ -68,7 +74,7 @@ The user wants Git continuity through the existing `memcheck` and `gitcheckpoint
 - First product slice: `Aprendizes` list over a local XLSX spreadsheet, using anonymized/demo rows only if committed examples become useful.
 - Decide the exact `Aprendizes` spreadsheet columns and whether the first displayed slice is read-only before editing support.
 - Add document generation after the workspace and apprentice listing flow are reliable.
-- Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build.
+- Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build. Current dev-only sliders include page/content top offsets, gear/icon/text/menu/logo positioning, logo image height, and tab list start. When the user settles on values, bake them into source defaults and remove or hide tuning controls that should not ship.
 
 ## Durable Decisions
 

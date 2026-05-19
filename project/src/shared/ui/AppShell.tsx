@@ -7,6 +7,10 @@ import {
 import type { AppBrand } from '../brand/appBrand';
 import type { AppTab, NavigationTab } from '../navigation/tabs';
 
+const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
+const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
+const SIDEBAR_STORAGE_KEY = 'sejaelevar.sidebarCollapsed';
+
 type AppShellProps = {
   brand: AppBrand;
   tabs: NavigationTab[];
@@ -22,7 +26,10 @@ type LayoutSettings = {
   contentTopOffset: number;
   gearOuterOffset: number;
   collapseIconOffset: number;
+  collapseLabelOffset: number;
+  logoImageHeight: number;
   sidebarTopOffset: number;
+  tabListTopOffset: number;
 };
 
 type AppSettings = {
@@ -44,48 +51,73 @@ export function AppShell({
       contentTopOffset: 24,
       gearOuterOffset: 1.2,
       collapseIconOffset: 0,
+      collapseLabelOffset: 0,
+      logoImageHeight: 102,
       sidebarTopOffset: 0,
+      tabListTopOffset: 0,
     },
   };
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState(defaultSettings);
+  const readSavedSettings = () => {
+    if (typeof window === 'undefined') {
+      return defaultSettings;
+    }
 
-  useEffect(() => {
-    const savedSettings = window.localStorage.getItem('sejaelevar.settings');
-    const savedTheme = window.localStorage.getItem('sejaelevar.theme');
+    const savedSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const savedTheme = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
 
     if (!savedSettings && !savedTheme) {
-      return;
+      return defaultSettings;
     }
 
     try {
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings) as Partial<AppSettings>;
-        setSettings({
+        return {
           theme: { ...brand.theme, ...parsedSettings.theme },
           layout: { ...defaultSettings.layout, ...parsedSettings.layout },
-        });
-        return;
+        };
       }
 
       if (savedTheme) {
-        setSettings({
+        return {
           ...defaultSettings,
           theme: { ...brand.theme, ...JSON.parse(savedTheme) },
-        });
+        };
       }
     } catch {
-      window.localStorage.removeItem('sejaelevar.settings');
-      window.localStorage.removeItem('sejaelevar.theme');
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     }
+
+    return defaultSettings;
+  };
+
+  const [isStartMotionDisabled, setIsStartMotionDisabled] = useState(true);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true';
+  });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMiniMenuOpen, setIsMiniMenuOpen] = useState(false);
+  const [isMiniMenuArmed, setIsMiniMenuArmed] = useState(true);
+  const [settings, setSettings] = useState(readSavedSettings);
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      setIsStartMotionDisabled(false);
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
   }, []);
 
   const saveSettings = (nextSettings: AppSettings) => {
     setSettings(nextSettings);
     window.localStorage.setItem(
-      'sejaelevar.settings',
+      SETTINGS_STORAGE_KEY,
       JSON.stringify(nextSettings),
     );
   };
@@ -104,10 +136,51 @@ export function AppShell({
     });
   };
 
+  const toggleSidebar = () => {
+    setIsMiniMenuOpen(false);
+    setIsSidebarCollapsed((current) => {
+      const nextCollapsed = !current;
+      setIsMiniMenuArmed(!nextCollapsed);
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(nextCollapsed));
+      return nextCollapsed;
+    });
+  };
+
+  const closeSettings = () => {
+    setIsSettingsOpen(false);
+    if (isSidebarCollapsed) {
+      setIsMiniMenuOpen(false);
+      setIsMiniMenuArmed(true);
+    }
+  };
+
+  const toggleSettingsFromMiniMenu = () => {
+    setIsSettingsOpen((current) => {
+      const nextOpen = !current;
+
+      if (nextOpen) {
+        setIsMiniMenuOpen(true);
+        return nextOpen;
+      }
+
+      setIsMiniMenuOpen(true);
+      if (isSidebarCollapsed) {
+        setIsMiniMenuArmed(true);
+      }
+      return nextOpen;
+    });
+  };
+
   return (
     <div
       className={
-        isSidebarCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell'
+        [
+          'app-shell',
+          isSidebarCollapsed ? 'sidebar-collapsed' : '',
+          isStartMotionDisabled ? 'no-start-motion' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
       }
       style={
         {
@@ -118,7 +191,10 @@ export function AppShell({
           '--brand-text': settings.theme.text,
           '--page-top-offset': `${settings.layout.pageTopOffset}px`,
           '--content-top-offset': `${settings.layout.contentTopOffset}px`,
+          '--collapse-label-offset': `${settings.layout.collapseLabelOffset}px`,
+          '--logo-image-height': `${settings.layout.logoImageHeight}px`,
           '--sidebar-top-offset': `${settings.layout.sidebarTopOffset}px`,
+          '--tab-list-top-offset': `${settings.layout.tabListTopOffset}px`,
         } as CSSProperties
       }
     >
@@ -158,20 +234,87 @@ export function AppShell({
             <GearIcon outerOffset={settings.layout.gearOuterOffset} />
             <span>Configurações</span>
           </button>
-          <button
-            className="icon-action"
-            type="button"
-            aria-label={isSidebarCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
-            aria-pressed={isSidebarCollapsed}
-            onClick={() => setIsSidebarCollapsed((current) => !current)}
-          >
-            <CollapseIcon offset={settings.layout.collapseIconOffset} />
-            <span className="collapse-label">
-              {isSidebarCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
-            </span>
-          </button>
         </div>
       </aside>
+
+      <div
+        className={
+          isMiniMenuOpen
+            ? 'menu-toggle-dock mini-menu-open'
+            : 'menu-toggle-dock'
+        }
+        aria-label="Controle do menu"
+        onMouseLeave={() => {
+          if (isSettingsOpen) {
+            return;
+          }
+
+          setIsMiniMenuOpen(false);
+          if (isSidebarCollapsed) {
+            setIsMiniMenuArmed(true);
+          }
+        }}
+      >
+        <div className="menu-toggle-popover" aria-label="Ferramentas">
+          {tabs.map((tab) => (
+            <div className="mini-menu-button-crop tab-crop" key={tab.id}>
+              <button
+                className={
+                  tab.id === activeTab ? 'sidebar-link active' : 'sidebar-link'
+                }
+              type="button"
+              aria-label={tab.label}
+              title={tab.label}
+              onClick={() => {
+                onTabChange(tab.id);
+                if (!isSettingsOpen) {
+                  setIsMiniMenuArmed(false);
+                  setIsMiniMenuOpen(false);
+                }
+              }}
+            >
+              <PersonIcon />
+              <span>{tab.label}</span>
+            </button>
+            </div>
+          ))}
+          <div className="mini-menu-button-crop action-crop">
+            <button
+              className="icon-action"
+              type="button"
+              aria-label="Configurações"
+            title="Configurações"
+            aria-expanded={isSettingsOpen}
+            onClick={() => {
+              setIsMiniMenuArmed(false);
+              toggleSettingsFromMiniMenu();
+            }}
+          >
+              <GearIcon outerOffset={settings.layout.gearOuterOffset} />
+              <span>Configurações</span>
+            </button>
+          </div>
+        </div>
+
+        <button
+          className="menu-toggle-button"
+          type="button"
+          aria-label={isSidebarCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
+          aria-pressed={isSidebarCollapsed}
+          onMouseEnter={() => {
+            if (isSidebarCollapsed && isMiniMenuArmed) {
+              setIsMiniMenuOpen(true);
+            }
+          }}
+          onClick={toggleSidebar}
+        >
+          <CollapseIcon
+            direction={isSidebarCollapsed ? 'show' : 'hide'}
+            offset={settings.layout.collapseIconOffset}
+          />
+          <span className="collapse-label">Ocultar</span>
+        </button>
+      </div>
 
       {isSettingsOpen && (
         <section className="settings-panel" aria-label="Configurações">
@@ -181,7 +324,7 @@ export function AppShell({
               className="settings-close"
               type="button"
               aria-label="Fechar configurações"
-              onClick={() => setIsSettingsOpen(false)}
+              onClick={closeSettings}
             >
               <CloseIcon />
             </button>
@@ -228,12 +371,36 @@ export function AppShell({
               onChange={(value) => updateLayout('gearOuterOffset', value)}
             />
             <SliderField
-              label="Ajuste do ocultar"
+              label="Ajuste do ícone ocultar"
               min={-4}
               max={8}
               step={0.5}
               value={settings.layout.collapseIconOffset}
               onChange={(value) => updateLayout('collapseIconOffset', value)}
+            />
+            <SliderField
+              label="Ajuste horizontal do texto ocultar"
+              min={-16}
+              max={16}
+              step={0.5}
+              value={settings.layout.collapseLabelOffset}
+              onChange={(value) => updateLayout('collapseLabelOffset', value)}
+            />
+            <SliderField
+              label="Altura da logo"
+              min={72}
+              max={132}
+              step={1}
+              value={settings.layout.logoImageHeight}
+              onChange={(value) => updateLayout('logoImageHeight', value)}
+            />
+            <SliderField
+              label="Início das abas"
+              min={-24}
+              max={80}
+              step={1}
+              value={settings.layout.tabListTopOffset}
+              onChange={(value) => updateLayout('tabListTopOffset', value)}
             />
             <SliderField
               label="Descer menu"
@@ -343,10 +510,11 @@ function CloseIcon() {
 }
 
 type CollapseIconProps = {
+  direction?: 'hide' | 'show';
   offset: number;
 };
 
-function CollapseIcon({ offset }: CollapseIconProps) {
+function CollapseIcon({ direction = 'hide', offset }: CollapseIconProps) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -355,7 +523,7 @@ function CollapseIcon({ offset }: CollapseIconProps) {
     >
       <path d="M5 5h14v14H5V5Z" />
       <path d="M10 5v14" />
-      <path d="m16 9-3 3 3 3" />
+      <path d={direction === 'hide' ? 'm16 9-3 3 3 3' : 'm13 9 3 3-3 3'} />
     </svg>
   );
 }
