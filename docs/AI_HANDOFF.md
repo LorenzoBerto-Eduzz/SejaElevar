@@ -19,6 +19,7 @@ This file is the portable continuity note for AI coding sessions working on this
 - `docs/PROJECT_BRIEF.md` should hold the real project purpose, audience, stack, commands, constraints, and priorities once setup is complete.
 - `docs/PROJECT_ORGANIZATION.md` records the current organization direction.
 - `docs/DATA_AND_STORAGE.md` records the current local-first data/storage direction.
+- `docs/RELEASE_PACKAGE.md` records the current coworker-facing baked/export app folder shape.
 - `docs/TEMPLATE_SETUP.md` explains how to finish adapting the template and initialize Git.
 
 ## User Intent
@@ -36,7 +37,7 @@ The user currently prefers a practical local-first file-based setup before decid
 The intended model has three separate layers:
 
 - The dev/meta repo: source code in `project/`, durable docs, staging assets, notes, Git, and AI memory.
-- The baked/local app: a simple browser-accessed tool that can be passed to a coworker for testing/use, ideally experienced as opening a local browser address/bookmark rather than running developer commands.
+- The baked/local app: a simple browser-accessed tool that can be passed to a coworker for testing/use, ideally experienced as opening a local browser address/bookmark rather than running developer commands. See `docs/RELEASE_PACKAGE.md` for the current export folder shape.
 - The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config, kept out of Git.
 
 The first data workspace can be pure local and populated by importing files into organized workspace folders. Later the same workspace model should be able to point at a Google Drive for desktop synced folder so multiple installed app instances stay on the same data, before considering formal Google APIs or hosting.
