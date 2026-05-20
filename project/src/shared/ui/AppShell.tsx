@@ -11,6 +11,12 @@ const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
 const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
 const SIDEBAR_STORAGE_KEY = 'sejaelevar.sidebarCollapsed';
 
+declare global {
+  interface Window {
+    SEJAELEVAR_RELEASE?: boolean;
+  }
+}
+
 type AppShellProps = {
   brand: AppBrand;
   tabs: NavigationTab[];
@@ -44,6 +50,9 @@ export function AppShell({
   onTabChange,
   children,
 }: AppShellProps) {
+  const isReleaseMode =
+    typeof window !== 'undefined' && window.SEJAELEVAR_RELEASE === true;
+
   const defaultSettings: AppSettings = {
     theme: brand.theme,
     layout: {
@@ -346,6 +355,8 @@ export function AppShell({
               value={settings.theme.tertiary}
               onChange={(value) => updateColor('tertiary', value)}
             />
+            {!isReleaseMode && (
+              <>
             <SliderField
               label="Altura do título"
               min={20}
@@ -414,6 +425,8 @@ export function AppShell({
               <summary>Valores atuais</summary>
               <textarea readOnly value={JSON.stringify(settings, null, 2)} />
             </details>
+              </>
+            )}
           </div>
         </section>
       )}
