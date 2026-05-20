@@ -41,6 +41,9 @@ type LayoutSettings = {
   actionButtonGap: number;
   menuButtonSize: number;
   iconTextGap: number;
+  tableRowHeight: number;
+  tableHeaderHeight: number;
+  tableTopOffset: number;
 };
 
 type AppSettings = {
@@ -74,6 +77,9 @@ export function AppShell({
       actionButtonGap: 5,
       menuButtonSize: 47,
       iconTextGap: 6,
+      tableRowHeight: 32,
+      tableHeaderHeight: 48,
+      tableTopOffset: 14,
     },
   };
 
@@ -317,6 +323,9 @@ export function AppShell({
           '--action-button-gap': `${settings.layout.actionButtonGap}px`,
           '--menu-button-size': `${settings.layout.menuButtonSize}px`,
           '--icon-text-gap': `${settings.layout.iconTextGap}px`,
+          '--table-row-height': `${settings.layout.tableRowHeight}px`,
+          '--table-header-height': `${settings.layout.tableHeaderHeight}px`,
+          '--table-top-offset': `${settings.layout.tableTopOffset}px`,
         } as CSSProperties
       }
     >
@@ -513,116 +522,32 @@ export function AppShell({
             />
             {!isReleaseMode && (
               <>
-            <SliderField
-              label="Altura do título"
-              min={20}
-              max={80}
-              step={1}
-              value={settings.layout.pageTopOffset}
-              onChange={(value) => updateLayout('pageTopOffset', value)}
-            />
-            <SliderField
-              label="Altura do conteúdo"
-              min={0}
-              max={90}
-              step={1}
-              value={settings.layout.contentTopOffset}
-              onChange={(value) => updateLayout('contentTopOffset', value)}
-            />
-            <SliderField
-              label="Ajuste da engrenagem"
-              min={-1}
-              max={4}
-              step={0.1}
-              value={settings.layout.gearOuterOffset}
-              onChange={(value) => updateLayout('gearOuterOffset', value)}
-            />
-            <SliderField
-              label="Ajuste do ícone ocultar"
-              min={-4}
-              max={8}
-              step={0.5}
-              value={settings.layout.collapseIconOffset}
-              onChange={(value) => updateLayout('collapseIconOffset', value)}
-            />
-            <SliderField
-              label="Ajuste horizontal do texto ocultar"
-              min={-16}
-              max={16}
-              step={0.5}
-              value={settings.layout.collapseLabelOffset}
-              onChange={(value) => updateLayout('collapseLabelOffset', value)}
-            />
-            <SliderField
-              label="Altura do texto ocultar"
-              min={-10}
-              max={10}
-              step={0.5}
-              value={settings.layout.collapseLabelVerticalOffset}
-              onChange={(value) =>
-                updateLayout('collapseLabelVerticalOffset', value)
-              }
-            />
-            <SliderField
-              label="Altura da logo"
-              min={72}
-              max={132}
-              step={1}
-              value={settings.layout.logoImageHeight}
-              onChange={(value) => updateLayout('logoImageHeight', value)}
-            />
-            <SliderField
-              label="Início das abas"
-              min={-24}
-              max={80}
-              step={1}
-              value={settings.layout.tabListTopOffset}
-              onChange={(value) => updateLayout('tabListTopOffset', value)}
-            />
-            <SliderField
-              label="Descer menu"
-              min={0}
-              max={80}
-              step={1}
-              value={settings.layout.sidebarTopOffset}
-              onChange={(value) => updateLayout('sidebarTopOffset', value)}
-            />
-            <SliderField
-              label="Espaço entre abas"
-              min={0}
-              max={36}
-              step={1}
-              value={settings.layout.tabButtonGap}
-              onChange={(value) => updateLayout('tabButtonGap', value)}
-            />
-            <SliderField
-              label="Espaço botões inferiores"
-              min={0}
-              max={24}
-              step={1}
-              value={settings.layout.actionButtonGap}
-              onChange={(value) => updateLayout('actionButtonGap', value)}
-            />
-            <SliderField
-              label="Altura dos botões"
-              min={42}
-              max={58}
-              step={1}
-              value={settings.layout.menuButtonSize}
-              onChange={(value) => updateLayout('menuButtonSize', value)}
-            />
-            <SliderField
-              label="Espaço ícone/texto"
-              min={0}
-              max={18}
-              step={1}
-              value={settings.layout.iconTextGap}
-              onChange={(value) => updateLayout('iconTextGap', value)}
-            />
-            <details className="settings-export">
-              <summary>Valores atuais</summary>
-              <textarea readOnly value={JSON.stringify(settings, null, 2)} />
-            </details>
+                <SliderField
+                  label="Altura das linhas"
+                  min={24}
+                  max={58}
+                  step={1}
+                  value={settings.layout.tableRowHeight}
+                  onChange={(value) => updateLayout('tableRowHeight', value)}
+                />
+                <SliderField
+                  label="Altura do cabeçalho"
+                  min={36}
+                  max={76}
+                  step={1}
+                  value={settings.layout.tableHeaderHeight}
+                  onChange={(value) =>
+                    updateLayout('tableHeaderHeight', value)
+                  }
+                />
+                <SliderField
+                  label="Posição da tabela"
+                  min={0}
+                  max={36}
+                  step={1}
+                  value={settings.layout.tableTopOffset}
+                  onChange={(value) => updateLayout('tableTopOffset', value)}
+                />
               </>
             )}
           </div>

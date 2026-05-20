@@ -45,6 +45,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Local exports/artifacts
-exports/
+# Local artifacts
 artifacts/
+*.zip

@@ -46,11 +46,15 @@ Current UI tuning direction: development-only settings may include temporary sli
 
 Release parity warning: the user does not want visual or behavioral mismatches between the dev-approved app and the release/export folder. Before producing a coworker-facing release, make sure any dev `localStorage` tuning values that should become real defaults are baked into source. Also separate dev-only tuning controls from release-facing settings; not every current `Configurações` control should ship.
 
-Current prototype state: `project/` now contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, app tabs for `Aprendizes`, `Turmas`, `Disciplinas`, `Arcos`, `Funcionários`, `Salas`, `Calendário`, and `Documentos`, a search popup, settings popup, hide/show sidebar behavior, development tuning controls, and an `Importar .xlsx` dropzone/button placeholder on `Aprendizes`. The XLSX file is accepted and named in the UI, but rows are not parsed or displayed yet. Non-`Aprendizes` tabs are placeholder pages for now.
+Current prototype state: `project/` contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, app tabs for `Aprendizes`, `Turmas`, `Disciplinas`, `Arcos`, `Funcionários`, `Salas`, `Calendário`, and `Documentos`, a search popup, settings popup, hide/show sidebar behavior, development tuning controls, and an `Aprendizes` XLSX import/table flow. Non-`Aprendizes` tabs are placeholder pages for now.
+
+Current `Aprendizes` state: the app imports `.xlsx`, parses the first sheet into columns/rows, stores it in `localStorage` under `sejaelevar.aprendizes.sheet.v1`, and stores table view settings under `sejaelevar.aprendizes.view.v1`. The table displays one data row per line, avoids row wrapping, uses auto-fit default column widths based on the widest header/cell text plus equal padding, and supports manual width persistence. The pencil button toggles edit mode, where users can reorder columns, resize columns, and edit cell values.
+
+Current XLSX write-back behavior: importing through the File System Access picker can keep a writable browser file handle. In that case, cell edits and column reordering attempt to write the updated sheet back to the selected `.xlsx`. Drag/drop and fallback file input cannot write the original disk file because normal browser security does not provide a writable handle, so those edits persist only in app `localStorage` until a stronger local file/workspace layer exists.
 
 Current app shell details: the menu has a shown sidebar and a hidden state where the sidebar slides fully offscreen while a fixed square toggle remains. Hovering that square opens a small mini-menu above it. The mini-menu buttons are the same real sidebar buttons cropped to square size, so icon sizing and positioning should be changed through the shared sidebar button CSS, not separate mini-menu icon rules. When the settings popup is open, the mini-menu should remain open even if the mouse leaves its normal hover buffer; it should only become free to close after the settings popup closes and the pointer is outside the buffer.
 
-Current persisted UI state: theme/layout development settings are stored in `localStorage` under `sejaelevar.settings`; sidebar hidden/shown state is stored under `sejaelevar.sidebarCollapsed`. Startup motion is disabled on initial render to avoid sidebar/settings values animating or shifting during refresh/open. Current approved visual defaults have been baked into source after recovering the local browser settings: primary `#2069df`, secondary `#40a9e5`, tertiary `#ecf5fe`, page top `51`, content top `22`, gear offset `1.5`, logo height `100`, sidebar top `10`, tab gap `20`, lower action gap `5`, menu button height `47`, icon/text gap `6`.
+Current persisted UI state: theme/layout development settings are stored in `localStorage` under `sejaelevar.settings`; sidebar hidden/shown state is stored under `sejaelevar.sidebarCollapsed`. Startup motion is disabled on initial render to avoid sidebar/settings values animating or shifting during refresh/open. Current approved visual defaults have been baked into source after recovering the local browser settings: primary `#2069df`, secondary `#40a9e5`, tertiary `#ecf5fe`, page top `51`, content top `22`, gear offset `1.5`, logo height `100`, sidebar top `10`, tab gap `20`, lower action gap `5`, menu button height `47`, icon/text gap `6`, table row height `32`, table header height `48`, table top offset `14`.
 
 Current app icon: `project/src/assets/app-icon.png` comes from the user's local `local_assets/LOGOEYnco.png`, and `project/index.html` references it as the favicon.
 
@@ -72,12 +76,11 @@ The user wants Git continuity through the existing `memcheck` and `gitcheckpoint
 
 ## Suggested Near-Term Next Steps
 
-- Continue the `Aprendizes` XLSX flow once the user brings the real spreadsheet structure: parse rows, map columns, and display the real list.
+- Continue the `Aprendizes` table flow piece by piece with the user's real spreadsheet: improve display, filters/search, column controls, validation, and edit/save feedback.
 - Keep the first UI simple and functional: no fake data, clear missing/import state, and clean controls.
-- First product slice: `Aprendizes` list over a local XLSX spreadsheet, using anonymized/demo rows only if committed examples become useful.
-- Decide the exact `Aprendizes` spreadsheet columns and whether the first displayed slice is read-only before editing support.
+- Decide how to bridge browser-only file security with the desired local workspace model. The current direct-open app can persist imported data in browser storage and can write back only when File System Access grants a writable handle.
 - Add document generation after the workspace and apprentice listing flow are reliable.
-- Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build. Current dev-only sliders include page/content top offsets, gear/icon/text/menu/logo positioning, logo image height, and tab list start. When the user settles on values, bake them into source defaults and remove or hide tuning controls that should not ship.
+- Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build. Current dev-only sliders include page/content top offsets, gear/icon/text/menu/logo positioning, logo image height, tab list start, and table row/header/top offsets. When the user settles on values, bake them into source defaults and remove or hide tuning controls that should not ship.
 
 ## Durable Decisions
 
@@ -90,5 +93,6 @@ The user wants Git continuity through the existing `memcheck` and `gitcheckpoint
 - Start local-first and file-based; keep future hosting/sync possible through storage boundaries.
 - Treat `asset_staging/` as staging/inbox, not the active app database by default.
 - Keep app releases separate from the active data workspace.
+- `exports/SejaElevar/` is intentionally tracked in Git so the current release/export folder can be pulled on another device. Zip files and real operational data should still stay out of Git unless the user explicitly decides otherwise.
 - Use local workspace import/storage first; keep Google Drive synced folders and later Google APIs/hosting as future-compatible paths, not first implementation requirements.
 - Dev tuning values should be treated as source defaults once approved; final user configuration should be stored/read from app or workspace config, not confused with temporary AI tuning controls.

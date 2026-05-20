@@ -32,7 +32,10 @@ Do not include a separate `configuracao/` folder for now. Future user configurat
 
 - Generate the local release package from `project/` with `npm run export:release`.
 - The script builds the single-file app and creates `exports/SejaElevar/`.
-- Do not commit generated export folders or zip files.
+- `exports/SejaElevar/` is intentionally tracked in Git so the current release/export folder can travel between devices and AI sessions exactly like the user asked.
+- Refresh `exports/SejaElevar/` with `npm --prefix project run export:release` before a checkpoint when the export should match the latest dev-approved app.
+- Do not commit zip files.
+- Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy. Use `.gitkeep` files only to preserve empty folders.
 - The user can zip the folder themselves when needed; do not create a zip unless they ask.
 - Keep the root of the package quiet: ideally only the entry HTML, `README.md`, and the base folders.
 - This structure is a solid starting point, not permanent architecture. Add subfolders or new base folders later only when a new tool or workflow clearly needs them.

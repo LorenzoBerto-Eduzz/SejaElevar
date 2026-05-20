@@ -32,6 +32,7 @@ const readme = `# SejaElevar
 - \`documentos_gerados/\`: documentos gerados ou exportados pelo app.
 
 Esta e uma versao local de teste. Nao coloque dados reais no Git.
+Os arquivos .gitkeep existem apenas para manter as pastas vazias quando a pasta exportada viaja pelo Git.
 `;
 
 async function exportTo(releaseRoot) {
@@ -41,6 +42,9 @@ async function exportTo(releaseRoot) {
   await mkdir(join(releaseRoot, 'documentos_gerados'), { recursive: true });
 
   await writeFile(join(releaseRoot, 'SejaElevar.html'), releaseHtml, 'utf-8');
+  await writeFile(join(releaseRoot, 'dados', 'planilhas', '.gitkeep'), '', 'utf-8');
+  await writeFile(join(releaseRoot, 'modelos', '.gitkeep'), '', 'utf-8');
+  await writeFile(join(releaseRoot, 'documentos_gerados', '.gitkeep'), '', 'utf-8');
 
   const iconMatch = html.match(
     /<link[^>]+rel="icon"[^>]+href="\.\/assets\/([^"]+)"[^>]*>/,

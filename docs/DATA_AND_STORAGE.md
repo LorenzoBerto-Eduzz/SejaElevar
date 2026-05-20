@@ -10,7 +10,7 @@ At first, the app should read and write files on the developer/user machine. The
 
 This keeps the first version practical and inspectable: the user can open the files directly, and the app can provide a nicer browser interface over the same information.
 
-The most important early data source is the apprentices/students spreadsheet. The first expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow. The same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
+The most important early data source is the apprentices/students spreadsheet. The first expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow. The current direct-open browser app can import and display the sheet, persist it in browser storage, and write back to the selected file only when the browser grants a writable File System Access handle. The desired product direction is still that the same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
 
 The first app should focus on useful operations rather than a fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from the selected data and templates.
 
@@ -187,7 +187,7 @@ Use sample/anonymized data for code examples, tests, demos, and commits.
 
 ## Open Decisions
 
-- Exact package/release flow for the coworker-facing baked app.
+- Exact package/release flow for the coworker-facing baked app beyond the current tracked `exports/SejaElevar/` folder.
 - Exact first internal data shape: first import format is `.xlsx`, but the app still needs column mapping, validation, and later save/edit behavior.
 - Exact live workspace folder name: likely `local_data/`, but not final.
 - Exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
