@@ -54,4 +54,6 @@ Separate configuration into two categories:
 
 Current split: release mode shows only color configuration controls in `Configurações`. Dev-only layout/alignment tuning controls remain visible in normal dev builds and are hidden in exports by `window.SEJAELEVAR_RELEASE=true`.
 
+Latest baked default values were taken from the user's local browser tuning on 2026-05-20. Source defaults now carry the approved colors and shell layout values, while the coworker release keeps only color controls visible in settings.
+
 Future AI must not assume every current `Configurações` control should ship. Before making a release, confirm which settings are dev-only and which are release-facing, or use the latest documented/user-confirmed split.

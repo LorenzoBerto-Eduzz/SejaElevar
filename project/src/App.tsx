@@ -4,6 +4,7 @@ import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
 import { appTabs } from './shared/navigation/tabs';
 import { AppShell } from './shared/ui/AppShell';
+import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('aprendizes');
@@ -16,6 +17,11 @@ export function App() {
       onTabChange={setActiveTab}
     >
       {activeTab === 'aprendizes' && <AprendizesPage />}
+      {activeTab !== 'aprendizes' && (
+        <FeaturePlaceholderPage
+          title={appTabs.find((tab) => tab.id === activeTab)?.label ?? ''}
+        />
+      )}
     </AppShell>
   );
 }

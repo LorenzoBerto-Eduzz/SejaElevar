@@ -5,7 +5,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AppBrand } from '../brand/appBrand';
-import type { AppTab, NavigationTab } from '../navigation/tabs';
+import type { AppTab, NavigationIcon, NavigationTab } from '../navigation/tabs';
 
 const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
 const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
@@ -33,9 +33,14 @@ type LayoutSettings = {
   gearOuterOffset: number;
   collapseIconOffset: number;
   collapseLabelOffset: number;
+  collapseLabelVerticalOffset: number;
   logoImageHeight: number;
   sidebarTopOffset: number;
   tabListTopOffset: number;
+  tabButtonGap: number;
+  actionButtonGap: number;
+  menuButtonSize: number;
+  iconTextGap: number;
 };
 
 type AppSettings = {
@@ -56,14 +61,19 @@ export function AppShell({
   const defaultSettings: AppSettings = {
     theme: brand.theme,
     layout: {
-      pageTopOffset: 42,
-      contentTopOffset: 24,
-      gearOuterOffset: 1.2,
+      pageTopOffset: 51,
+      contentTopOffset: 22,
+      gearOuterOffset: 1.5,
       collapseIconOffset: 0,
       collapseLabelOffset: 0,
-      logoImageHeight: 102,
-      sidebarTopOffset: 0,
+      collapseLabelVerticalOffset: -1,
+      logoImageHeight: 100,
+      sidebarTopOffset: 10,
       tabListTopOffset: 0,
+      tabButtonGap: 20,
+      actionButtonGap: 5,
+      menuButtonSize: 47,
+      iconTextGap: 6,
     },
   };
 
@@ -110,6 +120,8 @@ export function AppShell({
 
     return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true';
   });
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMiniMenuOpen, setIsMiniMenuOpen] = useState(false);
   const [isMiniMenuArmed, setIsMiniMenuArmed] = useState(true);
@@ -122,6 +134,67 @@ export function AppShell({
 
     return () => window.cancelAnimationFrame(animationFrame);
   }, []);
+
+  useEffect(() => {
+    if (!isSearchOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target =
+        event.target instanceof HTMLElement ? event.target : null;
+
+      if (
+        target?.closest(
+          '.search-panel, .search-toggle-action, .menu-toggle-dock',
+        )
+      ) {
+        return;
+      }
+
+      setIsSearchOpen(false);
+      if (isSidebarCollapsed) {
+        setIsMiniMenuArmed(true);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [isSearchOpen, isSidebarCollapsed]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.key !== ' ' ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+
+      const target =
+        event.target instanceof HTMLElement ? event.target : null;
+      const isEditing =
+        target?.closest(
+          'input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]',
+        ) !== null;
+
+      if (isEditing) {
+        return;
+      }
+
+      event.preventDefault();
+      toggleSearch();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
 
   const saveSettings = (nextSettings: AppSettings) => {
     setSettings(nextSettings);
@@ -146,10 +219,12 @@ export function AppShell({
   };
 
   const toggleSidebar = () => {
-    setIsMiniMenuOpen(false);
     setIsSidebarCollapsed((current) => {
       const nextCollapsed = !current;
-      setIsMiniMenuArmed(!nextCollapsed);
+      const shouldKeepMiniMenuOpen =
+        nextCollapsed && (isSearchOpen || isSettingsOpen);
+      setIsMiniMenuOpen(shouldKeepMiniMenuOpen);
+      setIsMiniMenuArmed(!nextCollapsed || shouldKeepMiniMenuOpen);
       window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(nextCollapsed));
       return nextCollapsed;
     });
@@ -163,9 +238,42 @@ export function AppShell({
     }
   };
 
+  const closeSearch = () => {
+    setIsSearchOpen(false);
+    if (isSidebarCollapsed) {
+      setIsMiniMenuOpen(false);
+      setIsMiniMenuArmed(true);
+    }
+  };
+
+  const toggleSearch = () => {
+    setIsSearchOpen((current) => {
+      const nextOpen = !current;
+      if (nextOpen) {
+        setIsSettingsOpen(false);
+      }
+      return nextOpen;
+    });
+  };
+
+  const toggleSearchFromMiniMenu = () => {
+    setIsSearchOpen((current) => {
+      const nextOpen = !current;
+      setIsSettingsOpen(false);
+      setIsMiniMenuOpen(true);
+
+      if (!nextOpen && isSidebarCollapsed) {
+        setIsMiniMenuArmed(true);
+      }
+
+      return nextOpen;
+    });
+  };
+
   const toggleSettingsFromMiniMenu = () => {
     setIsSettingsOpen((current) => {
       const nextOpen = !current;
+      setIsSearchOpen(false);
 
       if (nextOpen) {
         setIsMiniMenuOpen(true);
@@ -201,9 +309,14 @@ export function AppShell({
           '--page-top-offset': `${settings.layout.pageTopOffset}px`,
           '--content-top-offset': `${settings.layout.contentTopOffset}px`,
           '--collapse-label-offset': `${settings.layout.collapseLabelOffset}px`,
+          '--collapse-label-vertical-offset': `${settings.layout.collapseLabelVerticalOffset}px`,
           '--logo-image-height': `${settings.layout.logoImageHeight}px`,
           '--sidebar-top-offset': `${settings.layout.sidebarTopOffset}px`,
           '--tab-list-top-offset': `${settings.layout.tabListTopOffset}px`,
+          '--tab-button-gap': `${settings.layout.tabButtonGap}px`,
+          '--action-button-gap': `${settings.layout.actionButtonGap}px`,
+          '--menu-button-size': `${settings.layout.menuButtonSize}px`,
+          '--icon-text-gap': `${settings.layout.iconTextGap}px`,
         } as CSSProperties
       }
     >
@@ -226,7 +339,7 @@ export function AppShell({
               type="button"
               onClick={() => onTabChange(tab.id)}
             >
-              <PersonIcon />
+              <TabIcon icon={tab.icon} />
               <span>{tab.label}</span>
             </button>
           ))}
@@ -234,11 +347,24 @@ export function AppShell({
 
         <div className="sidebar-actions" aria-label="Ações do aplicativo">
           <button
+            className="icon-action search-toggle-action"
+            type="button"
+            aria-label="Pesquisar"
+            aria-expanded={isSearchOpen}
+            onClick={toggleSearch}
+          >
+            <SearchIcon />
+            <span>Pesquisar</span>
+          </button>
+          <button
             className="icon-action"
             type="button"
             aria-label="Configurações"
             aria-expanded={isSettingsOpen}
-            onClick={() => setIsSettingsOpen((current) => !current)}
+            onClick={() => {
+              setIsSearchOpen(false);
+              setIsSettingsOpen((current) => !current);
+            }}
           >
             <GearIcon outerOffset={settings.layout.gearOuterOffset} />
             <span>Configurações</span>
@@ -254,7 +380,7 @@ export function AppShell({
         }
         aria-label="Controle do menu"
         onMouseLeave={() => {
-          if (isSettingsOpen) {
+          if (isSearchOpen || isSettingsOpen) {
             return;
           }
 
@@ -276,17 +402,29 @@ export function AppShell({
               title={tab.label}
               onClick={() => {
                 onTabChange(tab.id);
-                if (!isSettingsOpen) {
-                  setIsMiniMenuArmed(false);
-                  setIsMiniMenuOpen(false);
-                }
               }}
             >
-              <PersonIcon />
+              <TabIcon icon={tab.icon} />
               <span>{tab.label}</span>
             </button>
             </div>
           ))}
+          <div className="mini-menu-button-crop action-crop">
+            <button
+              className="icon-action search-toggle-action"
+              type="button"
+              aria-label="Pesquisar"
+              title="Pesquisar"
+              aria-expanded={isSearchOpen}
+              onClick={() => {
+                setIsMiniMenuArmed(false);
+                toggleSearchFromMiniMenu();
+              }}
+            >
+              <SearchIcon />
+              <span>Pesquisar</span>
+            </button>
+          </div>
           <div className="mini-menu-button-crop action-crop">
             <button
               className="icon-action"
@@ -324,6 +462,24 @@ export function AppShell({
           <span className="collapse-label">Ocultar</span>
         </button>
       </div>
+
+      {isSearchOpen && (
+        <section className="search-panel" aria-label="Pesquisar">
+          <input
+            autoFocus
+            aria-label="Pesquisar"
+            type="search"
+            value={searchTerm}
+            placeholder="Pesquisar"
+            onChange={(event) => setSearchTerm(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                closeSearch();
+              }
+            }}
+          />
+        </section>
+      )}
 
       {isSettingsOpen && (
         <section className="settings-panel" aria-label="Configurações">
@@ -398,6 +554,16 @@ export function AppShell({
               onChange={(value) => updateLayout('collapseLabelOffset', value)}
             />
             <SliderField
+              label="Altura do texto ocultar"
+              min={-10}
+              max={10}
+              step={0.5}
+              value={settings.layout.collapseLabelVerticalOffset}
+              onChange={(value) =>
+                updateLayout('collapseLabelVerticalOffset', value)
+              }
+            />
+            <SliderField
               label="Altura da logo"
               min={72}
               max={132}
@@ -420,6 +586,38 @@ export function AppShell({
               step={1}
               value={settings.layout.sidebarTopOffset}
               onChange={(value) => updateLayout('sidebarTopOffset', value)}
+            />
+            <SliderField
+              label="Espaço entre abas"
+              min={0}
+              max={36}
+              step={1}
+              value={settings.layout.tabButtonGap}
+              onChange={(value) => updateLayout('tabButtonGap', value)}
+            />
+            <SliderField
+              label="Espaço botões inferiores"
+              min={0}
+              max={24}
+              step={1}
+              value={settings.layout.actionButtonGap}
+              onChange={(value) => updateLayout('actionButtonGap', value)}
+            />
+            <SliderField
+              label="Altura dos botões"
+              min={42}
+              max={58}
+              step={1}
+              value={settings.layout.menuButtonSize}
+              onChange={(value) => updateLayout('menuButtonSize', value)}
+            />
+            <SliderField
+              label="Espaço ícone/texto"
+              min={0}
+              max={18}
+              step={1}
+              value={settings.layout.iconTextGap}
+              onChange={(value) => updateLayout('iconTextGap', value)}
             />
             <details className="settings-export">
               <summary>Valores atuais</summary>
@@ -489,11 +687,133 @@ function SliderField({
   );
 }
 
+type TabIconProps = {
+  icon: NavigationIcon;
+};
+
+function TabIcon({ icon }: TabIconProps) {
+  switch (icon) {
+    case 'people':
+      return <PeopleIcon />;
+    case 'book':
+      return <BookIcon />;
+    case 'brain':
+      return <BrainIcon />;
+    case 'apple':
+      return <AppleIcon />;
+    case 'building':
+      return <BuildingIcon />;
+    case 'calendar':
+      return <CalendarIcon />;
+    case 'document':
+      return <DocumentIcon />;
+    case 'person':
+    default:
+      return <PersonIcon />;
+  }
+}
+
 function PersonIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 12a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Z" />
-      <path d="M4.6 20.4c.8-3.5 3.6-5.6 7.4-5.6s6.6 2.1 7.4 5.6" />
+      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
+      <path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2" />
+    </svg>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 7a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" />
+      <path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M21 21v-2a4 4 0 0 0 -3 -3.85" />
+    </svg>
+  );
+}
+
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 19a9 9 0 0 1 9 0a9 9 0 0 1 9 0" />
+      <path d="M3 6a9 9 0 0 1 9 0a9 9 0 0 1 9 0" />
+      <path d="M3 6l0 13" />
+      <path d="M12 6l0 13" />
+      <path d="M21 6l0 13" />
+    </svg>
+  );
+}
+
+function BrainIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M15.5 13a3.5 3.5 0 0 0 -3.5 3.5v1a3.5 3.5 0 0 0 7 0v-1.8" />
+      <path d="M8.5 13a3.5 3.5 0 0 1 3.5 3.5v1a3.5 3.5 0 0 1 -7 0v-1.8" />
+      <path d="M17.5 16a3.5 3.5 0 0 0 0 -7h-.5" />
+      <path d="M19 9.3v-2.8a3.5 3.5 0 0 0 -7 0" />
+      <path d="M6.5 16a3.5 3.5 0 0 1 0 -7h.5" />
+      <path d="M5 9.3v-2.8a3.5 3.5 0 0 1 7 0v10" />
+    </svg>
+  );
+}
+
+function AppleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 11.319c0 3.102 .444 5.319 2.222 7.978c1.351 1.797 3.156 2.247 5.08 .988c.426 -.268 .97 -.268 1.397 0c1.923 1.26 3.728 .809 5.079 -.988c1.778 -2.66 2.222 -4.876 2.222 -7.977c0 -2.661 -1.99 -5.32 -4.444 -5.32c-1.267 0 -2.41 .693 -3.22 1.44a.5 .5 0 0 1 -.672 0c-.809 -.746 -1.953 -1.44 -3.22 -1.44c-2.454 0 -4.444 2.66 -4.444 5.319" />
+      <path d="M7 12c0 -1.47 .454 -2.34 1.5 -3" />
+      <path d="M12 7c0 -1.2 .867 -4 3 -4" />
+    </svg>
+  );
+}
+
+function BuildingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 9l5 5v7h-5v-4m0 4h-5v-7l5 -5m1 1v-6a1 1 0 0 1 1 -1h10a1 1 0 0 1 1 1v17h-8" />
+      <path d="M13 7l0 .01" />
+      <path d="M17 7l0 .01" />
+      <path d="M17 11l0 .01" />
+      <path d="M17 15l0 .01" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12" />
+      <path d="M16 3v4" />
+      <path d="M8 3v4" />
+      <path d="M4 11h16" />
+      <path d="M7 14h.013" />
+      <path d="M10.01 14h.005" />
+      <path d="M13.01 14h.005" />
+      <path d="M16.015 14h.005" />
+      <path d="M13.015 17h.005" />
+      <path d="M7.01 17h.005" />
+      <path d="M10.01 17h.005" />
+    </svg>
+  );
+}
+
+function DocumentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+      <path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" />
+      <path d="M9 17h6" />
+      <path d="M9 13h6" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+      <path d="M21 21l-6 -6" />
     </svg>
   );
 }

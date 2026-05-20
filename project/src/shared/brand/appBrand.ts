@@ -20,9 +20,9 @@ export const appBrand: AppBrand = {
   logoText: 'Elevar',
   logoUrl: logoElevar,
   theme: {
-    primary: '#1f5f8b',
-    secondary: '#0f7b68',
-    tertiary: '#d9edf8',
+    primary: '#2069df',
+    secondary: '#40a9e5',
+    tertiary: '#ecf5fe',
     surface: '#f8fbfd',
     text: '#1b2430',
   },
