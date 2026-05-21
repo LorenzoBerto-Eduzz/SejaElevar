@@ -21,18 +21,32 @@ const readme = `# SejaElevar
 ## Como abrir
 
 1. Abra esta pasta.
-2. De dois cliques em \`SejaElevar.html\`.
-3. O app abrira no navegador. Voce pode favoritar a pagina aberta.
+2. De dois cliques em \`SejaElevar.vbs\`.
+3. O app abrira no navegador.
+4. Depois disso, use o botao \`Importar .xlsx\` dentro da aba Aprendizes.
 
 ## Pastas
 
 - \`assets/\`: arquivos internos do app e futuros arquivos de configuracao/salvamento local.
-- \`dados/planilhas/\`: coloque aqui as planilhas \`.xlsx\` usadas pelo app.
+- \`dados/planilhas/\`: o app grava aqui a copia de trabalho \`aprendizes.xlsx\` usada pela aba Aprendizes.
 - \`modelos/\`: modelos de documentos usados para geracao.
 - \`documentos_gerados/\`: documentos gerados ou exportados pelo app.
 
 Esta e uma versao local de teste. Nao coloque dados reais no Git.
 Os arquivos .gitkeep existem apenas para manter as pastas vazias quando a pasta exportada viaja pelo Git.
+`;
+
+const launcher = `Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+folder = fso.GetParentFolderName(WScript.ScriptFullName)
+
+If shell.Run("cmd /c node --version", 0, True) <> 0 Then
+  MsgBox "Node.js nao foi encontrado. Instale Node.js LTS para abrir o SejaElevar.", 48, "SejaElevar"
+  WScript.Quit 1
+End If
+
+shell.CurrentDirectory = folder
+shell.Run "node server.mjs", 0, False
 `;
 
 async function exportTo(releaseRoot) {
@@ -42,6 +56,8 @@ async function exportTo(releaseRoot) {
   await mkdir(join(releaseRoot, 'documentos_gerados'), { recursive: true });
 
   await writeFile(join(releaseRoot, 'SejaElevar.html'), releaseHtml, 'utf-8');
+  await cp(join(projectDir, 'scripts', 'release-server.mjs'), join(releaseRoot, 'server.mjs'));
+  await writeFile(join(releaseRoot, 'SejaElevar.vbs'), launcher, 'utf-8');
   await writeFile(join(releaseRoot, 'dados', 'planilhas', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'modelos', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'documentos_gerados', '.gitkeep'), '', 'utf-8');
@@ -82,4 +98,4 @@ try {
 }
 
 console.log(`Release local criado em: ${releaseRoot}`);
-console.log(`Abra: ${join(releaseRoot, 'SejaElevar.html')}`);
+console.log(`Abra: ${join(releaseRoot, 'SejaElevar.vbs')}`);

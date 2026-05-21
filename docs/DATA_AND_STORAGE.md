@@ -10,7 +10,7 @@ At first, the app should read and write files on the developer/user machine. The
 
 This keeps the first version practical and inspectable: the user can open the files directly, and the app can provide a nicer browser interface over the same information.
 
-The most important early data source is the apprentices/students spreadsheet. The first expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow. The current direct-open browser app can import and display the sheet, persist it in browser storage, and write back to the selected file only when the browser grants a writable File System Access handle. The desired product direction is still that the same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
+The most important early data source is the apprentices/students spreadsheet. The first expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow. The current release app opens through `SejaElevar.vbs`, which starts a quiet local helper so importing a spreadsheet asks only for the `.xlsx`, copies it into `dados/planilhas/aprendizes.xlsx`, and lets the Aprendizes table read/write that working file. The desired product direction is still that the same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
 
 The first app should focus on useful operations rather than a fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from the selected data and templates.
 
@@ -31,7 +31,7 @@ Think of the project as three separate layers:
 - The baked/local app: the usable SejaElevar folder/app that a coworker can open through a browser address/bookmark.
 - The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config.
 
-Exact folders are not created yet. A likely local direction is:
+The long-term workspace shape is still flexible. A likely local direction is:
 
 ```text
 SejaElevar/
@@ -69,7 +69,7 @@ SejaElevar_Data/
   config/
 ```
 
-The app should be able to point at a chosen workspace path, so development data, real work data, and future synced data can be swapped without changing source code.
+The app should eventually be able to point at a chosen workspace path, so development data, real work data, and future synced data can be swapped without changing source code. The current release uses its own `exports/SejaElevar/dados/` folder as the first concrete local workspace.
 
 For the first usable version, it is acceptable for the data to be pure local: the user imports spreadsheet/template/logo files into the app/workspace, and the app copies or organizes them under the workspace folders. Later, the same workspace can be moved to or selected from a synced Google Drive for desktop folder.
 
@@ -79,13 +79,13 @@ When a user adds operational files through the app, the app should copy or creat
 
 Examples:
 
-- Importing an apprentices spreadsheet stores it under `planilhas/`.
+- Importing an apprentices spreadsheet stores it as `dados/planilhas/aprendizes.xlsx` in the current release app.
 - Adding a company logo stores it under `empresas/logos/`.
 - Adding a document template stores it under `modelos/`.
 - Generated documents are written under `documentos_gerados/`.
 - Workspace settings live under `config/`.
 
-The app can later show a "missing data" or "choose/import workspace files" screen when required files are absent.
+The app should show a "missing data" or "choose/import workspace files" screen when required files are absent. For the current Aprendizes release flow, if `dados/planilhas/aprendizes.xlsx` does not exist, the table remains empty and offers import.
 
 Import should not be the only daily workflow forever. Once a workspace is configured, the normal experience should be: open SejaElevar in the browser, the app loads the configured workspace, and the user works with the current files there.
 
@@ -126,17 +126,15 @@ config/
   app-config.json
 ```
 
-The app should load this configuration, apply the saved logo/colors/settings, and save changes made by the user so the same settings are used next time. While the current direct-open HTML prototype cannot silently write files due to browser security, this remains the intended behavior for the baked/local app once the workspace/file access approach is implemented.
+The app should load this configuration, apply the saved logo/colors/settings, and save changes made by the user so the same settings are used next time. Directly opening raw HTML cannot silently write arbitrary sibling folders due to browser security. The current release therefore uses a quiet local helper started by `SejaElevar.vbs`, letting the user import only the `.xlsx` while the helper copies and edits the working workbook under `dados/planilhas/`.
 
 ## Local App Shape
 
 The app can still feel like a simple local webpage: one local address in the browser with tabs/tools for `Aprendizes`, companies, agendas, documents, and settings.
 
-However, a normal browser page cannot freely read and write arbitrary local spreadsheets, folders, templates, and generated files. The likely first implementation should therefore include a small local service/backend running on the same computer. The browser UI calls that local service to perform file operations.
+However, a normal browser page cannot freely read and write arbitrary local spreadsheets, folders, templates, and generated files. The current release uses a small local helper/backend for the first workbook flow so the end user does not need to select the `dados` folder manually.
 
-This is not a public hosted server. It is local app plumbing so the web UI can safely work with local files.
-
-The planned initial implementation stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for workspace file access and document generation.
+The initial implementation stack is Vite + React + TypeScript for the browser UI, plus a small local Node helper for release workspace file access. Document generation can reuse or expand this helper later.
 
 The intended user experience should still be friendly: the user opens a local browser address or bookmark for SejaElevar instead of using developer commands. Packaging/startup details can be improved after the first working version.
 
@@ -187,8 +185,8 @@ Use sample/anonymized data for code examples, tests, demos, and commits.
 
 ## Open Decisions
 
-- Exact package/release flow for the coworker-facing baked app beyond the current tracked `exports/SejaElevar/` folder.
-- Exact first internal data shape: first import format is `.xlsx`, but the app still needs column mapping, validation, and later save/edit behavior.
+- Exact package/release flow for the coworker-facing baked app beyond the current tracked `exports/SejaElevar/` folder and quiet helper launcher.
+- Exact first internal data shape: first import format is `.xlsx`, and the app has first-pass edit/write-back behavior, but it still needs column mapping, validation, and stronger save feedback.
 - Exact live workspace folder name: likely `local_data/`, but not final.
 - Exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
 - Whether real data should sync through local-only workspaces first, Google Drive for desktop synced folders, Google Drive/Sheets APIs, or another private mechanism.

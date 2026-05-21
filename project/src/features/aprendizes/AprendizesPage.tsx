@@ -1,11 +1,16 @@
-import { useRef, useState, type DragEvent, type PointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent,
+} from 'react';
 import { read, utils, write } from 'xlsx';
 
-const APRENDIZES_STORAGE_KEY = 'sejaelevar.aprendizes.sheet.v1';
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
+const LEGACY_APRENDIZES_STORAGE_KEY = 'sejaelevar.aprendizes.sheet.v1';
 const DEFAULT_COLUMN_WIDTH = 96;
 const MIN_COLUMN_WIDTH = 90;
-const MAX_AUTO_COLUMN_WIDTH = 520;
 const TABLE_HORIZONTAL_PADDING = 10;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
@@ -29,28 +34,6 @@ const defaultViewSettings: TableViewSettings = {
   columnWidths: {},
 };
 
-type SpreadsheetFileHandle = {
-  createWritable: () => Promise<{
-    write: (data: Blob) => Promise<void>;
-    close: () => Promise<void>;
-  }>;
-  getFile: () => Promise<File>;
-  queryPermission?: (descriptor: { mode: 'readwrite' }) => Promise<PermissionState>;
-  requestPermission?: (
-    descriptor: { mode: 'readwrite' },
-  ) => Promise<PermissionState>;
-};
-
-type WindowWithFilePicker = Window & {
-  showOpenFilePicker?: (options: {
-    multiple: boolean;
-    types: Array<{
-      description: string;
-      accept: Record<string, string[]>;
-    }>;
-  }) => Promise<SpreadsheetFileHandle[]>;
-};
-
 const normalizeCell = (value: unknown) => String(value ?? '').trim();
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
@@ -72,20 +55,6 @@ const measureTextWidth = (text: string, font: string) => {
   return textMeasureContext.measureText(text).width;
 };
 
-const readSavedSheet = () => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    const savedSheet = window.localStorage.getItem(APRENDIZES_STORAGE_KEY);
-    return savedSheet ? (JSON.parse(savedSheet) as ImportedSheet) : null;
-  } catch {
-    window.localStorage.removeItem(APRENDIZES_STORAGE_KEY);
-    return null;
-  }
-};
-
 const readSavedViewSettings = () => {
   if (typeof window === 'undefined') {
     return defaultViewSettings;
@@ -104,17 +73,16 @@ const readSavedViewSettings = () => {
 
 export function AprendizesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const sourceFileHandleRef = useRef<SpreadsheetFileHandle | null>(null);
-  const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(
-    readSavedSheet,
-  );
+  const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
+  const isLocalServerActiveRef = useRef(false);
   const [viewSettings, setViewSettings] = useState<TableViewSettings>(
     readSavedViewSettings,
   );
   const [isEditMode, setIsEditMode] = useState(false);
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
+  const [workspaceStatus, setWorkspaceStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
   const saveViewSettings = (settings: TableViewSettings) => {
@@ -128,10 +96,17 @@ export function AprendizesPage() {
   const storeImportedSheet = (sheet: ImportedSheet) => {
     latestSheetRef.current = sheet;
     setImportedSheet(sheet);
-    window.localStorage.setItem(APRENDIZES_STORAGE_KEY, JSON.stringify(sheet));
   };
 
-  const saveImportedSheet = (sheet: ImportedSheet) => {
+  const clearWorkingSheet = () => {
+    latestSheetRef.current = null;
+    setImportedSheet(null);
+  };
+
+  const saveImportedSheet = (
+    sheet: ImportedSheet,
+    options: { resetColumnWidths?: boolean } = {},
+  ) => {
     storeImportedSheet(sheet);
 
     const knownColumns = new Set(sheet.columns);
@@ -141,11 +116,13 @@ export function AprendizesPage() {
         (column) => !viewSettings.columnOrder.includes(column),
       ),
     ];
-    const nextColumnWidths = Object.fromEntries(
-      Object.entries(viewSettings.columnWidths).filter(([column]) =>
-        knownColumns.has(column),
-      ),
-    );
+    const nextColumnWidths = options.resetColumnWidths
+      ? {}
+      : Object.fromEntries(
+          Object.entries(viewSettings.columnWidths).filter(([column]) =>
+            knownColumns.has(column),
+          ),
+        );
 
     saveViewSettings({
       ...viewSettings,
@@ -154,73 +131,93 @@ export function AprendizesPage() {
     });
   };
 
-  const requestWritePermission = async (handle: SpreadsheetFileHandle) => {
-    if (!handle.queryPermission || !handle.requestPermission) {
-      return true;
-    }
-
-    const currentPermission = await handle.queryPermission({
-      mode: 'readwrite',
+  const fetchServerFile = async () => {
+    const response = await fetch('/api/aprendizes/file', {
+      cache: 'no-store',
     });
 
-    if (currentPermission === 'granted') {
-      return true;
+    if (response.status === 404) {
+      clearWorkingSheet();
+      setWorkspaceStatus(
+        'Nenhuma planilha encontrada em dados/planilhas. Importe um .xlsx.',
+      );
+      return false;
     }
 
-    const nextPermission = await handle.requestPermission({
-      mode: 'readwrite',
+    if (!response.ok) {
+      throw new Error('Nao foi possivel ler dados/planilhas/aprendizes.xlsx.');
+    }
+
+    const fileName = response.headers.get('x-file-name') || 'aprendizes.xlsx';
+    const blob = await response.blob();
+    const file = new File([blob], fileName, {
+      type:
+        blob.type ||
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
 
-    return nextPermission === 'granted';
+    await selectFile(file, {
+      resetColumnWidths: false,
+    });
+    return true;
   };
 
-  const importFromPicker = async () => {
-    const picker = (window as WindowWithFilePicker).showOpenFilePicker;
+  const importWorkingFile = async (file: File | undefined) => {
+    if (!file) {
+      return;
+    }
 
-    if (!picker) {
-      fileInputRef.current?.click();
+    if (!isLocalServerActiveRef.current) {
+      clearWorkingSheet();
+      setImportError(
+        'Abra o app pelo atalho SejaElevar para importar automaticamente em dados/planilhas.',
+      );
       return;
     }
 
     try {
-      const [handle] = await picker({
-        multiple: false,
-        types: [
-          {
-            description: 'Planilha Excel',
-            accept: {
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-                ['.xlsx'],
-            },
-          },
-        ],
+      const response = await fetch('/api/aprendizes/import', {
+        method: 'POST',
+        headers: {
+          'content-type':
+            file.type ||
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'x-file-name': encodeURIComponent(file.name),
+        },
+        body: await file.arrayBuffer(),
       });
 
-      if (!handle) {
-        return;
+      if (!response.ok) {
+        throw new Error('Falha ao importar planilha.');
       }
 
-      const file = await handle.getFile();
-      const canWrite = await requestWritePermission(handle);
-      await selectFile(file, canWrite ? handle : undefined);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-
-      setImportError('Não foi possível abrir este arquivo .xlsx.');
+      await fetchServerFile();
+      setWorkspaceStatus(
+        'Planilha copiada para dados/planilhas/aprendizes.xlsx.',
+      );
+      setImportError('');
+    } catch {
+      clearWorkingSheet();
+      setImportError(
+        'Nao foi possivel copiar o .xlsx para dados/planilhas.',
+      );
     }
+  };
+
+  const importFromPicker = async () => {
+    fileInputRef.current?.click();
   };
 
   const selectFile = async (
     file: File | undefined,
-    sourceFileHandle?: SpreadsheetFileHandle,
+    options: {
+      resetColumnWidths?: boolean;
+    } = {},
   ) => {
     if (!file) {
       return;
     }
 
-    sourceFileHandleRef.current = sourceFileHandle ?? null;
 
     const isXlsx =
       file.name.toLowerCase().endsWith('.xlsx') ||
@@ -282,23 +279,79 @@ export function AprendizesPage() {
         )
         .filter((row) => row.some((cell) => cell !== ''));
 
-      saveImportedSheet({
+      const nextSheet = {
         fileName: file.name,
         sheetName,
         importedAt: new Date().toISOString(),
         columns,
         rows,
+      };
+
+      saveImportedSheet(nextSheet, {
+        resetColumnWidths: options.resetColumnWidths,
       });
+
+
       setImportError('');
     } catch {
+      clearWorkingSheet();
       setImportError('Não foi possível ler este arquivo .xlsx.');
     }
   };
 
+  useEffect(() => {
+    let isMounted = true;
+    window.localStorage.removeItem(LEGACY_APRENDIZES_STORAGE_KEY);
+
+    const loadServerWorkingFile = async () => {
+      try {
+        const statusResponse = await fetch('/api/app/status', {
+          cache: 'no-store',
+        });
+        const status = statusResponse.ok ? await statusResponse.json() : null;
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (!status?.localServer) {
+          isLocalServerActiveRef.current = false;
+          clearWorkingSheet();
+          setWorkspaceStatus(
+            'Abra pelo atalho SejaElevar para usar dados/planilhas automaticamente.',
+          );
+          return;
+        }
+
+        isLocalServerActiveRef.current = true;
+        const hasWorkbook = await fetchServerFile();
+
+        if (isMounted && hasWorkbook) {
+          setWorkspaceStatus('Dados vinculados a dados/planilhas/aprendizes.xlsx.');
+        }
+      } catch {
+        isLocalServerActiveRef.current = false;
+        clearWorkingSheet();
+
+        if (isMounted) {
+          setWorkspaceStatus(
+            'Abra pelo atalho SejaElevar para usar dados/planilhas automaticamente.',
+          );
+        }
+      }
+    };
+
+    void loadServerWorkingFile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    void selectFile(event.dataTransfer.files[0]);
+    void importWorkingFile(event.dataTransfer.files[0]);
   };
 
   const orderedColumns = importedSheet
@@ -368,10 +421,7 @@ export function AprendizesPage() {
     }, 0);
     const textWidth = Math.ceil(Math.max(headerWidth, longestCellWidth));
 
-    return Math.min(
-      MAX_AUTO_COLUMN_WIDTH,
-      Math.max(MIN_COLUMN_WIDTH, textWidth + TABLE_HORIZONTAL_PADDING * 2),
-    );
+    return Math.max(MIN_COLUMN_WIDTH, textWidth + TABLE_HORIZONTAL_PADDING * 2);
   };
 
   const getColumnWidth = (column: string) =>
@@ -426,31 +476,56 @@ export function AprendizesPage() {
   };
 
   const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
-    const sourceFileHandle = sourceFileHandleRef.current;
-
-    if (!sourceFileHandle) {
+    if (!isLocalServerActiveRef.current) {
+      setImportError(
+        'Abra o app pelo atalho SejaElevar para gravar em dados/planilhas.',
+      );
       return;
     }
 
     try {
-      const workbook = utils.book_new();
+      const sourceResponse = await fetch('/api/aprendizes/file', {
+        cache: 'no-store',
+      });
+
+      if (!sourceResponse.ok) {
+        throw new Error('Planilha de trabalho nao encontrada.');
+      }
+
+      const workbook = read(await sourceResponse.arrayBuffer(), {
+        cellDates: true,
+      });
       const worksheet = utils.aoa_to_sheet([sheet.columns, ...sheet.rows]);
-      utils.book_append_sheet(workbook, worksheet, sheet.sheetName || 'Dados');
+      const sheetName = sheet.sheetName || workbook.SheetNames[0] || 'Dados';
+
+      workbook.Sheets[sheetName] = worksheet;
+
+      if (!workbook.SheetNames.includes(sheetName)) {
+        workbook.SheetNames.push(sheetName);
+      }
+
       const output = write(workbook, {
         bookType: 'xlsx',
         type: 'array',
       }) as ArrayBuffer;
-      const writable = await sourceFileHandle.createWritable();
-      await writable.write(
-        new Blob([output], {
-          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        }),
-      );
-      await writable.close();
+      const saveResponse = await fetch('/api/aprendizes/file', {
+        method: 'PUT',
+        headers: {
+          'content-type':
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+        body: output,
+      });
+
+      if (!saveResponse.ok) {
+        throw new Error('Falha ao gravar planilha.');
+      }
+
+      setWorkspaceStatus('Alteracoes gravadas na planilha de trabalho.');
+      setImportError('');
     } catch {
-      sourceFileHandleRef.current = null;
       setImportError(
-        'A alteração ficou salva no app, mas o navegador não liberou gravar no .xlsx.',
+        'A alteracao ficou na tela, mas nao foi possivel gravar em dados/planilhas/aprendizes.xlsx.',
       );
     }
   };
@@ -539,6 +614,9 @@ export function AprendizesPage() {
             </svg>
           </div>
           <h2>Nenhuma planilha importada</h2>
+          {workspaceStatus && (
+            <p className="import-feedback">{workspaceStatus}</p>
+          )}
           {importError && <p className="import-error">{importError}</p>}
           <button
             className="primary-action"
@@ -552,6 +630,9 @@ export function AprendizesPage() {
 
       {importedSheet && (
         <div className="data-table-panel">
+          {workspaceStatus && (
+            <p className="import-feedback">{workspaceStatus}</p>
+          )}
           {importError && <p className="import-error">{importError}</p>}
 
           <div className="data-table-scroll" role="region" tabIndex={0}>
@@ -650,7 +731,7 @@ export function AprendizesPage() {
         type="file"
         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         onChange={(event) => {
-          void selectFile(event.target.files?.[0]);
+          void importWorkingFile(event.target.files?.[0]);
           event.currentTarget.value = '';
         }}
       />

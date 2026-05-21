@@ -7,9 +7,9 @@ This file is the portable continuity note for AI coding sessions working on this
 - Project name: `SejaElevar`.
 - Project kind: local-first internal web platform / administrative tool.
 - Main project folder: `project/`.
-- Primary language/stack: Vite + React + TypeScript for the browser UI. A small local Node service/backend is still expected later when workspace file access and document generation need it.
-- Run command: from `project/`, use `npm run dev:open` for dev or `npm run build:single` then open `dist/SejaElevar.html` for the direct-open prototype.
-- Test command: no dedicated test suite yet; use `npm run build:single` as the current verification/build check.
+- Primary language/stack: Vite + React + TypeScript for the browser UI, plus a small local Node helper in the exported release so the browser app can read/write files under the release folder without asking for a second folder picker.
+- Run command: from `project/`, use `npm run dev:open` for dev. Use `npm run export:release` to rebuild the coworker/local release folder, then open `exports/SejaElevar/SejaElevar.vbs`.
+- Test command: no dedicated test suite yet; use `npm run export:release` as the current verification/build check when release behavior matters.
 - Remote: `origin` points to `https://github.com/LorenzoBerto-Eduzz/SejaElevar.git`.
 - Git: initialized on `main`, tracking `origin/main`.
 - The repository is organized as an AI-ready project frame: actual source code in `project/`, durable project memory in `docs/`, user scratch notes in `notes/`, and raw/reference assets in `asset_staging/`.
@@ -48,9 +48,9 @@ Release parity warning: the user does not want visual or behavioral mismatches b
 
 Current prototype state: `project/` contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, app tabs for `Aprendizes`, `Turmas`, `Disciplinas`, `Arcos`, `Funcionários`, `Salas`, `Calendário`, and `Documentos`, a search popup, settings popup, hide/show sidebar behavior, development tuning controls, and an `Aprendizes` XLSX import/table flow. Non-`Aprendizes` tabs are placeholder pages for now.
 
-Current `Aprendizes` state: the app imports `.xlsx`, parses the first sheet into columns/rows, stores it in `localStorage` under `sejaelevar.aprendizes.sheet.v1`, and stores table view settings under `sejaelevar.aprendizes.view.v1`. The table displays one data row per line, avoids row wrapping, uses auto-fit default column widths based on the widest header/cell text plus equal padding, and supports manual width persistence. The pencil button toggles edit mode, where users can reorder columns, resize columns, and edit cell values.
+Current `Aprendizes` state: the release app must not contain hardcoded student data or use browser storage as the sheet source. The user opens `exports/SejaElevar/SejaElevar.vbs`, which quietly starts `server.mjs` and opens the browser app. Importing an `.xlsx` asks only for the spreadsheet, then copies it into `exports/SejaElevar/dados/planilhas/aprendizes.xlsx`; after that, the Aprendizes table reads that working file by default on startup. If the file is missing, the table stays in the import/missing-data state. `localStorage` is only used for view preferences such as column order/widths and to clear the old legacy sheet cache.
 
-Current XLSX write-back behavior: importing through the File System Access picker can keep a writable browser file handle. In that case, cell edits and column reordering attempt to write the updated sheet back to the selected `.xlsx`. Drag/drop and fallback file input cannot write the original disk file because normal browser security does not provide a writable handle, so those edits persist only in app `localStorage` until a stronger local file/workspace layer exists.
+Current XLSX write-back behavior: Aprendizes cell edits and column reordering rewrite the working workbook at `dados/planilhas/aprendizes.xlsx` through the local helper. The active sheet is rebuilt from table columns/rows; other workbook sheets are preserved when possible. Column widths and row heights are visual app settings only and are not written to the spreadsheet. Default column widths are auto-fitted from the longest header/cell value until the user manually resizes them.
 
 Current app shell details: the menu has a shown sidebar and a hidden state where the sidebar slides fully offscreen while a fixed square toggle remains. Hovering that square opens a small mini-menu above it. The mini-menu buttons are the same real sidebar buttons cropped to square size, so icon sizing and positioning should be changed through the shared sidebar button CSS, not separate mini-menu icon rules. When the settings popup is open, the mini-menu should remain open even if the mouse leaves its normal hover buffer; it should only become free to close after the settings popup closes and the pointer is outside the buffer.
 
@@ -78,7 +78,7 @@ The user wants Git continuity through the existing `memcheck` and `gitcheckpoint
 
 - Continue the `Aprendizes` table flow piece by piece with the user's real spreadsheet: improve display, filters/search, column controls, validation, and edit/save feedback.
 - Keep the first UI simple and functional: no fake data, clear missing/import state, and clean controls.
-- Decide how to bridge browser-only file security with the desired local workspace model. The current direct-open app can persist imported data in browser storage and can write back only when File System Access grants a writable handle.
+- Keep the helper-backed release path healthy: open `SejaElevar.vbs`, import only the `.xlsx`, copy it into `dados/planilhas/aprendizes.xlsx`, and treat that workbook as the active Aprendizes source.
 - Add document generation after the workspace and apprentice listing flow are reliable.
 - Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build. Current dev-only sliders include page/content top offsets, gear/icon/text/menu/logo positioning, logo image height, tab list start, and table row/header/top offsets. When the user settles on values, bake them into source defaults and remove or hide tuning controls that should not ship.
 

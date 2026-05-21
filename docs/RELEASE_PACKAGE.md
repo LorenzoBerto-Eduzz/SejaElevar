@@ -8,7 +8,9 @@ The release package is not the development repo. It is the simple folder the use
 
 ```text
 SejaElevar/
+  SejaElevar.vbs
   SejaElevar.html
+  server.mjs
   README.md
   assets/
   dados/
@@ -19,10 +21,13 @@ SejaElevar/
 
 ## Folder Roles
 
-- `SejaElevar.html` is the browser entry point. The end user should be able to open this file directly.
+- `SejaElevar.vbs` is the current Windows entry point. It starts the local helper without a visible terminal window and opens the app in the browser.
+- `SejaElevar.html` is the built browser UI served by the local helper. Opening it directly may show the UI, but file import/write-back requires the helper.
+- `server.mjs` is the small local helper used by the release app to copy/read/write files under the release folder.
 - `README.md` explains how to open/use the package. Use this filename, not `LEIA-ME.txt`.
 - `assets/` holds app-owned/meta assets and future local app state/config files. This is for the app's background/composition assets, not ordinary operational data. Examples: favicon/page icon, app-owned brand assets, future config/save-state file.
 - `dados/` holds the organized input data fed into the tool. Add subfolders as the data model becomes clearer, starting with `dados/planilhas/`.
+- `dados/planilhas/aprendizes.xlsx` is the current working workbook for the Aprendizes tab after import. It is copied by the app when the user imports an `.xlsx`; it should not be committed with real data.
 - `modelos/` holds document/template files used for generation.
 - `documentos_gerados/` holds generated documents, especially temporary/recent outputs.
 
@@ -31,13 +36,13 @@ Do not include a separate `configuracao/` folder for now. Future user configurat
 ## Packaging Notes
 
 - Generate the local release package from `project/` with `npm run export:release`.
-- The script builds the single-file app and creates `exports/SejaElevar/`.
+- The script builds the single-file app, copies the helper, creates the quiet Windows launcher, and updates `exports/SejaElevar/`.
 - `exports/SejaElevar/` is intentionally tracked in Git so the current release/export folder can travel between devices and AI sessions exactly like the user asked.
 - Refresh `exports/SejaElevar/` with `npm --prefix project run export:release` before a checkpoint when the export should match the latest dev-approved app.
 - Do not commit zip files.
 - Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy. Use `.gitkeep` files only to preserve empty folders.
 - The user can zip the folder themselves when needed; do not create a zip unless they ask.
-- Keep the root of the package quiet: ideally only the entry HTML, `README.md`, and the base folders.
+- Keep the root of the package quiet: ideally only the launcher, entry HTML, helper, `README.md`, and the base folders.
 - This structure is a solid starting point, not permanent architecture. Add subfolders or new base folders later only when a new tool or workflow clearly needs them.
 
 ## Dev/Release Parity Rule

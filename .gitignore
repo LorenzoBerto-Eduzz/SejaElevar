@@ -2,7 +2,8 @@
 .DS_Store
 Thumbs.db
 Desktop.ini
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 
 # Local environment/secrets
@@ -15,6 +16,16 @@ local_data/
 private_data/
 project/local_data/
 project/private_data/
+exports/SejaElevar/dados/**
+!exports/SejaElevar/dados/
+!exports/SejaElevar/dados/**/
+!exports/SejaElevar/dados/**/.gitkeep
+exports/SejaElevar/modelos/**
+!exports/SejaElevar/modelos/
+!exports/SejaElevar/modelos/.gitkeep
+exports/SejaElevar/documentos_gerados/**
+!exports/SejaElevar/documentos_gerados/
+!exports/SejaElevar/documentos_gerados/.gitkeep
 
 # Local-only assets kept on this machine
 **/local_assets/*
