@@ -1,93 +1,59 @@
 # Data And Storage Direction
 
-This note captures the current storage thinking for SejaElevar before implementation starts. Update it when the real app chooses file formats, adapters, sync, hosting, or privacy rules.
+This note captures the current storage model for SejaElevar. Update it when the app changes file formats, adapters, sync, hosting, or privacy rules.
 
 ## Current Direction
 
-SejaElevar should begin as a local-first platform.
+SejaElevar is currently a local-first platform.
 
-At first, the app should read and write files on the developer/user machine. The live data source can be a folder structure containing the real operational spreadsheets, structured files, document templates, generated documents, logos/images, and other assets.
+The app UI is a browser page, but local file access is handled by a small self-contained Windows launcher/provider, `SejaElevar.exe`. The user clicks the exe, the provider starts, and the browser UI opens. This keeps the user experience friendly while allowing the app to read/write organized files under the app folder.
 
-This keeps the first version practical and inspectable: the user can open the files directly, and the app can provide a nicer browser interface over the same information.
+The most important early data source is the apprentices/students spreadsheet. The expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow.
 
-The most important early data source is the apprentices/students spreadsheet. The first expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow. The current release app opens through `SejaElevar.vbs`, which starts a quiet local helper so importing a spreadsheet asks only for the `.xlsx`, copies it into `dados/planilhas/aprendizes.xlsx`, and lets the Aprendizes table read/write that working file. The desired product direction is still that the same spreadsheet should be editable manually and through the app, with row/column values reused across listing, filtering, registration/editing, and document generation.
+Current Aprendizes behavior:
 
-The first app should focus on useful operations rather than a fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from the selected data and templates.
+- If no `.xlsx` exists in `dados/planilhas/`, the Aprendizes page shows the missing/import state.
+- Importing asks only for the source `.xlsx` file.
+- The provider copies the selected file into `dados/planilhas/` with the same filename.
+- The app then uses the `.xlsx` inside `dados/planilhas/` as the current working file.
+- When a data edit is saved, the active file is renamed to `Aprendizes_hhmmssddmmyy.xlsx`, using the system time, and the edit is written to that renamed workbook.
+- No sidecar JSON metadata file is currently required in `dados/planilhas/`.
 
-## Proposed Workspace Model
+The first app should focus on useful operations rather than fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from selected data and templates.
 
-The actual live data should not be confused with `asset_staging/`. `asset_staging/` is an inbox/staging area for raw files, references, transfers, or test imports. The app's active data should live in a clearer workspace folder.
+## Workspace Model
 
-The released app and the data workspace are separate:
-
-- The app/release contains the program.
-- The workspace contains the user's current operational data.
-- Updating the app should not overwrite the workspace.
-- Replacing or syncing the workspace should not require rebuilding the app.
+The actual live data should not be confused with `asset_staging/`. `asset_staging/` is an inbox/staging area for raw files, references, transfers, or test imports. The app's active data lives in the runtime package folders.
 
 Think of the project as three separate layers:
 
 - The dev/meta repo: source code, docs, AI memory, notes, staging assets, Git, and project setup.
-- The baked/local app: the usable SejaElevar folder/app that a coworker can open through a browser address/bookmark.
-- The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config.
+- The baked/local app: the usable SejaElevar folder/app that a coworker opens through `SejaElevar.exe`, which opens the browser UI.
+- The data workspace: operational spreadsheets, templates, logos/assets, generated documents, and config, kept out of Git.
 
-The long-term workspace shape is still flexible. A likely local direction is:
+The current dev package shape is:
 
 ```text
-SejaElevar/
-  local_data/
+project/dev/
+  SejaElevar.exe
+  SejaElevar.html
+  assets/
+  dados/
     planilhas/
-      aprendizes.*
-      empresas.*
-      cursos.*
-    empresas/
-      logos/
-    modelos/
-    documentos_gerados/
-    config/
+  modelos/
+  documentos_gerados/
 ```
+
+A release/export package should use the same structure under `exports/SejaElevar/` when the user explicitly asks for a release.
 
 Suggested meaning:
 
-- `local_data/`: the active local workspace used while developing/testing the app.
-- `planilhas/`: spreadsheets or structured files used as the operational data source.
-- `empresas/logos/`: company logos and images used by the app and generated documents.
+- `dados/planilhas/`: spreadsheets used/edited by app tools, starting with Aprendizes.
 - `modelos/`: source document templates.
 - `documentos_gerados/`: output files generated by the app.
-- `config/`: local app/workspace configuration that may later be shared or synced.
+- `assets/`: app-owned/meta assets and future local app state/config files.
 
-For safety, real operational data should be ignored by Git by default. If committed test data is useful, use clearly anonymized demo fixtures separate from the live workspace.
-
-An alternate future-friendly setup is to keep the workspace outside the repo entirely, such as:
-
-```text
-SejaElevar_Data/
-  planilhas/
-  empresas/
-  modelos/
-  documentos_gerados/
-  config/
-```
-
-The app should eventually be able to point at a chosen workspace path, so development data, real work data, and future synced data can be swapped without changing source code. The current release uses its own `exports/SejaElevar/dados/` folder as the first concrete local workspace.
-
-For the first usable version, it is acceptable for the data to be pure local: the user imports spreadsheet/template/logo files into the app/workspace, and the app copies or organizes them under the workspace folders. Later, the same workspace can be moved to or selected from a synced Google Drive for desktop folder.
-
-## Import Behavior
-
-When a user adds operational files through the app, the app should copy or create them inside the chosen workspace instead of leaving references scattered around the computer.
-
-Examples:
-
-- Importing an apprentices spreadsheet stores it as `dados/planilhas/aprendizes.xlsx` in the current release app.
-- Adding a company logo stores it under `empresas/logos/`.
-- Adding a document template stores it under `modelos/`.
-- Generated documents are written under `documentos_gerados/`.
-- Workspace settings live under `config/`.
-
-The app should show a "missing data" or "choose/import workspace files" screen when required files are absent. For the current Aprendizes release flow, if `dados/planilhas/aprendizes.xlsx` does not exist, the table remains empty and offers import.
-
-Import should not be the only daily workflow forever. Once a workspace is configured, the normal experience should be: open SejaElevar in the browser, the app loads the configured workspace, and the user works with the current files there.
+For safety, real operational data should be ignored by Git by default. If committed test data is useful, use clearly anonymized demo fixtures separate from live data.
 
 ## Storage Boundary
 
@@ -102,7 +68,7 @@ Use a storage/data adapter boundary so UI features call clear operations such as
 - list course modules
 - generate document from template
 
-The first adapter can be local files. Later adapters could target Google Sheets/Drive, a hosted database, or another service.
+The current adapter is the local provider started by `SejaElevar.exe`. Later adapters could target Google Drive for desktop synced folders, Google Sheets/Drive APIs, a hosted database, or another service.
 
 ## Configuration Model
 
@@ -115,28 +81,22 @@ The release app should expose only user-facing configuration that makes sense fo
 - company/institution name
 - logo
 - app colors/theme
-- active workspace/data folder
-- import/export preferences
+- active workspace/data behavior
 - document/template-related options
 
-Release configuration should be persisted and read back by the app on startup. The target shape is a config file in the app/workspace configuration area, such as:
-
-```text
-config/
-  app-config.json
-```
-
-The app should load this configuration, apply the saved logo/colors/settings, and save changes made by the user so the same settings are used next time. Directly opening raw HTML cannot silently write arbitrary sibling folders due to browser security. The current release therefore uses a quiet local helper started by `SejaElevar.vbs`, letting the user import only the `.xlsx` while the helper copies and edits the working workbook under `dados/planilhas/`.
+Release configuration should be persisted and read back by the app on startup. Current simple UI settings use browser storage; future file-backed config can live under `assets/` or another deliberate config location once the product needs it.
 
 ## Local App Shape
 
-The app can still feel like a simple local webpage: one local address in the browser with tabs/tools for `Aprendizes`, companies, agendas, documents, and settings.
+The app should still feel like a simple local webpage: one browser page with tabs/tools for `Aprendizes`, companies, agendas, documents, and settings.
 
-However, a normal browser page cannot freely read and write arbitrary local spreadsheets, folders, templates, and generated files. The current release uses a small local helper/backend for the first workbook flow so the end user does not need to select the `dados` folder manually.
+The provider should not behave like a permanent background service. The browser page sends heartbeats and a close signal. Closing the page requests provider shutdown immediately. If the close signal is missed, heartbeat timeout is the fallback.
 
-The initial implementation stack is Vite + React + TypeScript for the browser UI, plus a small local Node helper for release workspace file access. Document generation can reuse or expand this helper later.
+During normal development, do not rebuild/give `exports/SejaElevar/` unless the user explicitly asks for a release/export/package. Test runtime behavior in `project/dev/` through:
 
-The intended user experience should still be friendly: the user opens a local browser address or bookmark for SejaElevar instead of using developer commands. Packaging/startup details can be improved after the first working version.
+```text
+project/dev/SejaElevar.exe
+```
 
 ## Future Sync Direction
 
@@ -144,36 +104,12 @@ The current idea for future multi-worker use is that the app can point at a shar
 
 Possible staged path:
 
-1. Local-only workspace folder during development.
+1. Local-only app folder during development.
 2. Workspace folder located inside Google Drive for desktop, letting Drive sync file changes across machines/users.
 3. If needed, a formal Google Drive/Sheets integration that reads/writes through Google APIs instead of relying only on the synced desktop folder.
 4. If the app grows beyond file sync, move to a hosted backend/database while keeping the same storage adapter boundary.
 
-This lets the project stay simple now while preserving a path to shared data later.
-
-For now, do not start with Google APIs unless the user explicitly redirects. The simpler starting path is local files/imports plus a workspace boundary. Google Drive for desktop sync is the likely first shared-data improvement; formal Google Drive/Sheets API access can come later if the synced-folder workflow is not enough.
-
-The expected path from development to shared use is:
-
-1. Use a local workspace folder while building/testing.
-2. Release the app separately from the data.
-3. Let a tester choose/import local workspace data.
-4. Later, point the app at a Google Drive for desktop synced workspace so every installed app instance uses the same shared files.
-
-If a future API-based Google Drive/Sheets integration is added, files such as logos and templates would still need a storage location. They would likely live in Drive folders managed by the app:
-
-```text
-Google Drive/
-  SejaElevar_Workspace/
-    planilhas/
-    empresas/
-      logos/
-    modelos/
-    documentos_gerados/
-    config/
-```
-
-The app could upload/copy new logos/templates into those folders, update spreadsheet records to reference them, and read them back for display and document generation.
+For now, do not start with Google APIs unless the user explicitly redirects. The simpler starting path is local files/imports plus a storage boundary.
 
 ## Privacy Rule
 
@@ -185,10 +121,9 @@ Use sample/anonymized data for code examples, tests, demos, and commits.
 
 ## Open Decisions
 
-- Exact package/release flow for the coworker-facing baked app beyond the current tracked `exports/SejaElevar/` folder and quiet helper launcher.
-- Exact first internal data shape: first import format is `.xlsx`, and the app has first-pass edit/write-back behavior, but it still needs column mapping, validation, and stronger save feedback.
-- Exact live workspace folder name: likely `local_data/`, but not final.
-- Exact `Aprendizes` spreadsheet columns and whether the first app slice is read-only before editing support.
-- Whether real data should sync through local-only workspaces first, Google Drive for desktop synced folders, Google Drive/Sheets APIs, or another private mechanism.
-- Whether generated documents live inside the project folder, an ignored local folder, or a user-selected external folder.
+- Exact package/release flow after the current `SejaElevar.exe` dev package.
+- Exact first internal data shape beyond `.xlsx` import/edit.
+- Exact `Aprendizes` spreadsheet columns, mappings, validations, and filters.
+- Whether future shared data should use Google Drive for desktop synced folders, Google Drive/Sheets APIs, or a hosted backend.
+- Whether generated documents live inside the app folder, an ignored local folder, or a user-selected external folder.
 - Future hosting target, if any.

@@ -75,7 +75,7 @@ export function AprendizesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
-  const isLocalServerActiveRef = useRef(false);
+  const isLocalProviderActiveRef = useRef(false);
   const [viewSettings, setViewSettings] = useState<TableViewSettings>(
     readSavedViewSettings,
   );
@@ -131,7 +131,9 @@ export function AprendizesPage() {
     });
   };
 
-  const fetchServerFile = async () => {
+  const fetchProviderFile = async (
+    options: { resetColumnWidths?: boolean } = {},
+  ) => {
     const response = await fetch('/api/aprendizes/file', {
       cache: 'no-store',
     });
@@ -145,10 +147,11 @@ export function AprendizesPage() {
     }
 
     if (!response.ok) {
-      throw new Error('Nao foi possivel ler dados/planilhas/aprendizes.xlsx.');
+      throw new Error('read-failed');
     }
 
-    const fileName = response.headers.get('x-file-name') || 'aprendizes.xlsx';
+    const rawFileName = response.headers.get('x-file-name') || 'aprendizes.xlsx';
+    const fileName = decodeURIComponent(rawFileName);
     const blob = await response.blob();
     const file = new File([blob], fileName, {
       type:
@@ -156,9 +159,7 @@ export function AprendizesPage() {
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
 
-    await selectFile(file, {
-      resetColumnWidths: false,
-    });
+    await selectFile(file, options);
     return true;
   };
 
@@ -167,11 +168,9 @@ export function AprendizesPage() {
       return;
     }
 
-    if (!isLocalServerActiveRef.current) {
+    if (!isLocalProviderActiveRef.current) {
       clearWorkingSheet();
-      setImportError(
-        'Abra o app pelo atalho SejaElevar para importar automaticamente em dados/planilhas.',
-      );
+      setImportError('Abra o SejaElevar pelo aplicativo para importar em dados/planilhas.');
       return;
     }
 
@@ -188,18 +187,26 @@ export function AprendizesPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Falha ao importar planilha.');
+        throw new Error('import-failed');
       }
+      const result = (await response.json()) as { fileName?: string };
+      const storedFileName = result.fileName || file.name;
 
-      await fetchServerFile();
+      await fetchProviderFile({
+        resetColumnWidths: true,
+      });
       setWorkspaceStatus(
-        'Planilha copiada para dados/planilhas/aprendizes.xlsx.',
+        `Planilha copiada para dados/planilhas/${storedFileName}.`,
       );
       setImportError('');
-    } catch {
-      clearWorkingSheet();
+    } catch (error) {
+      if ((error as DOMException).name === 'AbortError') {
+        setWorkspaceStatus('Importação cancelada.');
+        return;
+      }
+
       setImportError(
-        'Nao foi possivel copiar o .xlsx para dados/planilhas.',
+        'Não foi possível copiar a planilha para dados/planilhas.',
       );
     }
   };
@@ -291,7 +298,7 @@ export function AprendizesPage() {
         resetColumnWidths: options.resetColumnWidths,
       });
 
-
+      setWorkspaceStatus('Planilha carregada.');
       setImportError('');
     } catch {
       clearWorkingSheet();
@@ -303,45 +310,44 @@ export function AprendizesPage() {
     let isMounted = true;
     window.localStorage.removeItem(LEGACY_APRENDIZES_STORAGE_KEY);
 
-    const loadServerWorkingFile = async () => {
+    const loadSavedWorkbook = async () => {
       try {
         const statusResponse = await fetch('/api/app/status', {
           cache: 'no-store',
         });
-        const status = statusResponse.ok ? await statusResponse.json() : null;
 
         if (!isMounted) {
           return;
         }
 
-        if (!status?.localServer) {
-          isLocalServerActiveRef.current = false;
+        const status = statusResponse.ok ? await statusResponse.json() : null;
+
+        if (!status?.localProvider) {
+          isLocalProviderActiveRef.current = false;
           clearWorkingSheet();
-          setWorkspaceStatus(
-            'Abra pelo atalho SejaElevar para usar dados/planilhas automaticamente.',
-          );
+          setWorkspaceStatus('Abra o SejaElevar pelo aplicativo.');
           return;
         }
 
-        isLocalServerActiveRef.current = true;
-        const hasWorkbook = await fetchServerFile();
+        isLocalProviderActiveRef.current = true;
+        const hasWorkbook = await fetchProviderFile({
+          resetColumnWidths: false,
+        });
 
         if (isMounted && hasWorkbook) {
-          setWorkspaceStatus('Dados vinculados a dados/planilhas/aprendizes.xlsx.');
+          setWorkspaceStatus('Dados vinculados à planilha em dados/planilhas.');
         }
       } catch {
-        isLocalServerActiveRef.current = false;
+        isLocalProviderActiveRef.current = false;
         clearWorkingSheet();
 
         if (isMounted) {
-          setWorkspaceStatus(
-            'Abra pelo atalho SejaElevar para usar dados/planilhas automaticamente.',
-          );
+          setWorkspaceStatus('Abra o SejaElevar pelo aplicativo.');
         }
       }
     };
 
-    void loadServerWorkingFile();
+    void loadSavedWorkbook();
 
     return () => {
       isMounted = false;
@@ -476,10 +482,8 @@ export function AprendizesPage() {
   };
 
   const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
-    if (!isLocalServerActiveRef.current) {
-      setImportError(
-        'Abra o app pelo atalho SejaElevar para gravar em dados/planilhas.',
-      );
+    if (!isLocalProviderActiveRef.current) {
+      setImportError('Abra o SejaElevar pelo aplicativo para gravar em dados/planilhas.');
       return;
     }
 
@@ -488,26 +492,29 @@ export function AprendizesPage() {
         cache: 'no-store',
       });
 
-      if (!sourceResponse.ok) {
-        throw new Error('Planilha de trabalho nao encontrada.');
-      }
+      const workbook = sourceResponse.ok
+        ? read(await sourceResponse.arrayBuffer(), {
+            cellDates: true,
+          })
+        : utils.book_new();
 
-      const workbook = read(await sourceResponse.arrayBuffer(), {
-        cellDates: true,
-      });
-      const worksheet = utils.aoa_to_sheet([sheet.columns, ...sheet.rows]);
-      const sheetName = sheet.sheetName || workbook.SheetNames[0] || 'Dados';
+      const sheetName =
+        sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
+      const safeSheetName = sheetName.slice(0, 31);
+      workbook.Sheets[safeSheetName] = utils.aoa_to_sheet([
+        sheet.columns,
+        ...sheet.rows,
+      ]);
 
-      workbook.Sheets[sheetName] = worksheet;
-
-      if (!workbook.SheetNames.includes(sheetName)) {
-        workbook.SheetNames.push(sheetName);
+      if (!workbook.SheetNames.includes(safeSheetName)) {
+        workbook.SheetNames.push(safeSheetName);
       }
 
       const output = write(workbook, {
         bookType: 'xlsx',
         type: 'array',
       }) as ArrayBuffer;
+
       const saveResponse = await fetch('/api/aprendizes/file', {
         method: 'PUT',
         headers: {
@@ -518,14 +525,21 @@ export function AprendizesPage() {
       });
 
       if (!saveResponse.ok) {
-        throw new Error('Falha ao gravar planilha.');
+        throw new Error('save-failed');
       }
+      const result = (await saveResponse.json()) as { fileName?: string };
+      const savedFileName = result.fileName || sheet.fileName;
 
-      setWorkspaceStatus('Alteracoes gravadas na planilha de trabalho.');
+      storeImportedSheet({
+        ...sheet,
+        fileName: savedFileName,
+      });
+
+      setWorkspaceStatus(`Alterações gravadas em dados/planilhas/${savedFileName}.`);
       setImportError('');
     } catch {
       setImportError(
-        'A alteracao ficou na tela, mas nao foi possivel gravar em dados/planilhas/aprendizes.xlsx.',
+        'A alteração ficou na tela, mas não foi possível gravar em dados/planilhas.',
       );
     }
   };

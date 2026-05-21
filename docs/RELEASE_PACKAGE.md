@@ -8,9 +8,8 @@ The release package is not the development repo. It is the simple folder the use
 
 ```text
 SejaElevar/
-  SejaElevar.vbs
+  SejaElevar.exe
   SejaElevar.html
-  server.mjs
   README.md
   assets/
   dados/
@@ -21,47 +20,59 @@ SejaElevar/
 
 ## Folder Roles
 
-- `SejaElevar.vbs` is the current Windows entry point. It starts the local helper without a visible terminal window and opens the app in the browser.
-- `SejaElevar.html` is the built browser UI served by the local helper. Opening it directly may show the UI, but file import/write-back requires the helper.
-- `server.mjs` is the small local helper used by the release app to copy/read/write files under the release folder.
+- `SejaElevar.exe` is the friendly entry point. The worker can double-click it, pin it, or find it from Windows search. It starts the local provider and opens the browser UI.
+- `SejaElevar.html` is the built browser UI served by the local provider. Users should not need to open it directly for normal use.
 - `README.md` explains how to open/use the package. Use this filename, not `LEIA-ME.txt`.
-- `assets/` holds app-owned/meta assets and future local app state/config files. This is for the app's background/composition assets, not ordinary operational data. Examples: favicon/page icon, app-owned brand assets, future config/save-state file.
-- `dados/` holds the organized input data fed into the tool. Add subfolders as the data model becomes clearer, starting with `dados/planilhas/`.
-- `dados/planilhas/aprendizes.xlsx` is the current working workbook for the Aprendizes tab after import. It is copied by the app when the user imports an `.xlsx`; it should not be committed with real data.
+- `assets/` holds app-owned/meta assets and future local app state/config files.
+- `dados/` holds the organized input/working data fed into the tool.
+- `dados/planilhas/` holds spreadsheets used/edited by app tools. For Aprendizes, importing copies the selected `.xlsx` here with the same filename. On edit/save, the active workbook is renamed to `Aprendizes_hhmmssddmmyy.xlsx`.
 - `modelos/` holds document/template files used for generation.
 - `documentos_gerados/` holds generated documents, especially temporary/recent outputs.
 
 Do not include a separate `configuracao/` folder for now. Future user configuration or save-state files should live under `assets/` unless the product grows enough to justify a different structure.
 
+## Provider Lifecycle
+
+The release uses a small local provider bundled in `SejaElevar.exe`. This is not meant to be a permanent background service.
+
+Current lifecycle:
+
+- Opening `SejaElevar.exe` starts the local provider and opens a local browser address.
+- The browser page sends heartbeats while it is open.
+- Closing the page sends `/api/app/closed`, which requests immediate provider shutdown.
+- If the close signal is missed, the heartbeat timeout is the fallback.
+
 ## Packaging Notes
 
 - Generate the local release package from `project/` with `npm run export:release`.
-- The script builds the single-file app, copies the helper, creates the quiet Windows launcher, and updates `exports/SejaElevar/`.
-- `exports/SejaElevar/` is intentionally tracked in Git so the current release/export folder can travel between devices and AI sessions exactly like the user asked.
-- Refresh `exports/SejaElevar/` with `npm --prefix project run export:release` before a checkpoint when the export should match the latest dev-approved app.
+- The script builds the single-file app, publishes/copies `SejaElevar.exe`, and updates `exports/SejaElevar/`.
+- Do not rebuild/give the release package during normal dev work. The user explicitly wants to continue testing in dev and only receive a release/export when they ask for it.
 - Do not commit zip files.
 - Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy. Use `.gitkeep` files only to preserve empty folders.
 - The user can zip the folder themselves when needed; do not create a zip unless they ask.
-- Keep the root of the package quiet: ideally only the launcher, entry HTML, helper, `README.md`, and the base folders.
-- This structure is a solid starting point, not permanent architecture. Add subfolders or new base folders later only when a new tool or workflow clearly needs them.
+- Keep the root of the package quiet: ideally only the entry exe/html, `README.md`, and base folders.
 
 ## Dev/Release Parity Rule
 
 The release package must match the approved dev app visually and behaviorally. Do not produce a release folder that has different alignment, colors, text encoding, icon behavior, menu state behavior, or app shell layout unless the user explicitly asks for a release-specific difference.
 
-Current risk: dev tuning values may exist only in the developer browser's `localStorage`. Those values are not automatically part of source code or a fresh release package. Before producing a release intended for testing by a coworker, ask whether the current dev slider/color values should be baked into source defaults. If yes, get the current JSON from the app's `Valores atuais` panel and update the source defaults before building/exporting.
+Dev testing currently happens in:
 
-Do not mutate generated `SejaElevar.html` through encoding-unsafe text rewrites. The previous PowerShell HTML rewrite corrupted UTF-8 strings such as `Configurações` in the exported single-file app. Prefer the checked-in `project/scripts/export-release.mjs` script, or fix build scripts/source and copy generated files byte-for-byte.
+```text
+project/dev/SejaElevar.exe
+```
+
+`project/dev/` mirrors the release folder shape but may expose dev-only tuning controls. Release mode should hide dev-only layout/alignment sliders and keep only real user-facing settings.
+
+Do not mutate generated `SejaElevar.html` through encoding-unsafe text rewrites. Prefer the checked-in `project/scripts/export-release.mjs` script, or fix build scripts/source and copy generated files byte-for-byte.
 
 ## Dev-Only Vs Release Settings
 
 Separate configuration into two categories:
 
 - Dev-only tuning controls: temporary sliders or controls used while designing the app shell, such as exact layout offsets, icon/text nudges, logo positioning, and tab list start. These are for rapid visual tuning and should eventually be baked into source defaults, then hidden or removed from coworker-facing releases.
-- Release/user settings: real options the coworker or operator should be able to change in normal use, such as brand colors, runtime company/logo choices, and future durable app preferences. These should persist in the release package's app state/config model when file persistence exists.
+- Release/user settings: real options the coworker or operator should be able to change in normal use, such as brand colors, runtime company/logo choices, and future durable app preferences.
 
 Current split: release mode shows only color configuration controls in `Configurações`. Dev-only layout/alignment tuning controls remain visible in normal dev builds and are hidden in exports by `window.SEJAELEVAR_RELEASE=true`.
-
-Latest baked default values were taken from the user's local browser tuning on 2026-05-20. Source defaults now carry the approved colors and shell layout values, while the coworker release keeps only color controls visible in settings.
 
 Future AI must not assume every current `Configurações` control should ship. Before making a release, confirm which settings are dev-only and which are release-facing, or use the latest documented/user-confirmed split.

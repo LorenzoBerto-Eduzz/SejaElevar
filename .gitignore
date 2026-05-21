@@ -16,6 +16,16 @@ local_data/
 private_data/
 project/local_data/
 project/private_data/
+project/dev/dados/**
+!project/dev/dados/
+!project/dev/dados/**/
+!project/dev/dados/**/.gitkeep
+project/dev/modelos/**
+!project/dev/modelos/
+!project/dev/modelos/.gitkeep
+project/dev/documentos_gerados/**
+!project/dev/documentos_gerados/
+!project/dev/documentos_gerados/.gitkeep
 exports/SejaElevar/dados/**
 !exports/SejaElevar/dados/
 !exports/SejaElevar/dados/**/
@@ -48,6 +58,14 @@ build/
 out/
 tmp/
 temp/
+project/launcher/bin/
+project/launcher/obj/
+project/launcher/AppIcon.ico
+project/dev/SejaElevar.html
+project/dev/SejaElevar.exe
+project/dev/assets/
+project/dev/**/.gitkeep
+project/dev/*.log
 
 # Logs
 *.log

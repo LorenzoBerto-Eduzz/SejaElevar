@@ -1,6 +1,7 @@
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { copyLauncherTo } from './launcher-utils.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectDir = resolve(scriptDir, '..');
@@ -21,14 +22,16 @@ const readme = `# SejaElevar
 ## Como abrir
 
 1. Abra esta pasta.
-2. De dois cliques em \`SejaElevar.vbs\`.
+2. De dois cliques em \`SejaElevar.exe\`.
 3. O app abrira no navegador.
-4. Depois disso, use o botao \`Importar .xlsx\` dentro da aba Aprendizes.
+4. Use o botao \`Importar .xlsx\` dentro da aba Aprendizes.
+
+Observacao: o aplicativo usa a pasta \`dados/planilhas/\` como local central dos dados. Ao importar, a planilha e copiada com o mesmo nome do arquivo escolhido. Ao editar, o arquivo em uso e renomeado para \`Aprendizes_hhmmssddmmyy.xlsx\`.
 
 ## Pastas
 
 - \`assets/\`: arquivos internos do app e futuros arquivos de configuracao/salvamento local.
-- \`dados/planilhas/\`: o app grava aqui a copia de trabalho \`aprendizes.xlsx\` usada pela aba Aprendizes.
+- \`dados/planilhas/\`: planilhas usadas/editadas pelo app.
 - \`modelos/\`: modelos de documentos usados para geracao.
 - \`documentos_gerados/\`: documentos gerados ou exportados pelo app.
 
@@ -36,28 +39,17 @@ Esta e uma versao local de teste. Nao coloque dados reais no Git.
 Os arquivos .gitkeep existem apenas para manter as pastas vazias quando a pasta exportada viaja pelo Git.
 `;
 
-const launcher = `Set shell = CreateObject("WScript.Shell")
-Set fso = CreateObject("Scripting.FileSystemObject")
-folder = fso.GetParentFolderName(WScript.ScriptFullName)
-
-If shell.Run("cmd /c node --version", 0, True) <> 0 Then
-  MsgBox "Node.js nao foi encontrado. Instale Node.js LTS para abrir o SejaElevar.", 48, "SejaElevar"
-  WScript.Quit 1
-End If
-
-shell.CurrentDirectory = folder
-shell.Run "node server.mjs", 0, False
-`;
-
 async function exportTo(releaseRoot) {
+  await rm(join(releaseRoot, 'Abrir SejaElevar.cmd'), { force: true });
+  await rm(join(releaseRoot, 'SejaElevar.vbs'), { force: true });
+  await rm(join(releaseRoot, 'server.mjs'), { force: true });
   await mkdir(join(releaseRoot, 'assets'), { recursive: true });
   await mkdir(join(releaseRoot, 'dados', 'planilhas'), { recursive: true });
   await mkdir(join(releaseRoot, 'modelos'), { recursive: true });
   await mkdir(join(releaseRoot, 'documentos_gerados'), { recursive: true });
 
   await writeFile(join(releaseRoot, 'SejaElevar.html'), releaseHtml, 'utf-8');
-  await cp(join(projectDir, 'scripts', 'release-server.mjs'), join(releaseRoot, 'server.mjs'));
-  await writeFile(join(releaseRoot, 'SejaElevar.vbs'), launcher, 'utf-8');
+  await copyLauncherTo(releaseRoot);
   await writeFile(join(releaseRoot, 'dados', 'planilhas', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'modelos', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'documentos_gerados', '.gitkeep'), '', 'utf-8');
@@ -98,4 +90,4 @@ try {
 }
 
 console.log(`Release local criado em: ${releaseRoot}`);
-console.log(`Abra: ${join(releaseRoot, 'SejaElevar.vbs')}`);
+console.log(`Abra: ${join(releaseRoot, 'SejaElevar.exe')}`);

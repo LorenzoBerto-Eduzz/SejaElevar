@@ -15,6 +15,7 @@ This project should stay easy for the user to understand, edit, and maintain whi
 - Do not create Git commits unless the user explicitly asks.
 - When the user edits files, assume their changes are intentional. Read the current file before editing and work with their changes.
 - Do not update project documentation or handoff notes unless the user explicitly asks, or unless the requested task is specifically to change documentation/workflow guidance.
+- Do not rebuild or hand over `exports/SejaElevar/` unless the user explicitly asks for a release/export/package to test or pass to a coworker. Normal feature work should stay in dev.
 - A user request for `memcheck` means: update the appropriate long-term memory docs with the distilled outcome of the recent discussion. It does not mean commit or push.
 - A user request for `gitcheckpoint` or a "git checkpoint" means: inspect the current worktree, update project/handoff docs only when needed for future AI continuity, make a focused commit, and push it to the remote.
 - Checkpoint commit messages should let the user understand the commit later from `git log`/`git show` without needing the chat. Mention the main implementation, docs/workflow updates, tuning/config changes, and notable file/structure changes when they are part of the commit.
