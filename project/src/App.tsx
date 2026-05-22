@@ -8,6 +8,7 @@ import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('aprendizes');
+  const [isProviderReady, setIsProviderReady] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -22,7 +23,7 @@ export function App() {
         method: 'POST',
         cache: 'no-store',
       }).catch(() => {
-        // Normal if the HTML is opened without the local app provider.
+        // The app renders only when the provider is present.
       });
     };
     const notifyLocalProviderClosed = () => {
@@ -42,20 +43,43 @@ export function App() {
           cache: 'no-store',
           keepalive: true,
         }).catch(() => {
-          // Normal if the HTML is opened without the local app provider.
+          // Shutdown is best-effort from browser lifecycle events.
         });
       }
     };
+    const startProviderSession = async () => {
+      try {
+        const response = await fetch('/api/app/status', {
+          cache: 'no-store',
+        });
+        const status = response.ok ? await response.json() : null;
 
-    pingLocalProvider();
-    heartbeat = window.setInterval(pingLocalProvider, 5000);
-    window.addEventListener('pagehide', notifyLocalProviderClosed);
+        if (!isActive || !status?.localProvider) {
+          return;
+        }
+
+        setIsProviderReady(true);
+        pingLocalProvider();
+        heartbeat = window.setInterval(pingLocalProvider, 1000);
+        window.addEventListener('pagehide', notifyLocalProviderClosed);
+        window.addEventListener('beforeunload', notifyLocalProviderClosed);
+      } catch {
+        // Opened outside the executable/provider: render nothing.
+      }
+    };
+
+    void startProviderSession();
 
     return () => {
       window.removeEventListener('pagehide', notifyLocalProviderClosed);
+      window.removeEventListener('beforeunload', notifyLocalProviderClosed);
       notifyLocalProviderClosed();
     };
   }, []);
+
+  if (!isProviderReady) {
+    return null;
+  }
 
   return (
     <AppShell
@@ -64,7 +88,9 @@ export function App() {
       activeTab={activeTab}
       onTabChange={setActiveTab}
     >
-      {activeTab === 'aprendizes' && <AprendizesPage />}
+      <div hidden={activeTab !== 'aprendizes'}>
+        <AprendizesPage />
+      </div>
       {activeTab !== 'aprendizes' && (
         <FeaturePlaceholderPage
           title={appTabs.find((tab) => tab.id === activeTab)?.label ?? ''}

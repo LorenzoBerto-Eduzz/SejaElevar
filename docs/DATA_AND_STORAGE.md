@@ -6,7 +6,7 @@ This note captures the current storage model for SejaElevar. Update it when the 
 
 SejaElevar is currently a local-first platform.
 
-The app UI is a browser page, but local file access is handled by a small self-contained Windows launcher/provider, `SejaElevar.exe`. The user clicks the exe, the provider starts, and the browser UI opens. This keeps the user experience friendly while allowing the app to read/write organized files under the app folder.
+The app UI is a browser page, but local file access is handled by a small self-contained Windows launcher/provider, `SejaElevar.exe`. The user clicks the exe, the provider starts, and the browser UI opens. The browser app intentionally renders nothing if opened directly without the provider. This keeps the user experience friendly while allowing the app to read/write organized files under the app folder.
 
 The most important early data source is the apprentices/students spreadsheet. The expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow.
 
@@ -90,7 +90,7 @@ Release configuration should be persisted and read back by the app on startup. C
 
 The app should still feel like a simple local webpage: one browser page with tabs/tools for `Aprendizes`, companies, agendas, documents, and settings.
 
-The provider should not behave like a permanent background service. The browser page sends heartbeats and a close signal. Closing the page requests provider shutdown immediately. If the close signal is missed, heartbeat timeout is the fallback.
+The provider should not behave like a permanent background service. The browser page sends heartbeats and a close signal. Closing the page/tab requests provider shutdown immediately. If the close signal is missed, heartbeat timeout is the fallback. Current browser heartbeat cadence is 1 second, and the provider fallback idle timeout defaults to 5 seconds.
 
 During normal development, do not rebuild/give `exports/SejaElevar/` unless the user explicitly asks for a release/export/package. Test runtime behavior in `project/dev/` through:
 

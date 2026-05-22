@@ -50,13 +50,13 @@ Do not treat `dist/` as source; it is a generated build output.
 ## Important Constraints
 
 - Local-first development is required at the beginning.
-- The app should run as a browser-accessed local web app during early development. The current friendly local entry point is `SejaElevar.exe`, which starts the local provider and opens the browser UI.
+- The app should run as a browser-accessed local web app during early development. The current friendly local entry point is `SejaElevar.exe`, which starts the local provider and opens the browser UI. Opening the raw HTML/address without the provider should not show the app UI.
 - Data starts as files/folders: real operational spreadsheets, structured data files, document templates, generated documents, company logos/images, and related assets.
 - The first data workflow uses a real student/apprentice `.xlsx` spreadsheet as the active source. Importing asks only for the source `.xlsx`; the local provider copies it into `dados/planilhas/` with the same filename. When a data edit is saved, the active workbook is renamed to `Aprendizes_hhmmssddmmyy.xlsx` and written there.
 - Real student/person/company data may be sensitive. Do not commit real operational data unless the user explicitly decides that the repository/privacy setup makes that acceptable.
 - Keep any sample/anonymized demo data separate from private local data. Demo data is optional and should not replace the real local workspace concept.
 - Design the storage boundary so future adapters can target Google Drive synced folders, Google Sheets/Drive APIs, a hosted database, or another backend without rewriting every UI feature.
-- The app should support choosing/importing a workspace. Missing required data should lead to a clear import/setup flow rather than a crash; for Aprendizes, missing a selected workbook means the table stays empty and asks for import.
+- The app should support choosing/importing a workspace. Missing required data should lead to a clear import/setup flow rather than a crash; for Aprendizes, missing a selected workbook means the table stays empty and asks for import, but the import state should not flash while an existing workbook is still being checked/loaded.
 - Imported logos, templates, spreadsheets, and generated documents should be stored inside organized workspace folders.
 - UI language should be Brazilian Portuguese.
 - Keep features modular: student records, documents, calendars, company data, templates, and integrations should have clear boundaries.

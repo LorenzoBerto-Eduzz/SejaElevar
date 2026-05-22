@@ -83,6 +83,7 @@ export function AprendizesPage() {
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
   const [workspaceStatus, setWorkspaceStatus] = useState('');
+  const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   const saveViewSettings = (settings: TableViewSettings) => {
@@ -170,7 +171,7 @@ export function AprendizesPage() {
 
     if (!isLocalProviderActiveRef.current) {
       clearWorkingSheet();
-      setImportError('Abra o SejaElevar pelo aplicativo para importar em dados/planilhas.');
+      setImportError('');
       return;
     }
 
@@ -325,7 +326,8 @@ export function AprendizesPage() {
         if (!status?.localProvider) {
           isLocalProviderActiveRef.current = false;
           clearWorkingSheet();
-          setWorkspaceStatus('Abra o SejaElevar pelo aplicativo.');
+          setWorkspaceStatus('');
+          setHasCheckedWorkspace(true);
           return;
         }
 
@@ -334,7 +336,13 @@ export function AprendizesPage() {
           resetColumnWidths: false,
         });
 
-        if (isMounted && hasWorkbook) {
+        if (!isMounted) {
+          return;
+        }
+
+        setHasCheckedWorkspace(true);
+
+        if (hasWorkbook) {
           setWorkspaceStatus('Dados vinculados à planilha em dados/planilhas.');
         }
       } catch {
@@ -342,7 +350,8 @@ export function AprendizesPage() {
         clearWorkingSheet();
 
         if (isMounted) {
-          setWorkspaceStatus('Abra o SejaElevar pelo aplicativo.');
+          setWorkspaceStatus('');
+          setHasCheckedWorkspace(true);
         }
       }
     };
@@ -483,7 +492,7 @@ export function AprendizesPage() {
 
   const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
     if (!isLocalProviderActiveRef.current) {
-      setImportError('Abra o SejaElevar pelo aplicativo para gravar em dados/planilhas.');
+      setImportError('');
       return;
     }
 
@@ -605,7 +614,7 @@ export function AprendizesPage() {
         )}
       </div>
 
-      {!importedSheet && (
+      {hasCheckedWorkspace && !importedSheet && (
         <div
           className={
             isDragging ? 'empty-data-state dragging' : 'empty-data-state'
@@ -627,11 +636,6 @@ export function AprendizesPage() {
               <path d="M8 16h5" />
             </svg>
           </div>
-          <h2>Nenhuma planilha importada</h2>
-          {workspaceStatus && (
-            <p className="import-feedback">{workspaceStatus}</p>
-          )}
-          {importError && <p className="import-error">{importError}</p>}
           <button
             className="primary-action"
             type="button"
@@ -644,11 +648,6 @@ export function AprendizesPage() {
 
       {importedSheet && (
         <div className="data-table-panel">
-          {workspaceStatus && (
-            <p className="import-feedback">{workspaceStatus}</p>
-          )}
-          {importError && <p className="import-error">{importError}</p>}
-
           <div className="data-table-scroll" role="region" tabIndex={0}>
             <table
               className={isEditMode ? 'data-table editing' : 'data-table'}

@@ -10,7 +10,7 @@ internal static class Program
     private const string Title = "SejaElevar";
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
-        GetIntEnvironment("SEJAELEVAR_IDLE_TIMEOUT_MS", 8000)
+        GetIntEnvironment("SEJAELEVAR_IDLE_TIMEOUT_MS", 5000)
     );
     private static readonly object HeartbeatLock = new();
     private static DateTime _lastHeartbeatAt = DateTime.UtcNow;

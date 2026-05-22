@@ -52,9 +52,9 @@ project/dev/
   documentos_gerados/
 ```
 
-The user should test with `project/dev/SejaElevar.exe`, not by opening `dist/` or raw generated files. The exe starts a local provider and opens the browser UI. Generated dev outputs and live data are ignored by Git.
+The user should test with `project/dev/SejaElevar.exe`, not by opening `dist/` or raw generated files. The exe starts a local provider and opens the browser UI. Generated dev outputs and live data are ignored by Git. The browser app intentionally renders nothing if opened directly without the exe/provider; do not add "open through the app" warning text to the UI.
 
-Current provider lifecycle: the browser page sends heartbeats and a close signal. Closing the page requests immediate provider shutdown; if the close signal is missed, the heartbeat timeout is the fallback. The provider should not be treated as a permanent background service.
+Current provider lifecycle: the browser page sends heartbeats and a close signal. Closing the page/tab requests immediate provider shutdown; if the close signal is missed, the heartbeat timeout is the fallback. The provider should not be treated as a permanent background service. Current heartbeat interval is 1 second from the browser, and the provider fallback timeout defaults to 5 seconds.
 
 Current `Aprendizes` behavior:
 
@@ -66,6 +66,7 @@ Current `Aprendizes` behavior:
 - On save, the provider renames the active file to `Aprendizes_hhmmssddmmyy.xlsx` and writes the updated workbook there.
 - There is intentionally no export button right now, per user request.
 - Column widths and row heights are visual app settings only and are not written to the spreadsheet.
+- The Aprendizes page stays mounted while switching tabs and gates the import state until the provider/workbook check finishes, so returning to Aprendizes should not briefly flash the import button before showing an already-loaded table.
 
 Current persisted UI state: theme/layout development settings are stored in `localStorage` under `sejaelevar.settings`; sidebar hidden/shown state is stored under `sejaelevar.sidebarCollapsed`. Startup motion is disabled on initial render to avoid sidebar/settings values animating or shifting during refresh/open. Current approved visual defaults have been baked into source after recovering the local browser settings: primary `#2069df`, secondary `#40a9e5`, tertiary `#ecf5fe`, page top `51`, content top `22`, gear offset `1.5`, logo height `100`, sidebar top `10`, tab gap `20`, lower action gap `5`, menu button height `47`, icon/text gap `6`, table row height `32`, table header height `48`, table top offset `14`.
 
