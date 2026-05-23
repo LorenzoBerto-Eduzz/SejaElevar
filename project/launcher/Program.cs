@@ -628,7 +628,10 @@ internal static class Program
         var control = LoadWorkbookControl(appFolder);
         var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
         var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
-        var shouldClone = control.CloneOnNextSave && onUsePath is not null && File.Exists(onUsePath);
+        var shouldClone = control.CloneOnNextSave &&
+            ShouldReplaceBackupOnNextSave(control) &&
+            onUsePath is not null &&
+            File.Exists(onUsePath);
         var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
 
@@ -882,9 +885,6 @@ internal static class Program
             return;
         }
 
-        control.CloneOnNextSave = true;
-        control.PendingBackupReason = BackupReasonBeforeSessionEdit;
-
         if (control.BackupFile is not null)
         {
             control.BackupFromPreviousSession = true;
@@ -899,7 +899,28 @@ internal static class Program
             }
         }
 
+        control.CloneOnNextSave = ShouldReplaceBackupOnNextSave(control);
+        control.PendingBackupReason = control.CloneOnNextSave
+            ? control.PendingBackupReason ?? BackupReasonBeforeSessionEdit
+            : null;
+
         SaveWorkbookControl(appFolder, control);
+    }
+
+    private static bool ShouldReplaceBackupOnNextSave(WorkbookControl control)
+    {
+        if (control.OnUseFile is null)
+        {
+            return false;
+        }
+
+        if (control.BackupFile is null)
+        {
+            return true;
+        }
+
+        return control.BackupReason == BackupReasonPreviousSession ||
+            control.BackupReason == BackupReasonRestored;
     }
 
     private static string? FindCurrentWorkbookPath(string appFolder)

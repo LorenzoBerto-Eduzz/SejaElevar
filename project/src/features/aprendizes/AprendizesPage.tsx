@@ -1210,7 +1210,14 @@ export function AprendizesPage() {
 function getRecoveryDescription(info: RecoveryInfo | null) {
   if (
     info?.fromPreviousSession &&
-    (info.reason === 'before_import' || info.reason === 'import_original')
+    info.reason === 'before_import'
+  ) {
+    return 'Recupere os dados para como estavam antes da \u00faltima importa\u00e7\u00e3o.';
+  }
+
+  if (
+    info?.fromPreviousSession &&
+    info.reason === 'import_original'
   ) {
     return 'Recupere os dados para como o \u00faltimo arquivo importado se encontrava antes de edi\u00e7\u00f5es.';
   }

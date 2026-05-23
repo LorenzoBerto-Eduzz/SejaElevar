@@ -17,18 +17,19 @@ Current Aprendizes behavior:
 - The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
 - The app then uses `dados/controle.json` to track which workbook is the current on-use file and which workbook is the backup file. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
 - When a saved edit changes data, the provider writes a fresh timestamped `Aprendizes_hhmmssddmmyy.xlsx` on-use file so the filename reflects the most recent update. The previous on-use file is deleted unless it is the backup.
-- At the start of an app session, the first real edit clones the previous on-use state into backup and writes the edit into a new on-use file. This keeps the last session's final state as backup for the current session.
-- Importing a new workbook makes the old on-use file the backup, deletes the older tracked backup if needed, and makes the imported workbook the new on-use file.
-- Importing when no previous on-use file exists leaves no backup until the first edit. The first edit then stores the imported original state as backup.
+- At the start of an app session, the first real edit may clone the previous on-use state into backup and write the edit into a new on-use file, but only when the current backup is replaceable. A backup is replaceable when there is no backup yet, when it represents a normal previous/penultimate session state, or when it is marked as already restored.
+- Importing a new workbook makes the old on-use file the backup, deletes the older tracked backup if needed, and makes the imported workbook the new on-use file. Edits to that imported workbook must preserve the before-import backup, including after closing and reopening the app.
+- Importing when no previous on-use file exists leaves no backup until the first edit. The first edit then stores the imported original state as backup. That imported-original backup is also preserved by later edits, including in later sessions.
 - `dados/` should normally contain the current on-use workbook, one backup workbook when available, `controle.json`, and `.gitkeep`.
 - Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. The current undo stack limit is 1000 cell edits.
 
 The `Recuperar Dados` action is available only when the tracked backup can be used and has not already been recovered. Pressing it copies the backup workbook to a new timestamped on-use workbook, deletes the current on-use workbook, keeps the original backup workbook intact, reloads the table, and disables recovery until a new backup-producing action happens. The popup text is based on the stored backup reason:
 
-- Existing file replaced by import: `Recupere os dados para como estavam antes da importação.`
+- Existing file replaced by import in the current session: `Recupere os dados para como estavam antes da importação.`
 - First edit in the current session: `Recupere os dados para como estavam antes de edições nesta sessão.`
 - Imported file edited after import: `Recupere os dados para como estavam quando o arquivo foi importado.`
 - No edits/imports yet in a later session: `Recupere os dados para como estavam na sessão anterior à última.`
+- Previous session's backup is still the before-import state: `Recupere os dados para como estavam antes da última importação.`
 - Previous session's backup is still the original imported file: `Recupere os dados para como o último arquivo importado se encontrava antes de edições.`
 - No usable backup or already recovered: the toolbar button stays disabled.
 
