@@ -610,6 +610,24 @@ svg {
   min-width: 0;
   width: 100%;
   overflow: visible;
+  position: relative;
+}
+
+.feature-page-main {
+  grid-row: 1 / -1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  transition: filter 160ms ease;
+}
+
+.feature-page-main.page-modal-blurred {
+  filter: blur(4px);
+  pointer-events: none;
+  user-select: none;
 }
 
 .feature-heading {
@@ -823,6 +841,125 @@ svg {
 .import-empty-action:focus-visible {
   color: var(--brand-active-icon);
   background: var(--brand-primary);
+  outline: none;
+}
+
+.page-modal-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 248px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 20, 34, 0.18);
+}
+
+.app-shell.sidebar-collapsed .page-modal-backdrop {
+  left: 0;
+}
+
+.recovery-dialog {
+  position: relative;
+  width: min(660px, 100%);
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  padding: 22px 28px 34px;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  box-shadow: 0 24px 70px rgba(7, 20, 34, 0.24);
+}
+
+.recovery-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.recovery-dialog h2 {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 1.25rem;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.recovery-dialog p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.recovery-dialog-note {
+  margin-top: 10px !important;
+  color: #577086;
+  font-size: 0.84rem !important;
+}
+
+.dialog-close-button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  color: var(--brand-primary);
+  background: var(--brand-panel);
+}
+
+.dialog-close-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.dialog-close-button:hover,
+.dialog-close-button:focus-visible {
+  color: var(--brand-active-icon);
+  background: var(--brand-primary);
+  outline: none;
+}
+
+.recovery-confirm-action {
+  width: 100%;
+  min-height: calc(var(--menu-button-size) + 10px);
+  gap: 18px;
+  margin-top: 26px;
+  color: var(--brand-active-text);
+  background: var(--brand-primary);
+  box-shadow: 0 8px 18px rgba(31, 95, 139, 0.18);
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.recovery-confirm-action svg {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.recovery-confirm-action:hover,
+.recovery-confirm-action:focus-visible {
+  color: var(--brand-active-text);
+  background: var(--brand-primary);
+  outline: none;
+}
+
+.recovery-confirm-action:disabled,
+.recovery-confirm-action:disabled:hover {
+  opacity: 0.42;
+  color: var(--brand-active-text);
+  background: var(--brand-primary);
+  cursor: default;
   outline: none;
 }
 
@@ -1149,5 +1286,9 @@ svg {
     bottom: 14px;
     left: 14px;
     width: auto;
+  }
+
+  .page-modal-backdrop {
+    left: 0;
   }
 }

@@ -16,6 +16,7 @@ const DEFAULT_COLUMN_WIDTH = 96;
 const MIN_COLUMN_WIDTH = 34;
 const TABLE_HORIZONTAL_PADDING = 10;
 const TABLE_WIDTH_BUFFER = 6;
+const CELL_UNDO_LIMIT = 1000;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
@@ -31,6 +32,36 @@ type ImportedSheet = {
 type TableViewSettings = {
   columnOrder: string[];
   columnWidths: Record<string, number>;
+};
+
+type CellUndoEntry = {
+  rowIndex: number;
+  columnName: string;
+  previousValue: string;
+  nextValue: string;
+};
+
+type ActiveCellEdit = {
+  rowIndex: number;
+  columnName: string;
+  initialValue: string;
+};
+
+type RecoveryReason =
+  | 'before_import'
+  | 'before_session_edit'
+  | 'import_original'
+  | 'previous_session'
+  | 'restored';
+
+type RecoveryInfo = {
+  available: boolean;
+  canRecover: boolean;
+  fileName?: string | null;
+  label?: string | null;
+  formattedUpdatedAt?: string | null;
+  reason?: RecoveryReason | null;
+  fromPreviousSession?: boolean;
 };
 
 const defaultViewSettings: TableViewSettings = {
@@ -104,6 +135,8 @@ const readSavedViewSettings = () => {
 export function AprendizesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const cellUndoStackRef = useRef<CellUndoEntry[]>([]);
+  const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
   const tableBodyScrollRef = useRef<HTMLDivElement>(null);
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
@@ -118,6 +151,9 @@ export function AprendizesPage() {
   const [workspaceStatus, setWorkspaceStatus] = useState('');
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
+  const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
+  const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
     window.localStorage.setItem(
@@ -132,14 +168,19 @@ export function AprendizesPage() {
   };
 
   const clearWorkingSheet = () => {
+    cellUndoStackRef.current = [];
+    activeCellEditRef.current = null;
     latestSheetRef.current = null;
     setImportedSheet(null);
+    setRecoveryInfo(null);
   };
 
   const saveImportedSheet = (
     sheet: ImportedSheet,
     options: { resetColumnWidths?: boolean } = {},
   ) => {
+    cellUndoStackRef.current = [];
+    activeCellEditRef.current = null;
     storeImportedSheet(sheet);
 
     const knownColumns = new Set(sheet.columns);
@@ -162,6 +203,30 @@ export function AprendizesPage() {
       columnOrder: nextColumnOrder,
       columnWidths: nextColumnWidths,
     });
+  };
+
+  const fetchRecoveryInfo = async () => {
+    if (!isLocalProviderActiveRef.current) {
+      setRecoveryInfo(null);
+      return null;
+    }
+
+    try {
+      const response = await fetch('/api/aprendizes/backup', {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error('backup-info-failed');
+      }
+
+      const info = (await response.json()) as RecoveryInfo;
+      setRecoveryInfo(info);
+      return info;
+    } catch {
+      setRecoveryInfo(null);
+      return null;
+    }
   };
 
   const fetchProviderFile = async (
@@ -193,6 +258,7 @@ export function AprendizesPage() {
     });
 
     await selectFile(file, options);
+    await fetchRecoveryInfo();
     return true;
   };
 
@@ -244,6 +310,39 @@ export function AprendizesPage() {
 
   const importFromPicker = async () => {
     fileInputRef.current?.click();
+  };
+
+  const recoverBackup = async () => {
+    if (!recoveryInfo?.canRecover || isRecoveringBackup) {
+      return;
+    }
+
+    setIsRecoveringBackup(true);
+
+    try {
+      const response = await fetch('/api/aprendizes/recover', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('recover-failed');
+      }
+
+      const result = (await response.json()) as { fileName?: string };
+      await fetchProviderFile({
+        resetColumnWidths: false,
+      });
+      await fetchRecoveryInfo();
+      setIsRecoveryDialogOpen(false);
+      setWorkspaceStatus(
+        `Dados recuperados em dados/${result.fileName || 'Aprendizes.xlsx'}.`,
+      );
+      setImportError('');
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel recuperar os dados do backup.');
+    } finally {
+      setIsRecoveringBackup(false);
+    }
   };
 
   const selectFile = async (
@@ -576,6 +675,7 @@ export function AprendizesPage() {
         ...sheet,
         fileName: savedFileName,
       });
+      await fetchRecoveryInfo();
 
       setWorkspaceStatus(`Alterações gravadas em dados/${savedFileName}.`);
       setImportError('');
@@ -584,6 +684,83 @@ export function AprendizesPage() {
         'A alteração ficou na tela, mas não foi possível gravar em dados.',
       );
     }
+  };
+
+  const getCellValue = (
+    sheet: ImportedSheet,
+    rowIndex: number,
+    columnName: string,
+  ) => {
+    const columnIndex = sheet.columns.indexOf(columnName);
+
+    if (columnIndex < 0) {
+      return null;
+    }
+
+    return sheet.rows[rowIndex]?.[columnIndex] ?? '';
+  };
+
+  const pushCellUndoEntry = (entry: CellUndoEntry) => {
+    if (entry.previousValue === entry.nextValue) {
+      return;
+    }
+
+    cellUndoStackRef.current = [
+      ...cellUndoStackRef.current,
+      entry,
+    ].slice(-CELL_UNDO_LIMIT);
+  };
+
+  const commitActiveCellEdit = () => {
+    const activeEdit = activeCellEditRef.current;
+    const currentSheet = latestSheetRef.current;
+
+    activeCellEditRef.current = null;
+
+    if (!activeEdit || !currentSheet) {
+      return false;
+    }
+
+    const currentValue = getCellValue(
+      currentSheet,
+      activeEdit.rowIndex,
+      activeEdit.columnName,
+    );
+
+    if (currentValue === null || currentValue === activeEdit.initialValue) {
+      return false;
+    }
+
+    pushCellUndoEntry({
+      rowIndex: activeEdit.rowIndex,
+      columnName: activeEdit.columnName,
+      previousValue: activeEdit.initialValue,
+      nextValue: currentValue,
+    });
+
+    return true;
+  };
+
+  const beginCellEdit = (
+    rowIndex: number,
+    columnName: string,
+    initialValue: string,
+  ) => {
+    const activeEdit = activeCellEditRef.current;
+
+    if (
+      activeEdit?.rowIndex === rowIndex &&
+      activeEdit.columnName === columnName
+    ) {
+      return;
+    }
+
+    commitActiveCellEdit();
+    activeCellEditRef.current = {
+      rowIndex,
+      columnName,
+      initialValue,
+    };
   };
 
   const updateCell = (rowIndex: number, columnName: string, value: string) => {
@@ -597,6 +774,24 @@ export function AprendizesPage() {
 
     if (columnIndex < 0) {
       return;
+    }
+
+    const previousValue = currentSheet.rows[rowIndex]?.[columnIndex] || '';
+
+    if (previousValue === value) {
+      return;
+    }
+    const activeEdit = activeCellEditRef.current;
+
+    if (
+      activeEdit?.rowIndex !== rowIndex ||
+      activeEdit.columnName !== columnName
+    ) {
+      activeCellEditRef.current = {
+        rowIndex,
+        columnName,
+        initialValue: previousValue,
+      };
     }
 
     const nextRows = currentSheet.rows.map((row, index) => {
@@ -614,6 +809,43 @@ export function AprendizesPage() {
     };
 
     storeImportedSheet(nextSheet);
+  };
+
+  const undoLastCellEdit = () => {
+    commitActiveCellEdit();
+
+    const currentSheet = latestSheetRef.current;
+    const undoEntry = cellUndoStackRef.current.at(-1);
+
+    if (!currentSheet || !undoEntry) {
+      return false;
+    }
+
+    const columnIndex = currentSheet.columns.indexOf(undoEntry.columnName);
+
+    if (columnIndex < 0 || !currentSheet.rows[undoEntry.rowIndex]) {
+      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+      return false;
+    }
+
+    cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+
+    const nextRows = currentSheet.rows.map((row, index) => {
+      if (index !== undoEntry.rowIndex) {
+        return row;
+      }
+
+      const nextRow = [...row];
+      nextRow[columnIndex] = undoEntry.previousValue;
+      return nextRow;
+    });
+
+    storeImportedSheet({
+      ...currentSheet,
+      rows: nextRows,
+    });
+
+    return true;
   };
 
   const focusCell = (rowIndex: number, columnIndex: number) => {
@@ -661,6 +893,14 @@ export function AprendizesPage() {
 
   const tableClassName = isEditMode ? 'data-table editing' : 'data-table';
   const hasWorkingSheet = Boolean(importedSheet);
+  const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
+  const recoveryButtonLabel =
+    recoveryInfo?.formattedUpdatedAt
+      ? `Recuperar ${recoveryInfo.label || 'Aprendizes'} - ${
+          recoveryInfo.formattedUpdatedAt
+        }`
+      : `Recuperar ${recoveryInfo?.label || 'Aprendizes'}`;
+  const recoveryDescription = getRecoveryDescription(recoveryInfo);
   const renderColumnGroup = () => (
     <colgroup>
       {orderedColumns.map((column) => (
@@ -671,6 +911,13 @@ export function AprendizesPage() {
 
   return (
     <section className="feature-page" aria-labelledby="aprendizes-title">
+      <div
+        className={
+          isRecoveryDialogOpen
+            ? 'feature-page-main page-modal-blurred'
+            : 'feature-page-main'
+        }
+      >
         <div className="feature-heading">
           <div>
             <h1 id="aprendizes-title">Aprendizes</h1>
@@ -703,11 +950,16 @@ export function AprendizesPage() {
               <PencilIcon />
             </button>
             <button
-              className={hasWorkingSheet ? 'square-action' : 'square-action disabled'}
+              className={
+                hasWorkingSheet && canRecoverBackup
+                  ? 'square-action'
+                  : 'square-action disabled'
+              }
               type="button"
               aria-label="Recuperar dados"
               title="Recuperar Dados"
-              disabled={!hasWorkingSheet}
+              disabled={!hasWorkingSheet || !canRecoverBackup}
+              onClick={() => setIsRecoveryDialogOpen(true)}
             >
               <RotateClockwiseIcon />
             </button>
@@ -836,10 +1088,23 @@ export function AprendizesPage() {
                                 } as CSSProperties
                               }
                               value={value}
+                              onFocus={() =>
+                                beginCellEdit(rowIndex, column, value)
+                              }
                               onChange={(event) =>
                                 updateCell(rowIndex, column, event.target.value)
                               }
                               onKeyDown={(event) => {
+                                if (
+                                  (event.ctrlKey || event.metaKey) &&
+                                  !event.shiftKey &&
+                                  event.key.toLowerCase() === 'z'
+                                ) {
+                                  event.preventDefault();
+                                  undoLastCellEdit();
+                                  return;
+                                }
+
                                 handleCellNavigation(
                                   event,
                                   rowIndex,
@@ -851,16 +1116,18 @@ export function AprendizesPage() {
                                 }
 
                                 event.preventDefault();
+                                const hasCommittedChange = commitActiveCellEdit();
                                 const sheet = latestSheetRef.current;
 
-                                if (sheet) {
+                                if (hasCommittedChange && sheet) {
                                   void writeSheetToSourceFile(sheet);
                                 }
                               }}
                               onBlur={() => {
+                                const hasCommittedChange = commitActiveCellEdit();
                                 const sheet = latestSheetRef.current;
 
-                                if (sheet) {
+                                if (hasCommittedChange && sheet) {
                                   void writeSheetToSourceFile(sheet);
                                 }
                               }}
@@ -890,8 +1157,76 @@ export function AprendizesPage() {
           event.currentTarget.value = '';
         }}
       />
+      </div>
+
+      {isRecoveryDialogOpen && (
+        <div
+          className="page-modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setIsRecoveryDialogOpen(false)}
+        >
+          <div
+            className="recovery-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="recovery-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="recovery-dialog-header">
+              <h2 id="recovery-dialog-title">Recuperar Dados</h2>
+              <button
+                className="dialog-close-button"
+                type="button"
+                aria-label="Fechar"
+                onClick={() => setIsRecoveryDialogOpen(false)}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <p>{recoveryDescription}</p>
+            {recoveryInfo?.reason === 'previous_session' && (
+              <p className="recovery-dialog-note">
+                {
+                  'Como ainda n\u00e3o houve edi\u00e7\u00f5es nesta sess\u00e3o, o arquivo em uso e o arquivo de backup (estado final da sess\u00e3o anterior) s\u00e3o os mesmos da \u00faltima sess\u00e3o.'
+                }
+              </p>
+            )}
+            <button
+              className="primary-action recovery-confirm-action"
+              type="button"
+              disabled={!canRecoverBackup || isRecoveringBackup}
+              onClick={() => void recoverBackup()}
+            >
+              <RotateClockwiseIcon />
+              {isRecoveringBackup ? 'Recuperando...' : recoveryButtonLabel}
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function getRecoveryDescription(info: RecoveryInfo | null) {
+  if (
+    info?.fromPreviousSession &&
+    (info.reason === 'before_import' || info.reason === 'import_original')
+  ) {
+    return 'Recupere os dados para como o \u00faltimo arquivo importado se encontrava antes de edi\u00e7\u00f5es.';
+  }
+
+  switch (info?.reason) {
+    case 'before_import':
+      return 'Recupere os dados para como estavam antes da importa\u00e7\u00e3o.';
+    case 'before_session_edit':
+      return 'Recupere os dados para como estavam antes de edi\u00e7\u00f5es nesta sess\u00e3o.';
+    case 'import_original':
+      return 'Recupere os dados para como estavam quando o arquivo foi importado.';
+    case 'previous_session':
+      return 'Recupere os dados para como estavam na sess\u00e3o anterior \u00e0 \u00faltima.';
+    default:
+      return 'Nenhum backup dispon\u00edvel para recuperar.';
+  }
 }
 
 function PencilIcon() {
@@ -931,6 +1266,15 @@ function RotateClockwiseIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M19.95 11a8 8 0 1 0 -.5 4" />
       <path d="M20 4v7h-7" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
     </svg>
   );
 }

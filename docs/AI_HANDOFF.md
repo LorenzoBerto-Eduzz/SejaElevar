@@ -62,9 +62,12 @@ Current `Aprendizes` behavior:
 - If no `.xlsx` exists directly in `dados/`, the table stays in the import/missing-data state.
 - Importing asks only for the source `.xlsx`.
 - The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
-- No sidecar JSON metadata file is required in the current model.
-- Aprendizes cell edits and column reordering write back to the active workbook.
-- Importing a new file replaces the previous active workbook; edits also save as a fresh `Aprendizes_hhmmssddmmyy.xlsx`.
+- `dados/controle.json` tracks the active on-use workbook, the backup workbook, and the reason the backup exists. The app does not treat manually dropped `.xlsx` files as active unless it must recover metadata from existing files.
+- Aprendizes cell edits and column reordering write back to the active workbook. Real data changes save as a fresh timestamped on-use workbook, keeping one tracked backup workbook when available.
+- At app/session start, the first real edit clones the previous on-use state into backup and writes the edit into a new timestamped on-use file. Importing a new file makes the previous on-use file the backup and the imported file the new on-use.
+- `Recuperar Dados` opens a centered modal over a blurred/dimmed page. When confirmed, it copies the backup workbook to a fresh timestamped on-use workbook, deletes the prior on-use workbook, keeps the backup intact, reloads the table, and disables recovery until a new backup-producing action happens.
+- The recovery modal text is reason-specific: before import, before edits in this session, imported file before edits, previous/penultimate session, or previous session's imported-original state.
+- Cell undo is value-based: one completed cell edit is one undo entry, with a current stack limit of 1000.
 - There is intentionally no export button right now, per user request.
 - Column widths and row heights are visual app settings only and are not written to the spreadsheet.
 - The Aprendizes page stays mounted while switching tabs and gates the import state until the provider/workbook check finishes, so returning to Aprendizes should not briefly flash the import button before showing an already-loaded table.

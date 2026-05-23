@@ -11,6 +11,11 @@ using Microsoft.Web.WebView2.WinForms;
 internal static class Program
 {
     private const string Title = "SejaElevar";
+    private const string BackupReasonBeforeImport = "before_import";
+    private const string BackupReasonBeforeSessionEdit = "before_session_edit";
+    private const string BackupReasonImportOriginal = "import_original";
+    private const string BackupReasonPreviousSession = "previous_session";
+    private const string BackupReasonRestored = "restored";
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
         GetIntEnvironment("SEJAELEVAR_IDLE_TIMEOUT_MS", 5000)
@@ -44,6 +49,7 @@ internal static class Program
 
         Directory.CreateDirectory(GetDadosFolder(appFolder));
         MigrateLegacyPlanilhasFolder(appFolder);
+        StartWorkbookSession(appFolder);
 
         try
         {
@@ -241,6 +247,20 @@ internal static class Program
             {
                 MarkHeartbeat();
                 await ServeWorkbookAsync(stream, appFolder);
+                return;
+            }
+
+            if (request.Method == "GET" && request.Path == "/api/aprendizes/backup")
+            {
+                MarkHeartbeat();
+                await ServeBackupInfoAsync(stream, appFolder);
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/aprendizes/recover")
+            {
+                MarkHeartbeat();
+                await RecoverWorkbookBackupAsync(stream, appFolder);
                 return;
             }
 
@@ -504,7 +524,8 @@ internal static class Program
 
     private static async Task ServeWorkbookAsync(NetworkStream stream, string appFolder)
     {
-        var workbookPath = FindCurrentWorkbookPath(appFolder);
+        var control = LoadWorkbookControl(appFolder);
+        var workbookPath = ResolveWorkbookPath(appFolder, control.OnUseFile);
 
         if (workbookPath is null || !File.Exists(workbookPath))
         {
@@ -542,23 +563,52 @@ internal static class Program
 
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
-        var previousWorkbookPath = FindCurrentWorkbookPath(appFolder);
-        var importedFileName = GetTimestampedWorkbookName();
+        var control = LoadWorkbookControl(appFolder);
+        var previousOnUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+        var previousBackupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+        var importedFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
         var targetPath = Path.Combine(dadosFolder, importedFileName);
 
         DeleteLegacyMetadata(appFolder);
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
         if (
-            previousWorkbookPath is not null &&
-            !string.Equals(previousWorkbookPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
-            File.Exists(previousWorkbookPath)
+            previousBackupPath is not null &&
+            !string.Equals(previousBackupPath, previousOnUsePath, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(previousBackupPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(previousBackupPath)
         )
         {
-            File.Delete(previousWorkbookPath);
+            File.Delete(previousBackupPath);
         }
 
-        await WriteJsonAsync(stream, 200, new { ok = true, fileName = importedFileName });
+        var nextControl = new WorkbookControl
+        {
+            OnUseFile = importedFileName,
+            BackupFile = previousOnUsePath is null
+                ? null
+                : Path.GetFileName(previousOnUsePath),
+            CloneOnNextSave = previousOnUsePath is null,
+            BackupReason = previousOnUsePath is null ? null : BackupReasonBeforeImport,
+            PendingBackupReason = previousOnUsePath is null
+                ? BackupReasonImportOriginal
+                : null,
+            BackupFromPreviousSession = false
+        };
+
+        SaveWorkbookControl(appFolder, nextControl);
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                fileName = importedFileName,
+                onUseFile = nextControl.OnUseFile,
+                backupFile = nextControl.BackupFile
+            }
+        );
     }
 
     private static async Task SaveEditedWorkbookAsync(
@@ -575,23 +625,151 @@ internal static class Program
 
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
-        var previousWorkbookPath = FindCurrentWorkbookPath(appFolder);
-        var targetFileName = GetTimestampedWorkbookName();
+        var control = LoadWorkbookControl(appFolder);
+        var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+        var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+        var shouldClone = control.CloneOnNextSave && onUsePath is not null && File.Exists(onUsePath);
+        var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
+
+        if (shouldClone &&
+            backupPath is not null &&
+            !string.Equals(backupPath, onUsePath, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(backupPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(backupPath))
+        {
+            File.Delete(backupPath);
+        }
 
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
         if (
-            previousWorkbookPath is not null &&
-            !string.Equals(previousWorkbookPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
-            File.Exists(previousWorkbookPath)
+            !shouldClone &&
+            onUsePath is not null &&
+            !string.Equals(onUsePath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(onUsePath, backupPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(onUsePath)
         )
         {
-            File.Delete(previousWorkbookPath);
+            File.Delete(onUsePath);
         }
 
+        var nextControl = new WorkbookControl
+        {
+            OnUseFile = targetFileName,
+            BackupFile = shouldClone && onUsePath is not null
+                ? Path.GetFileName(onUsePath)
+                : control.BackupFile,
+            CloneOnNextSave = false,
+            BackupReason = shouldClone && onUsePath is not null
+                ? control.PendingBackupReason ?? BackupReasonBeforeSessionEdit
+                : control.BackupReason,
+            PendingBackupReason = null,
+            BackupFromPreviousSession = false
+        };
+
+        SaveWorkbookControl(appFolder, nextControl);
         DeleteLegacyMetadata(appFolder);
-        await WriteJsonAsync(stream, 200, new { ok = true, fileName = targetFileName });
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                fileName = targetFileName,
+                onUseFile = nextControl.OnUseFile,
+                backupFile = nextControl.BackupFile
+            }
+        );
+    }
+
+    private static async Task ServeBackupInfoAsync(NetworkStream stream, string appFolder)
+    {
+        var control = LoadWorkbookControl(appFolder);
+        var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+        var reason = NormalizeBackupReason(control.BackupReason);
+        var canRecover = backupPath is not null &&
+            File.Exists(backupPath) &&
+            reason != BackupReasonRestored;
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                available = backupPath is not null && File.Exists(backupPath),
+                canRecover,
+                fileName = backupPath is null ? null : Path.GetFileName(backupPath),
+                label = "Aprendizes",
+                updatedAt = backupPath is null
+                    ? null
+                    : File.GetLastWriteTime(backupPath).ToString("O"),
+                formattedUpdatedAt = backupPath is null
+                    ? null
+                    : FormatBackupDateTime(File.GetLastWriteTime(backupPath)),
+                reason,
+                fromPreviousSession = control.BackupFromPreviousSession
+            }
+        );
+    }
+
+    private static async Task RecoverWorkbookBackupAsync(NetworkStream stream, string appFolder)
+    {
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
+
+        var control = LoadWorkbookControl(appFolder);
+        var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+        var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+
+        if (
+            backupPath is null ||
+            !File.Exists(backupPath) ||
+            NormalizeBackupReason(control.BackupReason) == BackupReasonRestored
+        )
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Nenhum backup disponivel." });
+            return;
+        }
+
+        var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
+        var targetPath = Path.Combine(dadosFolder, targetFileName);
+        File.Copy(backupPath, targetPath);
+
+        if (
+            onUsePath is not null &&
+            !string.Equals(onUsePath, backupPath, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(onUsePath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(onUsePath)
+        )
+        {
+            File.Delete(onUsePath);
+        }
+
+        var nextControl = new WorkbookControl
+        {
+            OnUseFile = targetFileName,
+            BackupFile = Path.GetFileName(backupPath),
+            CloneOnNextSave = true,
+            BackupReason = BackupReasonRestored,
+            PendingBackupReason = BackupReasonBeforeSessionEdit,
+            BackupFromPreviousSession = false
+        };
+
+        SaveWorkbookControl(appFolder, nextControl);
+        DeleteLegacyMetadata(appFolder);
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                fileName = targetFileName,
+                onUseFile = nextControl.OnUseFile,
+                backupFile = nextControl.BackupFile
+            }
+        );
     }
 
     private static async Task ServeStaticAsync(
@@ -690,23 +868,179 @@ internal static class Program
         return Path.Combine(appFolder, "dados");
     }
 
+    private static string GetWorkbookControlPath(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), "controle.json");
+    }
+
+    private static void StartWorkbookSession(string appFolder)
+    {
+        var control = LoadWorkbookControl(appFolder);
+
+        if (control.OnUseFile is null)
+        {
+            return;
+        }
+
+        control.CloneOnNextSave = true;
+        control.PendingBackupReason = BackupReasonBeforeSessionEdit;
+
+        if (control.BackupFile is not null)
+        {
+            control.BackupFromPreviousSession = true;
+
+            if (
+                control.BackupReason != BackupReasonBeforeImport &&
+                control.BackupReason != BackupReasonImportOriginal &&
+                control.BackupReason != BackupReasonRestored
+            )
+            {
+                control.BackupReason = BackupReasonPreviousSession;
+            }
+        }
+
+        SaveWorkbookControl(appFolder, control);
+    }
+
     private static string? FindCurrentWorkbookPath(string appFolder)
     {
+        var control = LoadWorkbookControl(appFolder);
+        return ResolveWorkbookPath(appFolder, control.OnUseFile);
+    }
+
+    private static WorkbookControl LoadWorkbookControl(string appFolder)
+    {
         MigrateLegacyPlanilhasFolder(appFolder);
+        var controlPath = GetWorkbookControlPath(appFolder);
+        WorkbookControl? control = null;
+
+        try
+        {
+            if (File.Exists(controlPath))
+            {
+                control = JsonSerializer.Deserialize<WorkbookControl>(
+                    File.ReadAllText(controlPath)
+                );
+            }
+        }
+        catch
+        {
+            control = null;
+        }
+
+        control ??= new WorkbookControl();
+        control.OnUseFile = NormalizeTrackedWorkbookFileName(control.OnUseFile);
+        control.BackupFile = NormalizeTrackedWorkbookFileName(control.BackupFile);
+        control.BackupReason = NormalizeBackupReason(control.BackupReason);
+        control.PendingBackupReason = NormalizePendingBackupReason(control.PendingBackupReason);
+
+        if (ResolveWorkbookPath(appFolder, control.OnUseFile) is null)
+        {
+            control.OnUseFile = null;
+        }
+
+        if (ResolveWorkbookPath(appFolder, control.BackupFile) is null)
+        {
+            control.BackupFile = null;
+            control.BackupReason = null;
+            control.BackupFromPreviousSession = false;
+        }
+
+        if (control.OnUseFile is null)
+        {
+            var knownWorkbooks = GetKnownWorkbookFiles(appFolder)
+                .Take(2)
+                .ToArray();
+
+            control.OnUseFile = knownWorkbooks.ElementAtOrDefault(0)?.Name;
+            control.BackupFile = knownWorkbooks.ElementAtOrDefault(1)?.Name;
+            control.CloneOnNextSave = control.OnUseFile is not null;
+            control.BackupReason = control.BackupFile is null
+                ? null
+                : BackupReasonPreviousSession;
+            control.PendingBackupReason = control.OnUseFile is null
+                ? null
+                : BackupReasonBeforeSessionEdit;
+            control.BackupFromPreviousSession = control.BackupFile is not null;
+        }
+
+        if (control.OnUseFile is null)
+        {
+            control.CloneOnNextSave = false;
+            control.PendingBackupReason = null;
+        }
+
+        if (control.BackupFile is not null && control.BackupReason is null)
+        {
+            control.BackupReason = BackupReasonPreviousSession;
+        }
+
+        SaveWorkbookControl(appFolder, control);
+        return control;
+    }
+
+    private static void SaveWorkbookControl(string appFolder, WorkbookControl control)
+    {
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
+        File.WriteAllText(
+            GetWorkbookControlPath(appFolder),
+            JsonSerializer.Serialize(
+                control,
+                new JsonSerializerOptions { WriteIndented = true }
+            )
+        );
+    }
+
+    private static string? ResolveWorkbookPath(string appFolder, string? fileName)
+    {
+        var normalizedName = NormalizeTrackedWorkbookFileName(fileName);
+
+        if (normalizedName is null)
+        {
+            return null;
+        }
+
+        var path = Path.Combine(GetDadosFolder(appFolder), normalizedName);
+
+        return File.Exists(path) ? path : null;
+    }
+
+    private static string? NormalizeTrackedWorkbookFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        var safeName = Path.GetFileName(fileName);
+
+        if (
+            string.IsNullOrWhiteSpace(safeName) ||
+            safeName.StartsWith("~$", StringComparison.Ordinal) ||
+            !safeName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return null;
+        }
+
+        return safeName;
+    }
+
+    private static IEnumerable<FileInfo> GetKnownWorkbookFiles(string appFolder)
+    {
         var dadosFolder = GetDadosFolder(appFolder);
 
         if (!Directory.Exists(dadosFolder))
         {
-            return null;
+            return Enumerable.Empty<FileInfo>();
         }
 
         return Directory
             .GetFiles(dadosFolder, "*.xlsx", SearchOption.TopDirectoryOnly)
             .Select(path => new FileInfo(path))
             .Where(file => !file.Name.StartsWith("~$", StringComparison.Ordinal))
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .FirstOrDefault()
-            ?.FullName;
+            .OrderByDescending(file => file.LastWriteTimeUtc);
     }
 
     private static string GetWorkbookMetaPath(string appFolder)
@@ -714,9 +1048,47 @@ internal static class Program
         return Path.Combine(GetDadosFolder(appFolder), "aprendizes.json");
     }
 
-    private static string GetTimestampedWorkbookName()
+    private static string GetUniqueTimestampedWorkbookName(string folder)
     {
-        return $"Aprendizes_{DateTime.Now:HHmmssddMMyy}.xlsx";
+        var baseName = $"Aprendizes_{DateTime.Now:HHmmssddMMyy}";
+        var candidate = $"{baseName}.xlsx";
+        var suffix = 2;
+
+        while (File.Exists(Path.Combine(folder, candidate)))
+        {
+            candidate = $"{baseName}_{suffix}.xlsx";
+            suffix += 1;
+        }
+
+        return candidate;
+    }
+
+    private static string? NormalizeBackupReason(string? reason)
+    {
+        return reason switch
+        {
+            BackupReasonBeforeImport => BackupReasonBeforeImport,
+            BackupReasonBeforeSessionEdit => BackupReasonBeforeSessionEdit,
+            BackupReasonImportOriginal => BackupReasonImportOriginal,
+            BackupReasonPreviousSession => BackupReasonPreviousSession,
+            BackupReasonRestored => BackupReasonRestored,
+            _ => null
+        };
+    }
+
+    private static string? NormalizePendingBackupReason(string? reason)
+    {
+        return reason switch
+        {
+            BackupReasonBeforeSessionEdit => BackupReasonBeforeSessionEdit,
+            BackupReasonImportOriginal => BackupReasonImportOriginal,
+            _ => null
+        };
+    }
+
+    private static string FormatBackupDateTime(DateTime dateTime)
+    {
+        return $"{dateTime:HH}h{dateTime:mm}m{dateTime:ss}s {dateTime:dd/MM/yy}";
     }
 
     private static void MigrateLegacyPlanilhasFolder(string appFolder)
@@ -846,6 +1218,16 @@ internal static class Program
         Dictionary<string, string> Headers,
         byte[] Body
     );
+
+    private sealed class WorkbookControl
+    {
+        public string? OnUseFile { get; set; }
+        public string? BackupFile { get; set; }
+        public bool CloneOnNextSave { get; set; }
+        public string? BackupReason { get; set; }
+        public string? PendingBackupReason { get; set; }
+        public bool BackupFromPreviousSession { get; set; }
+    }
 
     private sealed class AppWindow : Form
     {
