@@ -21,3 +21,7 @@ notes/todos.txt text eol=lf merge=union
 *.ogg binary
 *.wav binary
 *.mp3 binary
+
+# Windows app packages are larger than GitHub's normal file limit.
+project/dev/SejaElevar.exe filter=lfs diff=lfs merge=lfs -text
+exports/SejaElevar/SejaElevar.exe filter=lfs diff=lfs merge=lfs -text

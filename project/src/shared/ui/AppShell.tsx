@@ -2,13 +2,21 @@ import {
   useEffect,
   useState,
   type CSSProperties,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import type { AppBrand } from '../brand/appBrand';
 import type { AppTab, NavigationIcon, NavigationTab } from '../navigation/tabs';
+import {
+  createDefaultAppSettings,
+  readSavedAppSettings,
+  SETTINGS_STORAGE_KEY,
+  type AppSettings,
+  type DarkThemeSettings,
+  type LayoutSettings,
+  type ThemeSettings,
+} from './appShellSettings';
 
-const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
-const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
 const SIDEBAR_STORAGE_KEY = 'sejaelevar.sidebarCollapsed';
 
 declare global {
@@ -25,32 +33,6 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-type ThemeSettings = AppBrand['theme'];
-
-type LayoutSettings = {
-  pageTopOffset: number;
-  contentTopOffset: number;
-  gearOuterOffset: number;
-  collapseIconOffset: number;
-  collapseLabelOffset: number;
-  collapseLabelVerticalOffset: number;
-  logoImageHeight: number;
-  sidebarTopOffset: number;
-  tabListTopOffset: number;
-  tabButtonGap: number;
-  actionButtonGap: number;
-  menuButtonSize: number;
-  iconTextGap: number;
-  tableRowHeight: number;
-  tableHeaderHeight: number;
-  tableTopOffset: number;
-};
-
-type AppSettings = {
-  theme: ThemeSettings;
-  layout: LayoutSettings;
-};
-
 export function AppShell({
   brand,
   tabs,
@@ -60,64 +42,6 @@ export function AppShell({
 }: AppShellProps) {
   const isReleaseMode =
     typeof window !== 'undefined' && window.SEJAELEVAR_RELEASE === true;
-
-  const defaultSettings: AppSettings = {
-    theme: brand.theme,
-    layout: {
-      pageTopOffset: 51,
-      contentTopOffset: 22,
-      gearOuterOffset: 1.5,
-      collapseIconOffset: 0,
-      collapseLabelOffset: 0,
-      collapseLabelVerticalOffset: -1,
-      logoImageHeight: 100,
-      sidebarTopOffset: 10,
-      tabListTopOffset: 0,
-      tabButtonGap: 20,
-      actionButtonGap: 5,
-      menuButtonSize: 47,
-      iconTextGap: 6,
-      tableRowHeight: 32,
-      tableHeaderHeight: 48,
-      tableTopOffset: 14,
-    },
-  };
-
-  const readSavedSettings = () => {
-    if (typeof window === 'undefined') {
-      return defaultSettings;
-    }
-
-    const savedSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    const savedTheme = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
-
-    if (!savedSettings && !savedTheme) {
-      return defaultSettings;
-    }
-
-    try {
-      if (savedSettings) {
-        const parsedSettings = JSON.parse(savedSettings) as Partial<AppSettings>;
-        return {
-          theme: { ...brand.theme, ...parsedSettings.theme },
-          layout: { ...defaultSettings.layout, ...parsedSettings.layout },
-        };
-      }
-
-      if (savedTheme) {
-        return {
-          ...defaultSettings,
-          theme: { ...brand.theme, ...JSON.parse(savedTheme) },
-        };
-      }
-    } catch {
-      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
-      window.localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
-    }
-
-    return defaultSettings;
-  };
-
   const [isStartMotionDisabled, setIsStartMotionDisabled] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') {
@@ -131,7 +55,8 @@ export function AppShell({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMiniMenuOpen, setIsMiniMenuOpen] = useState(false);
   const [isMiniMenuArmed, setIsMiniMenuArmed] = useState(true);
-  const [settings, setSettings] = useState(readSavedSettings);
+  const [settings, setSettings] = useState(() => readSavedAppSettings(brand));
+  const defaultSettings = createDefaultAppSettings(brand);
 
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
@@ -217,12 +142,98 @@ export function AppShell({
     });
   };
 
+  const updateDarkColor = (key: keyof DarkThemeSettings, value: string) => {
+    saveSettings({
+      ...settings,
+      darkTheme: { ...settings.darkTheme, [key]: value },
+    });
+  };
+
   const updateLayout = (key: keyof LayoutSettings, value: number) => {
     saveSettings({
       ...settings,
       layout: { ...settings.layout, [key]: value },
     });
   };
+
+  const resetColor = (key: keyof ThemeSettings) => {
+    updateColor(key, defaultSettings.theme[key]);
+  };
+
+  const resetDarkColor = (key: keyof DarkThemeSettings) => {
+    updateDarkColor(key, defaultSettings.darkTheme[key]);
+  };
+
+  const resetLayout = (key: keyof LayoutSettings) => {
+    updateLayout(key, defaultSettings.layout[key]);
+  };
+
+  const updateLightPrimary = (value: string) => {
+    saveSettings({
+      ...settings,
+      theme: { ...settings.theme, primary: value },
+    });
+  };
+
+  const updateLightSecondary = (value: string) => {
+    saveSettings({
+      ...settings,
+      theme: {
+        ...settings.theme,
+        secondary: value,
+        tertiary: value,
+        hover: value,
+      },
+    });
+  };
+
+  const updateDarkPrimary = (value: string) => {
+    saveSettings({
+      ...settings,
+      darkTheme: { ...settings.darkTheme, primary: value },
+    });
+  };
+
+  const updateDarkSecondary = (value: string) => {
+    saveSettings({
+      ...settings,
+      darkTheme: {
+        ...settings.darkTheme,
+        secondary: value,
+        menu: value,
+        hover: value,
+      },
+    });
+  };
+
+  useEffect(() => {
+    const syncWindowTheme = () => {
+      const isDarkMode = document.documentElement.classList.contains('dark-mode');
+      const activeTheme = isDarkMode ? settings.darkTheme : settings.theme;
+
+      void fetch('/api/app/window-theme', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          darkMode: isDarkMode,
+          titleBarColor: activeTheme.titleBar,
+          titleTextColor: activeTheme.titleBarText,
+        }),
+      }).catch(() => {
+        // Browser preview can run without the local Windows title-bar bridge.
+      });
+    };
+
+    syncWindowTheme();
+
+    const observer = new MutationObserver(syncWindowTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
+  }, [settings]);
 
   const toggleSidebar = () => {
     setIsSidebarCollapsed((current) => {
@@ -234,6 +245,25 @@ export function AppShell({
       window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(nextCollapsed));
       return nextCollapsed;
     });
+  };
+
+  const handleMenuToggleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (isSidebarCollapsed && !isMiniMenuOpen) {
+      const icon = event.currentTarget.querySelector('svg');
+      const iconBounds = icon?.getBoundingClientRect();
+
+      if (
+        !iconBounds ||
+        event.clientX < iconBounds.left ||
+        event.clientX > iconBounds.right ||
+        event.clientY < iconBounds.top ||
+        event.clientY > iconBounds.bottom
+      ) {
+        return;
+      }
+    }
+
+    toggleSidebar();
   };
 
   const closeSettings = () => {
@@ -307,25 +337,57 @@ export function AppShell({
       }
       style={
         {
-          '--brand-primary': settings.theme.primary,
-          '--brand-secondary': settings.theme.secondary,
-          '--brand-tertiary': settings.theme.tertiary,
-          '--brand-surface': settings.theme.surface,
-          '--brand-text': settings.theme.text,
+          '--light-primary': settings.theme.primary,
+          '--light-secondary': settings.theme.secondary,
+          '--light-menu': settings.theme.tertiary,
+          '--light-surface': settings.theme.surface,
+          '--light-text': settings.theme.text,
+          '--light-panel': settings.theme.panel,
+          '--light-line': settings.theme.line,
+          '--light-hover': settings.theme.hover,
+          '--light-border': settings.theme.border,
+          '--light-scroll-track': settings.theme.scrollTrack,
+          '--light-scroll-thumb': settings.theme.scrollThumb,
+          '--light-title-bar': settings.theme.titleBar,
+          '--light-title-bar-text': settings.theme.titleBarText,
+          '--light-active-icon': settings.theme.activeIcon,
+          '--light-active-text': settings.theme.activeText,
+          '--light-header-text': settings.theme.headerText,
+          '--dark-primary': settings.darkTheme.primary,
+          '--dark-secondary': settings.darkTheme.secondary,
+          '--dark-menu': settings.darkTheme.menu,
+          '--dark-surface': settings.darkTheme.surface,
+          '--dark-panel': settings.darkTheme.panel,
+          '--dark-text': settings.darkTheme.text,
+          '--dark-line': settings.darkTheme.line,
+          '--dark-hover': settings.darkTheme.hover,
+          '--dark-border': settings.darkTheme.border,
+          '--dark-scroll-track': settings.darkTheme.scrollTrack,
+          '--dark-scroll-thumb': settings.darkTheme.scrollThumb,
+          '--dark-title-bar': settings.darkTheme.titleBar,
+          '--dark-title-bar-text': settings.darkTheme.titleBarText,
+          '--dark-active-icon': settings.darkTheme.activeIcon,
+          '--dark-active-text': settings.darkTheme.activeText,
+          '--dark-header-text': settings.darkTheme.headerText,
           '--page-top-offset': `${settings.layout.pageTopOffset}px`,
           '--content-top-offset': `${settings.layout.contentTopOffset}px`,
           '--collapse-label-offset': `${settings.layout.collapseLabelOffset}px`,
           '--collapse-label-vertical-offset': `${settings.layout.collapseLabelVerticalOffset}px`,
+          '--collapse-button-vertical-offset': `${settings.layout.collapseButtonVerticalOffset}px`,
+          '--lower-actions-vertical-offset': `${settings.layout.lowerActionsVerticalOffset}px`,
           '--logo-image-height': `${settings.layout.logoImageHeight}px`,
           '--sidebar-top-offset': `${settings.layout.sidebarTopOffset}px`,
           '--tab-list-top-offset': `${settings.layout.tabListTopOffset}px`,
           '--tab-button-gap': `${settings.layout.tabButtonGap}px`,
           '--action-button-gap': `${settings.layout.actionButtonGap}px`,
+          '--menu-toggle-bottom': `${settings.layout.menuToggleBottom}px`,
           '--menu-button-size': `${settings.layout.menuButtonSize}px`,
           '--icon-text-gap': `${settings.layout.iconTextGap}px`,
+          '--feature-heading-vertical-offset': `${settings.layout.featureHeadingVerticalOffset}px`,
           '--table-row-height': `${settings.layout.tableRowHeight}px`,
           '--table-header-height': `${settings.layout.tableHeaderHeight}px`,
           '--table-top-offset': `${settings.layout.tableTopOffset}px`,
+          '--table-height-offset': `${settings.layout.tableHeightOffset}px`,
         } as CSSProperties
       }
     >
@@ -457,12 +519,13 @@ export function AppShell({
           type="button"
           aria-label={isSidebarCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
           aria-pressed={isSidebarCollapsed}
+          title={isSidebarCollapsed ? 'Abrir Menu' : undefined}
           onMouseEnter={() => {
             if (isSidebarCollapsed && isMiniMenuArmed) {
               setIsMiniMenuOpen(true);
             }
           }}
-          onClick={toggleSidebar}
+          onClick={handleMenuToggleClick}
         >
           <CollapseIcon
             direction={isSidebarCollapsed ? 'show' : 'hide'}
@@ -506,22 +569,298 @@ export function AppShell({
 
           <div className="settings-fields">
             <ColorField
-              label="Cor principal"
+              label="Cor Primária - Modo Claro"
               value={settings.theme.primary}
-              onChange={(value) => updateColor('primary', value)}
+              onChange={updateLightPrimary}
+              onReset={() => resetColor('primary')}
             />
             <ColorField
-              label="Cor secundária"
-              value={settings.theme.secondary}
-              onChange={(value) => updateColor('secondary', value)}
-            />
-            <ColorField
-              label="Fundo do menu"
+              label="Cor Secundária - Modo Claro"
               value={settings.theme.tertiary}
-              onChange={(value) => updateColor('tertiary', value)}
+              onChange={updateLightSecondary}
+              onReset={() => updateLightSecondary(defaultSettings.theme.tertiary)}
+            />
+            <ColorField
+              label="Cor Primária - Modo Escuro"
+              value={settings.darkTheme.primary}
+              onChange={updateDarkPrimary}
+              onReset={() => resetDarkColor('primary')}
+            />
+            <ColorField
+              label="Cor Secundária - Modo Escuro"
+              value={settings.darkTheme.menu}
+              onChange={updateDarkSecondary}
+              onReset={() => updateDarkSecondary(defaultSettings.darkTheme.menu)}
+            />
+            <ColorField
+              label="Dia painel/tabela"
+              value={settings.theme.panel}
+              onChange={(value) => updateColor('panel', value)}
+              onReset={() => resetColor('panel')}
+            />
+            <ColorField
+              label="Dia texto"
+              value={settings.theme.text}
+              onChange={(value) => updateColor('text', value)}
+              onReset={() => resetColor('text')}
+            />
+            <ColorField
+              label="Dia linhas"
+              value={settings.theme.line}
+              onChange={(value) => updateColor('line', value)}
+              onReset={() => resetColor('line')}
+            />
+            <ColorField
+              label="Dia hover"
+              value={settings.theme.hover}
+              onChange={(value) => updateColor('hover', value)}
+              onReset={() => resetColor('hover')}
+            />
+            <ColorField
+              label="Dia contorno"
+              value={settings.theme.border}
+              onChange={(value) => updateColor('border', value)}
+              onReset={() => resetColor('border')}
+            />
+            <ColorField
+              label="Dia scroll fundo"
+              value={settings.theme.scrollTrack}
+              onChange={(value) => updateColor('scrollTrack', value)}
+              onReset={() => resetColor('scrollTrack')}
+            />
+            <ColorField
+              label="Dia scroll"
+              value={settings.theme.scrollThumb}
+              onChange={(value) => updateColor('scrollThumb', value)}
+              onReset={() => resetColor('scrollThumb')}
+            />
+            <ColorField
+              label="Dia barra janela"
+              value={settings.theme.titleBar}
+              onChange={(value) => updateColor('titleBar', value)}
+              onReset={() => resetColor('titleBar')}
+            />
+            <ColorField
+              label="Dia texto janela"
+              value={settings.theme.titleBarText}
+              onChange={(value) => updateColor('titleBarText', value)}
+              onReset={() => resetColor('titleBarText')}
+            />
+            <ColorField
+              label="Dia ícone ativo"
+              value={settings.theme.activeIcon}
+              onChange={(value) => updateColor('activeIcon', value)}
+              onReset={() => resetColor('activeIcon')}
+            />
+            <ColorField
+              label="Dia texto ativo"
+              value={settings.theme.activeText}
+              onChange={(value) => updateColor('activeText', value)}
+              onReset={() => resetColor('activeText')}
+            />
+            <ColorField
+              label="Dia texto cabeçalho"
+              value={settings.theme.headerText}
+              onChange={(value) => updateColor('headerText', value)}
+              onReset={() => resetColor('headerText')}
+            />
+            <ColorField
+              label="Escuro principal"
+              value={settings.darkTheme.primary}
+              onChange={(value) => updateDarkColor('primary', value)}
+              onReset={() => resetDarkColor('primary')}
+            />
+            <ColorField
+              label="Escuro secundária"
+              value={settings.darkTheme.secondary}
+              onChange={(value) => updateDarkColor('secondary', value)}
+              onReset={() => resetDarkColor('secondary')}
+            />
+            <ColorField
+              label="Escuro menu"
+              value={settings.darkTheme.menu}
+              onChange={(value) => updateDarkColor('menu', value)}
+              onReset={() => resetDarkColor('menu')}
+            />
+            <ColorField
+              label="Escuro fundo"
+              value={settings.darkTheme.surface}
+              onChange={(value) => updateDarkColor('surface', value)}
+              onReset={() => resetDarkColor('surface')}
+            />
+            <ColorField
+              label="Escuro painel"
+              value={settings.darkTheme.panel}
+              onChange={(value) => updateDarkColor('panel', value)}
+              onReset={() => resetDarkColor('panel')}
+            />
+            <ColorField
+              label="Escuro texto"
+              value={settings.darkTheme.text}
+              onChange={(value) => updateDarkColor('text', value)}
+              onReset={() => resetDarkColor('text')}
+            />
+            <ColorField
+              label="Escuro linhas"
+              value={settings.darkTheme.line}
+              onChange={(value) => updateDarkColor('line', value)}
+              onReset={() => resetDarkColor('line')}
+            />
+            <ColorField
+              label="Escuro hover"
+              value={settings.darkTheme.hover}
+              onChange={(value) => updateDarkColor('hover', value)}
+              onReset={() => resetDarkColor('hover')}
+            />
+            <ColorField
+              label="Escuro contorno"
+              value={settings.darkTheme.border}
+              onChange={(value) => updateDarkColor('border', value)}
+              onReset={() => resetDarkColor('border')}
+            />
+            <ColorField
+              label="Escuro scroll fundo"
+              value={settings.darkTheme.scrollTrack}
+              onChange={(value) => updateDarkColor('scrollTrack', value)}
+              onReset={() => resetDarkColor('scrollTrack')}
+            />
+            <ColorField
+              label="Escuro scroll"
+              value={settings.darkTheme.scrollThumb}
+              onChange={(value) => updateDarkColor('scrollThumb', value)}
+              onReset={() => resetDarkColor('scrollThumb')}
+            />
+            <ColorField
+              label="Escuro barra janela"
+              value={settings.darkTheme.titleBar}
+              onChange={(value) => updateDarkColor('titleBar', value)}
+              onReset={() => resetDarkColor('titleBar')}
+            />
+            <ColorField
+              label="Escuro texto janela"
+              value={settings.darkTheme.titleBarText}
+              onChange={(value) => updateDarkColor('titleBarText', value)}
+              onReset={() => resetDarkColor('titleBarText')}
+            />
+            <ColorField
+              label="Escuro ícone ativo"
+              value={settings.darkTheme.activeIcon}
+              onChange={(value) => updateDarkColor('activeIcon', value)}
+              onReset={() => resetDarkColor('activeIcon')}
+            />
+            <ColorField
+              label="Escuro texto ativo"
+              value={settings.darkTheme.activeText}
+              onChange={(value) => updateDarkColor('activeText', value)}
+              onReset={() => resetDarkColor('activeText')}
+            />
+            <ColorField
+              label="Escuro texto cabeçalho"
+              value={settings.darkTheme.headerText}
+              onChange={(value) => updateDarkColor('headerText', value)}
+              onReset={() => resetDarkColor('headerText')}
             />
             {!isReleaseMode && (
               <>
+                <SliderField
+                  label="Espaço botões inferiores"
+                  min={0}
+                  max={24}
+                  step={1}
+                  value={settings.layout.actionButtonGap}
+                  onChange={(value) => updateLayout('actionButtonGap', value)}
+                  onReset={() => resetLayout('actionButtonGap')}
+                />
+                <SliderField
+                  label="Base botões inferiores"
+                  min={8}
+                  max={40}
+                  step={1}
+                  value={settings.layout.menuToggleBottom}
+                  onChange={(value) => updateLayout('menuToggleBottom', value)}
+                  onReset={() => resetLayout('menuToggleBottom')}
+                />
+                <SliderField
+                  label="Altura titulo da pagina"
+                  min={-32}
+                  max={48}
+                  step={1}
+                  value={settings.layout.featureHeadingVerticalOffset}
+                  onChange={(value) =>
+                    updateLayout('featureHeadingVerticalOffset', value)
+                  }
+                  onReset={() =>
+                    resetLayout('featureHeadingVerticalOffset')
+                  }
+                />
+                <SliderField
+                  label="Altura da tabela"
+                  min={-160}
+                  max={160}
+                  step={1}
+                  value={settings.layout.tableHeightOffset}
+                  onChange={(value) => updateLayout('tableHeightOffset', value)}
+                  onReset={() => resetLayout('tableHeightOffset')}
+                />
+                <SliderField
+                  label="Altura Pesq/Config"
+                  min={-24}
+                  max={48}
+                  step={1}
+                  value={settings.layout.lowerActionsVerticalOffset}
+                  onChange={(value) =>
+                    updateLayout('lowerActionsVerticalOffset', value)
+                  }
+                  onReset={() =>
+                    resetLayout('lowerActionsVerticalOffset')
+                  }
+                />
+                <SliderField
+                  label="Icone Ocultar X"
+                  min={-12}
+                  max={12}
+                  step={1}
+                  value={settings.layout.collapseIconOffset}
+                  onChange={(value) => updateLayout('collapseIconOffset', value)}
+                  onReset={() => resetLayout('collapseIconOffset')}
+                />
+                <SliderField
+                  label="Texto Ocultar X"
+                  min={-16}
+                  max={16}
+                  step={1}
+                  value={settings.layout.collapseLabelOffset}
+                  onChange={(value) =>
+                    updateLayout('collapseLabelOffset', value)
+                  }
+                  onReset={() => resetLayout('collapseLabelOffset')}
+                />
+                <SliderField
+                  label="Altura botao Ocultar"
+                  min={-16}
+                  max={16}
+                  step={1}
+                  value={settings.layout.collapseButtonVerticalOffset}
+                  onChange={(value) =>
+                    updateLayout('collapseButtonVerticalOffset', value)
+                  }
+                  onReset={() =>
+                    resetLayout('collapseButtonVerticalOffset')
+                  }
+                />
+                <SliderField
+                  label="Altura texto Ocultar"
+                  min={-8}
+                  max={8}
+                  step={1}
+                  value={settings.layout.collapseLabelVerticalOffset}
+                  onChange={(value) =>
+                    updateLayout('collapseLabelVerticalOffset', value)
+                  }
+                  onReset={() =>
+                    resetLayout('collapseLabelVerticalOffset')
+                  }
+                />
                 <SliderField
                   label="Altura das linhas"
                   min={24}
@@ -529,6 +868,7 @@ export function AppShell({
                   step={1}
                   value={settings.layout.tableRowHeight}
                   onChange={(value) => updateLayout('tableRowHeight', value)}
+                  onReset={() => resetLayout('tableRowHeight')}
                 />
                 <SliderField
                   label="Altura do cabeçalho"
@@ -539,6 +879,7 @@ export function AppShell({
                   onChange={(value) =>
                     updateLayout('tableHeaderHeight', value)
                   }
+                  onReset={() => resetLayout('tableHeaderHeight')}
                 />
                 <SliderField
                   label="Posição da tabela"
@@ -547,6 +888,7 @@ export function AppShell({
                   step={1}
                   value={settings.layout.tableTopOffset}
                   onChange={(value) => updateLayout('tableTopOffset', value)}
+                  onReset={() => resetLayout('tableTopOffset')}
                 />
               </>
             )}
@@ -563,11 +905,18 @@ type ColorFieldProps = {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onReset: () => void;
 };
 
-function ColorField({ label, value, onChange }: ColorFieldProps) {
+function ColorField({ label, value, onChange, onReset }: ColorFieldProps) {
   return (
-    <div className="color-field">
+    <div
+      className="color-field"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onReset();
+      }}
+    >
       <span>{label}</span>
       <input
         aria-label={label}
@@ -586,6 +935,7 @@ type SliderFieldProps = {
   step: number;
   value: number;
   onChange: (value: number) => void;
+  onReset: () => void;
 };
 
 function SliderField({
@@ -595,9 +945,16 @@ function SliderField({
   step,
   value,
   onChange,
+  onReset,
 }: SliderFieldProps) {
   return (
-    <label className="slider-field">
+    <label
+      className="slider-field"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onReset();
+      }}
+    >
       <span>{label}</span>
       <input
         type="range"

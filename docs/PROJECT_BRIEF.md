@@ -47,12 +47,14 @@ Test: no dedicated test suite yet; use npm run build:single as the normal dev ve
 
 Do not treat `dist/` as source; it is a generated build output.
 
+Dev and release are parallel app packages. `project/dev/` is the normal testing package during development; `exports/SejaElevar/` is the generated coworker-facing package. They should keep the same folder/file structure and approved behavior. Dev may expose explicitly dev-only live tuning controls; release should hide/remove those controls and keep only the end-user app/settings.
+
 ## Important Constraints
 
 - Local-first development is required at the beginning.
 - The app should run as a browser-accessed local web app during early development. The current friendly local entry point is `SejaElevar.exe`, which starts the local provider and opens the browser UI. Opening the raw HTML/address without the provider should not show the app UI.
 - Data starts as files/folders: real operational spreadsheets, structured data files, document templates, generated documents, company logos/images, and related assets.
-- The first data workflow uses a real student/apprentice `.xlsx` spreadsheet as the active source. Importing asks only for the source `.xlsx`; the local provider copies it into `dados/planilhas/` with the same filename. When a data edit is saved, the active workbook is renamed to `Aprendizes_hhmmssddmmyy.xlsx` and written there.
+- The first data workflow uses a real student/apprentice `.xlsx` spreadsheet as the active source. Importing asks only for the source `.xlsx`; the local provider copies it directly into `dados/` as `Aprendizes_hhmmssddmmyy.xlsx`, replacing the previous active workbook. When a data edit is saved, the active workbook is again written as a timestamped `Aprendizes_hhmmssddmmyy.xlsx`.
 - Real student/person/company data may be sensitive. Do not commit real operational data unless the user explicitly decides that the repository/privacy setup makes that acceptable.
 - Keep any sample/anonymized demo data separate from private local data. Demo data is optional and should not replace the real local workspace concept.
 - Design the storage boundary so future adapters can target Google Drive synced folders, Google Sheets/Drive APIs, a hosted database, or another backend without rewriting every UI feature.
@@ -66,7 +68,7 @@ Do not treat `dist/` as source; it is a generated build output.
 ## Current Priorities
 
 1. Continue the first local browser app prototype using the Vite + React + TypeScript scaffold already in `project/`.
-2. Continue the first `Aprendizes` data slice: import/read an `.xlsx`, copy it under `dados/planilhas/`, map the real columns, show the real list without fake data, and write supported edits back to the working file.
+2. Continue the first `Aprendizes` data slice: import/read an `.xlsx`, copy it under `dados/`, map the real columns, show the real list without fake data, and write supported edits back to the working file.
 3. Establish a workspace model where the app can import/use local spreadsheets, templates, logos/assets, generated documents, and config without committing private data.
 4. Decide whether the first `Aprendizes` slice is read-only before editing support.
 5. Add document generation after the workspace and apprentice listing flow are reliable.

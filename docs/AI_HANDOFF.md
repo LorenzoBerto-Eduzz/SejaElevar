@@ -47,23 +47,24 @@ project/dev/
   SejaElevar.html
   assets/
   dados/
-    planilhas/
   modelos/
   documentos_gerados/
 ```
 
-The user should test with `project/dev/SejaElevar.exe`, not by opening `dist/` or raw generated files. The exe starts a local provider and opens the browser UI. Generated dev outputs and live data are ignored by Git. The browser app intentionally renders nothing if opened directly without the exe/provider; do not add "open through the app" warning text to the UI.
+The user should test with `project/dev/SejaElevar.exe`, not by opening `dist/` or raw generated files. The exe starts a local provider and opens the browser UI. The built dev/release package folders are intentionally tracked through Git/Git LFS for cross-PC handoff, while live operational data inside `dados/`, `modelos/`, and `documentos_gerados/` remains ignored except `.gitkeep` placeholders. The browser app intentionally renders nothing if opened directly without the exe/provider; do not add "open through the app" warning text to the UI.
+
+Dev/release package rule: `project/dev/` and `exports/SejaElevar/` should have the same folder/file structure and behave like the same app. The user tests the real flow in `project/dev/` during normal development. `exports/SejaElevar/` is generated only when the user explicitly asks for release/export/package. Dev may include explicitly dev-only live tuning controls; release should hide/remove those and ship only the end-user app/settings. Before generating release, bake the approved dev state into source so release does not differ unexpectedly.
 
 Current provider lifecycle: the browser page sends heartbeats and a close signal. Closing the page/tab requests immediate provider shutdown; if the close signal is missed, the heartbeat timeout is the fallback. The provider should not be treated as a permanent background service. Current heartbeat interval is 1 second from the browser, and the provider fallback timeout defaults to 5 seconds.
 
 Current `Aprendizes` behavior:
 
-- If no `.xlsx` exists in `dados/planilhas/`, the table stays in the import/missing-data state.
+- If no `.xlsx` exists directly in `dados/`, the table stays in the import/missing-data state.
 - Importing asks only for the source `.xlsx`.
-- The provider copies the selected file into `dados/planilhas/` with the same filename.
+- The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
 - No sidecar JSON metadata file is required in the current model.
 - Aprendizes cell edits and column reordering write back to the active workbook.
-- On save, the provider renames the active file to `Aprendizes_hhmmssddmmyy.xlsx` and writes the updated workbook there.
+- Importing a new file replaces the previous active workbook; edits also save as a fresh `Aprendizes_hhmmssddmmyy.xlsx`.
 - There is intentionally no export button right now, per user request.
 - Column widths and row heights are visual app settings only and are not written to the spreadsheet.
 - The Aprendizes page stays mounted while switching tabs and gates the import state until the provider/workbook check finishes, so returning to Aprendizes should not briefly flash the import button before showing an already-loaded table.

@@ -2,16 +2,20 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
+  type KeyboardEvent,
   type PointerEvent,
 } from 'react';
 import { read, utils, write } from 'xlsx';
+import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
 
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
 const LEGACY_APRENDIZES_STORAGE_KEY = 'sejaelevar.aprendizes.sheet.v1';
 const DEFAULT_COLUMN_WIDTH = 96;
-const MIN_COLUMN_WIDTH = 90;
+const MIN_COLUMN_WIDTH = 34;
 const TABLE_HORIZONTAL_PADDING = 10;
+const TABLE_WIDTH_BUFFER = 6;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
@@ -55,6 +59,32 @@ const measureTextWidth = (text: string, font: string) => {
   return textMeasureContext.measureText(text).width;
 };
 
+const getWrappedHeaderWidth = (text: string) => {
+  const words = text.split(/\s+/).filter(Boolean);
+
+  if (words.length <= 1) {
+    return measureTextWidth(text, TABLE_HEADER_FONT);
+  }
+
+  const fullTextWidth = measureTextWidth(text, TABLE_HEADER_FONT);
+  let bestWidth = fullTextWidth;
+
+  for (let splitIndex = 1; splitIndex < words.length; splitIndex += 1) {
+    const firstLine = words.slice(0, splitIndex).join(' ');
+    const secondLine = words.slice(splitIndex).join(' ');
+    const candidateWidth = Math.max(
+      measureTextWidth(firstLine, TABLE_HEADER_FONT),
+      measureTextWidth(secondLine, TABLE_HEADER_FONT),
+    );
+
+    if (candidateWidth < bestWidth) {
+      bestWidth = candidateWidth;
+    }
+  }
+
+  return bestWidth;
+};
+
 const readSavedViewSettings = () => {
   if (typeof window === 'undefined') {
     return defaultViewSettings;
@@ -73,6 +103,9 @@ const readSavedViewSettings = () => {
 
 export function AprendizesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
+  const tableBodyScrollRef = useRef<HTMLDivElement>(null);
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
   const isLocalProviderActiveRef = useRef(false);
@@ -85,7 +118,6 @@ export function AprendizesPage() {
   const [workspaceStatus, setWorkspaceStatus] = useState('');
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
     window.localStorage.setItem(
@@ -142,7 +174,7 @@ export function AprendizesPage() {
     if (response.status === 404) {
       clearWorkingSheet();
       setWorkspaceStatus(
-        'Nenhuma planilha encontrada em dados/planilhas. Importe um .xlsx.',
+        'Nenhuma planilha encontrada em dados. Importe um .xlsx.',
       );
       return false;
     }
@@ -196,9 +228,7 @@ export function AprendizesPage() {
       await fetchProviderFile({
         resetColumnWidths: true,
       });
-      setWorkspaceStatus(
-        `Planilha copiada para dados/planilhas/${storedFileName}.`,
-      );
+      setWorkspaceStatus(`Planilha copiada para dados/${storedFileName}.`);
       setImportError('');
     } catch (error) {
       if ((error as DOMException).name === 'AbortError') {
@@ -207,7 +237,7 @@ export function AprendizesPage() {
       }
 
       setImportError(
-        'Não foi possível copiar a planilha para dados/planilhas.',
+        'Não foi possível copiar a planilha para dados.',
       );
     }
   };
@@ -343,7 +373,7 @@ export function AprendizesPage() {
         setHasCheckedWorkspace(true);
 
         if (hasWorkbook) {
-          setWorkspaceStatus('Dados vinculados à planilha em dados/planilhas.');
+          setWorkspaceStatus('Dados vinculados à planilha em dados.');
         }
       } catch {
         isLocalProviderActiveRef.current = false;
@@ -429,14 +459,17 @@ export function AprendizesPage() {
       return DEFAULT_COLUMN_WIDTH;
     }
 
-    const headerWidth = measureTextWidth(column, TABLE_HEADER_FONT);
+    const headerWidth = getWrappedHeaderWidth(column);
     const longestCellWidth = importedSheet.rows.reduce((longestWidth, row) => {
       const cellWidth = measureTextWidth(row[columnIndex] || '', TABLE_FONT);
       return Math.max(longestWidth, cellWidth);
     }, 0);
     const textWidth = Math.ceil(Math.max(headerWidth, longestCellWidth));
 
-    return Math.max(MIN_COLUMN_WIDTH, textWidth + TABLE_HORIZONTAL_PADDING * 2);
+    return Math.max(
+      MIN_COLUMN_WIDTH,
+      textWidth + TABLE_HORIZONTAL_PADDING * 2 + TABLE_WIDTH_BUFFER,
+    );
   };
 
   const getColumnWidth = (column: string) =>
@@ -544,11 +577,11 @@ export function AprendizesPage() {
         fileName: savedFileName,
       });
 
-      setWorkspaceStatus(`Alterações gravadas em dados/planilhas/${savedFileName}.`);
+      setWorkspaceStatus(`Alterações gravadas em dados/${savedFileName}.`);
       setImportError('');
     } catch {
       setImportError(
-        'A alteração ficou na tela, mas não foi possível gravar em dados/planilhas.',
+        'A alteração ficou na tela, mas não foi possível gravar em dados.',
       );
     }
   };
@@ -583,23 +616,100 @@ export function AprendizesPage() {
     storeImportedSheet(nextSheet);
   };
 
+  const focusCell = (rowIndex: number, columnIndex: number) => {
+    const key = `${rowIndex}-${columnIndex}`;
+    const input = cellInputRefs.current[key];
+
+    input?.focus();
+    input?.select();
+  };
+
+  const handleCellNavigation = (
+    event: KeyboardEvent<HTMLInputElement>,
+    rowIndex: number,
+    columnIndex: number,
+  ) => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const nextRowIndex =
+      event.key === 'ArrowUp'
+        ? Math.max(0, rowIndex - 1)
+        : event.key === 'ArrowDown'
+          ? Math.min((importedSheet?.rows.length ?? 1) - 1, rowIndex + 1)
+          : rowIndex;
+    const nextColumnIndex =
+      event.key === 'ArrowLeft'
+        ? Math.max(0, columnIndex - 1)
+        : event.key === 'ArrowRight'
+          ? Math.min(orderedColumns.length - 1, columnIndex + 1)
+          : columnIndex;
+
+    window.requestAnimationFrame(() => focusCell(nextRowIndex, nextColumnIndex));
+  };
+
+  const syncHeaderScroll = () => {
+    if (!tableHeaderScrollRef.current || !tableBodyScrollRef.current) {
+      return;
+    }
+
+    tableHeaderScrollRef.current.scrollLeft = tableBodyScrollRef.current.scrollLeft;
+  };
+
+  const tableClassName = isEditMode ? 'data-table editing' : 'data-table';
+  const hasWorkingSheet = Boolean(importedSheet);
+  const renderColumnGroup = () => (
+    <colgroup>
+      {orderedColumns.map((column) => (
+        <col key={column} style={getColumnWidthStyle(column)} />
+      ))}
+    </colgroup>
+  );
+
   return (
     <section className="feature-page" aria-labelledby="aprendizes-title">
-      <div className="feature-heading">
-        <div>
-          <h1 id="aprendizes-title">Aprendizes</h1>
-        </div>
-        {importedSheet && (
+        <div className="feature-heading">
+          <div>
+            <h1 id="aprendizes-title">Aprendizes</h1>
+          </div>
           <div className="table-toolbar" aria-label="Ações da tabela">
             <button
-              className={isEditMode ? 'square-action active' : 'square-action'}
+              className={hasWorkingSheet ? 'square-action' : 'square-action disabled'}
+              type="button"
+              aria-label="Cadastrar aprendiz"
+              title="Cadastrar Aprendiz"
+              disabled={!hasWorkingSheet}
+            >
+              <UserPlusIcon />
+            </button>
+            <button
+              className={
+                hasWorkingSheet && isEditMode
+                  ? 'square-action active'
+                  : hasWorkingSheet
+                    ? 'square-action'
+                    : 'square-action disabled'
+              }
               type="button"
               aria-label="Editar visualização da tabela"
-              aria-pressed={isEditMode}
+              aria-pressed={hasWorkingSheet ? isEditMode : false}
               title="Editar tabela"
+              disabled={!hasWorkingSheet}
               onClick={() => setIsEditMode((current) => !current)}
             >
               <PencilIcon />
+            </button>
+            <button
+              className={hasWorkingSheet ? 'square-action' : 'square-action disabled'}
+              type="button"
+              aria-label="Recuperar dados"
+              title="Recuperar Dados"
+              disabled={!hasWorkingSheet}
+            >
+              <RotateClockwiseIcon />
             </button>
             <button
               className="square-action"
@@ -610,14 +720,16 @@ export function AprendizesPage() {
             >
               <ImportIcon />
             </button>
+            <ThemeToggleButton />
           </div>
-        )}
       </div>
 
       {hasCheckedWorkspace && !importedSheet && (
         <div
           className={
-            isDragging ? 'empty-data-state dragging' : 'empty-data-state'
+            isDragging
+              ? 'empty-data-state empty-tool-state dragging'
+              : 'empty-data-state empty-tool-state'
           }
           role="region"
           aria-label="Importar planilha de aprendizes"
@@ -628,19 +740,12 @@ export function AprendizesPage() {
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
         >
-          <div className="empty-data-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M5 4h14v16H5V4Z" />
-              <path d="M8 8h8" />
-              <path d="M8 12h8" />
-              <path d="M8 16h5" />
-            </svg>
-          </div>
           <button
-            className="primary-action"
+            className="primary-action import-empty-action"
             type="button"
             onClick={() => void importFromPicker()}
           >
+            <ImportIcon />
             Importar .xlsx
           </button>
         </div>
@@ -648,10 +753,14 @@ export function AprendizesPage() {
 
       {importedSheet && (
         <div className="data-table-panel">
-          <div className="data-table-scroll" role="region" tabIndex={0}>
-            <table
-              className={isEditMode ? 'data-table editing' : 'data-table'}
+          <div className="data-table-frame">
+            <div
+              className="data-table-header-scroll"
+              ref={tableHeaderScrollRef}
+              aria-hidden="true"
             >
+              <table className={`${tableClassName} data-table-header`}>
+                {renderColumnGroup()}
               <thead>
                 <tr>
                   {orderedColumns.map((column) => (
@@ -686,11 +795,23 @@ export function AprendizesPage() {
                   ))}
                 </tr>
               </thead>
+              </table>
+            </div>
+            <div
+              className="data-table-body-scroll"
+              ref={tableBodyScrollRef}
+              role="region"
+              tabIndex={0}
+              onScroll={syncHeaderScroll}
+            >
+              <table className={`${tableClassName} data-table-body`}>
+                {renderColumnGroup()}
               <tbody>
                 {importedSheet.rows.map((row, rowIndex) => (
                   <tr key={rowIndex}>
-                    {orderedColumns.map((column) => {
+                    {orderedColumns.map((column, orderedColumnIndex) => {
                       const columnIndex = importedSheet.columns.indexOf(column);
+                      const value = row[columnIndex] || '';
 
                       return (
                         <td
@@ -699,12 +820,32 @@ export function AprendizesPage() {
                         >
                           {isEditMode ? (
                             <input
+                              ref={(element) => {
+                                cellInputRefs.current[
+                                  `${rowIndex}-${orderedColumnIndex}`
+                                ] = element;
+                              }}
                               aria-label={`${column} linha ${rowIndex + 1}`}
-                              value={row[columnIndex] || ''}
+                              size={Math.max(value.length, 1)}
+                              style={
+                                {
+                                  '--edit-input-width': `${Math.max(
+                                    value.length + 2,
+                                    1,
+                                  )}ch`,
+                                } as CSSProperties
+                              }
+                              value={value}
                               onChange={(event) =>
                                 updateCell(rowIndex, column, event.target.value)
                               }
                               onKeyDown={(event) => {
+                                handleCellNavigation(
+                                  event,
+                                  rowIndex,
+                                  orderedColumnIndex,
+                                );
+
                                 if (event.key !== 'Enter') {
                                   return;
                                 }
@@ -725,7 +866,7 @@ export function AprendizesPage() {
                               }}
                             />
                           ) : (
-                            row[columnIndex] || ''
+                            value
                           )}
                         </td>
                       );
@@ -734,6 +875,7 @@ export function AprendizesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -769,6 +911,26 @@ function ImportIcon() {
       <path d="M5 21h14" />
       <path d="M5 17v4" />
       <path d="M19 17v4" />
+    </svg>
+  );
+}
+
+function UserPlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
+      <path d="M16 19h6" />
+      <path d="M19 16v6" />
+      <path d="M6 21v-2a4 4 0 0 1 4 -4h4" />
+    </svg>
+  );
+}
+
+function RotateClockwiseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19.95 11a8 8 0 1 0 -.5 4" />
+      <path d="M20 4v7h-7" />
     </svg>
   );
 }

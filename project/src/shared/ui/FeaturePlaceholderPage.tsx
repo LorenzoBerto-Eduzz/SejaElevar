@@ -1,3 +1,5 @@
+import { ThemeToggleButton } from './ThemeToggleButton';
+
 type FeaturePlaceholderPageProps = {
   title: string;
 };
@@ -10,6 +12,9 @@ export function FeaturePlaceholderPage({ title }: FeaturePlaceholderPageProps) {
       <div className="feature-heading">
         <div>
           <h1 id={titleId}>{title}</h1>
+        </div>
+        <div className="table-toolbar" aria-label="AÃ§Ãµes da pÃ¡gina">
+          <ThemeToggleButton />
         </div>
       </div>
 

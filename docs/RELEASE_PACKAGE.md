@@ -4,6 +4,17 @@ This document records the current direction for the coworker-facing local app fo
 
 The release package is not the development repo. It is the simple folder the user can pass to a coworker for testing or use.
 
+## Dev And Release Package Model
+
+There are two local app packages, and they should have the same folder/file structure and feel like the same product:
+
+- `project/dev/`: the dev package. The user tests here during normal development by opening `project/dev/SejaElevar.exe`.
+- `exports/SejaElevar/`: the release package. Generate/update this only when the user explicitly asks for a release/export/package.
+
+The dev package should be as close as possible to the release package so the user can test the real end-user flow before asking for a release. The allowed difference is that dev may include explicitly dev-only tools, such as live tuning sliders or alignment controls, used to refine the interface. The release package should hide/remove those dev-only controls and show only the final end-user app and end-user settings.
+
+Before creating a release, make sure the approved dev state is baked into source defaults. The release should not surprise the user with different colors, spacing, alignment, icons, text encoding, app shell behavior, data import behavior, or folder structure.
+
 ## Current Shape
 
 ```text
@@ -13,7 +24,6 @@ SejaElevar/
   README.md
   assets/
   dados/
-    planilhas/
   modelos/
   documentos_gerados/
 ```
@@ -24,8 +34,7 @@ SejaElevar/
 - `SejaElevar.html` is the built browser UI served by the local provider. Users should not need to open it directly for normal use.
 - `README.md` explains how to open/use the package. Use this filename, not `LEIA-ME.txt`.
 - `assets/` holds app-owned/meta assets and future local app state/config files.
-- `dados/` holds the organized input/working data fed into the tool.
-- `dados/planilhas/` holds spreadsheets used/edited by app tools. For Aprendizes, importing copies the selected `.xlsx` here with the same filename. On edit/save, the active workbook is renamed to `Aprendizes_hhmmssddmmyy.xlsx`.
+- `dados/` holds the organized input/working data fed into the tool. For Aprendizes, importing copies the selected `.xlsx` directly here as `Aprendizes_hhmmssddmmyy.xlsx`; importing a new workbook replaces the previous active workbook, and edits save back as a fresh timestamped workbook.
 - `modelos/` holds document/template files used for generation.
 - `documentos_gerados/` holds generated documents, especially temporary/recent outputs.
 
@@ -48,7 +57,7 @@ Current lifecycle:
 - The script builds the single-file app, publishes/copies `SejaElevar.exe`, and updates `exports/SejaElevar/`.
 - Do not rebuild/give the release package during normal dev work. The user explicitly wants to continue testing in dev and only receive a release/export when they ask for it.
 - Do not commit zip files.
-- Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy. Use `.gitkeep` files only to preserve empty folders.
+- The dev and release package folders are tracked so another PC can pull a runnable app package. Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy. Use `.gitkeep` files only to preserve empty folders.
 - The user can zip the folder themselves when needed; do not create a zip unless they ask.
 - Keep the root of the package quiet: ideally only the entry exe/html, `README.md`, and base folders.
 

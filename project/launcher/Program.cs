@@ -1,9 +1,12 @@
-using System.Diagnostics;
+using System.Drawing;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 internal static class Program
 {
@@ -17,11 +20,13 @@ internal static class Program
     private static string? _logPath;
     private static TcpListener? _listener;
     private static volatile bool _shutdownRequested;
+    private static AppWindow? _mainWindow;
+    private static int _isClosingMainWindow;
 
     [STAThread]
-    private static async Task<int> Main()
+    private static int Main()
     {
-        if (await TryOpenRunningApp())
+        if (TryFocusRunningApp().GetAwaiter().GetResult())
         {
             return 0;
         }
@@ -37,7 +42,8 @@ internal static class Program
             return 1;
         }
 
-        Directory.CreateDirectory(GetPlanilhasFolder(appFolder));
+        Directory.CreateDirectory(GetDadosFolder(appFolder));
+        MigrateLegacyPlanilhasFolder(appFolder);
 
         try
         {
@@ -48,18 +54,15 @@ internal static class Program
 
             if (Environment.GetEnvironmentVariable("SEJAELEVAR_NO_OPEN") != "1")
             {
-                OpenBrowser(url);
+                ApplicationConfiguration.Initialize();
+                _mainWindow = new AppWindow(url);
+                _ = Task.Run(() => AcceptClientsAsync(listener, appFolder));
+                Application.Run(_mainWindow);
+                RequestShutdown("app-run-ended");
+                return 0;
             }
 
-            _ = MonitorHeartbeatAsync(listener);
-
-            while (!_shutdownRequested)
-            {
-                var client = await listener.AcceptTcpClientAsync();
-                _ = Task.Run(() => HandleClientAsync(client, appFolder));
-            }
-
-            return 0;
+            return RunProviderOnlyAsync(listener, appFolder).GetAwaiter().GetResult();
         }
         catch (ObjectDisposedException)
         {
@@ -77,11 +80,44 @@ internal static class Program
         }
     }
 
-    private static async Task<bool> TryOpenRunningApp()
+    private static async Task<int> RunProviderOnlyAsync(TcpListener listener, string appFolder)
+    {
+        _ = MonitorHeartbeatAsync(listener);
+
+        while (!_shutdownRequested)
+        {
+            var client = await listener.AcceptTcpClientAsync();
+            _ = Task.Run(() => HandleClientAsync(client, appFolder));
+        }
+
+        return 0;
+    }
+
+    private static async Task AcceptClientsAsync(TcpListener listener, string appFolder)
+    {
+        while (!_shutdownRequested)
+        {
+            try
+            {
+                var client = await listener.AcceptTcpClientAsync();
+                _ = Task.Run(() => HandleClientAsync(client, appFolder));
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (SocketException)
+            {
+                return;
+            }
+        }
+    }
+
+    private static async Task<bool> TryFocusRunningApp()
     {
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(700) };
+            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(180) };
             var response = await client.GetAsync($"http://127.0.0.1:{PreferredPort}/api/app/status");
 
             if (!response.IsSuccessStatusCode)
@@ -89,7 +125,7 @@ internal static class Program
                 return false;
             }
 
-            OpenBrowser($"http://127.0.0.1:{PreferredPort}/");
+            await client.PostAsync($"http://127.0.0.1:{PreferredPort}/api/app/focus", null);
             return true;
         }
         catch
@@ -137,7 +173,7 @@ internal static class Program
                 continue;
             }
 
-            RequestShutdown();
+            RequestShutdown("heartbeat-timeout");
             return;
         }
     }
@@ -178,10 +214,26 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "POST" && request.Path == "/api/app/focus")
+            {
+                MarkHeartbeat();
+                FocusMainWindow();
+                await WriteJsonAsync(stream, 200, new { ok = true });
+                return;
+            }
+
             if (request.Method == "POST" && request.Path == "/api/app/closed")
             {
                 await WriteJsonAsync(stream, 200, new { ok = true });
-                RequestShutdown();
+                RequestShutdown("page-closed");
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/app/window-theme")
+            {
+                MarkHeartbeat();
+                ApplyWindowThemeFromRequest(request);
+                await WriteJsonAsync(stream, 200, new { ok = true });
                 return;
             }
 
@@ -320,8 +372,10 @@ internal static class Program
         }
     }
 
-    private static void RequestShutdown()
+    private static void RequestShutdown(string reason = "requested")
     {
+        Log($"Shutdown requested: {reason}");
+
         lock (HeartbeatLock)
         {
             _lastHeartbeatAt = DateTime.MinValue;
@@ -337,6 +391,115 @@ internal static class Program
         {
             // Shutdown should stay quiet if the listener has already stopped.
         }
+
+        CloseMainWindow();
+    }
+
+    private static void FocusMainWindow()
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            window.BeginInvoke(() =>
+            {
+                if (window.WindowState == FormWindowState.Minimized)
+                {
+                    window.WindowState = FormWindowState.Normal;
+                }
+
+                window.Show();
+                window.Activate();
+                window.TopMost = true;
+                window.TopMost = false;
+            });
+        }
+        catch
+        {
+            // Focusing is a convenience; startup should not fail if it is denied.
+        }
+    }
+
+    private static void CloseMainWindow()
+    {
+        if (Interlocked.Exchange(ref _isClosingMainWindow, 1) == 1)
+        {
+            return;
+        }
+
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            window.BeginInvoke(() =>
+            {
+                if (!window.IsDisposed)
+                {
+                    window.Close();
+                }
+            });
+        }
+        catch
+        {
+            // The UI may already be gone during process shutdown.
+        }
+    }
+
+    private static void ApplyWindowThemeFromRequest(HttpRequest request)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(request.Body);
+            var darkMode = document.RootElement.TryGetProperty("darkMode", out var value) &&
+                value.ValueKind == JsonValueKind.True;
+            var titleBarColor = GetJsonString(document.RootElement, "titleBarColor");
+            var titleTextColor = GetJsonString(document.RootElement, "titleTextColor");
+
+            ApplyWindowTheme(darkMode, titleBarColor, titleTextColor);
+        }
+        catch
+        {
+            // Window chrome color is cosmetic and should never interrupt the app.
+        }
+    }
+
+    private static void ApplyWindowTheme(bool darkMode, string? titleBarColor, string? titleTextColor)
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            window.BeginInvoke(() =>
+                window.SetTitleBarTheme(darkMode, titleBarColor, titleTextColor)
+            );
+        }
+        catch
+        {
+            // The UI may already be closing.
+        }
+    }
+
+    private static string? GetJsonString(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var value) &&
+            value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
     }
 
     private static async Task ServeWorkbookAsync(NetworkStream stream, string appFolder)
@@ -377,15 +540,23 @@ internal static class Program
             return;
         }
 
-        var planilhasFolder = GetPlanilhasFolder(appFolder);
-        Directory.CreateDirectory(planilhasFolder);
-        var importedFileName = request.Headers.TryGetValue("x-file-name", out var rawName)
-            ? SanitizeXlsxFileName(Uri.UnescapeDataString(rawName), "Aprendizes.xlsx")
-            : "Aprendizes.xlsx";
-        var targetPath = Path.Combine(planilhasFolder, importedFileName);
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
+        var previousWorkbookPath = FindCurrentWorkbookPath(appFolder);
+        var importedFileName = GetTimestampedWorkbookName();
+        var targetPath = Path.Combine(dadosFolder, importedFileName);
 
         DeleteLegacyMetadata(appFolder);
         await File.WriteAllBytesAsync(targetPath, request.Body);
+
+        if (
+            previousWorkbookPath is not null &&
+            !string.Equals(previousWorkbookPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(previousWorkbookPath)
+        )
+        {
+            File.Delete(previousWorkbookPath);
+        }
 
         await WriteJsonAsync(stream, 200, new { ok = true, fileName = importedFileName });
     }
@@ -402,11 +573,11 @@ internal static class Program
             return;
         }
 
-        var planilhasFolder = GetPlanilhasFolder(appFolder);
-        Directory.CreateDirectory(planilhasFolder);
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
         var previousWorkbookPath = FindCurrentWorkbookPath(appFolder);
         var targetFileName = GetTimestampedWorkbookName();
-        var targetPath = Path.Combine(planilhasFolder, targetFileName);
+        var targetPath = Path.Combine(dadosFolder, targetFileName);
 
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
@@ -514,22 +685,23 @@ internal static class Program
         return stream.WriteAsync(header.Concat(body).ToArray()).AsTask();
     }
 
-    private static string GetPlanilhasFolder(string appFolder)
+    private static string GetDadosFolder(string appFolder)
     {
-        return Path.Combine(appFolder, "dados", "planilhas");
+        return Path.Combine(appFolder, "dados");
     }
 
     private static string? FindCurrentWorkbookPath(string appFolder)
     {
-        var planilhasFolder = GetPlanilhasFolder(appFolder);
+        MigrateLegacyPlanilhasFolder(appFolder);
+        var dadosFolder = GetDadosFolder(appFolder);
 
-        if (!Directory.Exists(planilhasFolder))
+        if (!Directory.Exists(dadosFolder))
         {
             return null;
         }
 
         return Directory
-            .GetFiles(planilhasFolder, "*.xlsx")
+            .GetFiles(dadosFolder, "*.xlsx", SearchOption.TopDirectoryOnly)
             .Select(path => new FileInfo(path))
             .Where(file => !file.Name.StartsWith("~$", StringComparison.Ordinal))
             .OrderByDescending(file => file.LastWriteTimeUtc)
@@ -539,31 +711,59 @@ internal static class Program
 
     private static string GetWorkbookMetaPath(string appFolder)
     {
-        return Path.Combine(GetPlanilhasFolder(appFolder), "aprendizes.json");
-    }
-
-    private static string SanitizeXlsxFileName(string fileName, string fallback)
-    {
-        var safeName = Path.GetFileName(fileName);
-
-        if (string.IsNullOrWhiteSpace(safeName))
-        {
-            safeName = fallback;
-        }
-
-        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-        {
-            safeName = safeName.Replace(invalidCharacter, '_');
-        }
-
-        return safeName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
-            ? safeName
-            : $"{safeName}.xlsx";
+        return Path.Combine(GetDadosFolder(appFolder), "aprendizes.json");
     }
 
     private static string GetTimestampedWorkbookName()
     {
         return $"Aprendizes_{DateTime.Now:HHmmssddMMyy}.xlsx";
+    }
+
+    private static void MigrateLegacyPlanilhasFolder(string appFolder)
+    {
+        try
+        {
+            var dadosFolder = GetDadosFolder(appFolder);
+            var legacyFolder = Path.Combine(dadosFolder, "planilhas");
+
+            if (!Directory.Exists(legacyFolder))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(dadosFolder);
+
+            foreach (var filePath in Directory.GetFiles(legacyFolder))
+            {
+                var fileName = Path.GetFileName(filePath);
+
+                if (fileName == ".gitkeep")
+                {
+                    File.Delete(filePath);
+                    continue;
+                }
+
+                var targetPath = Path.Combine(dadosFolder, fileName);
+
+                if (File.Exists(targetPath))
+                {
+                    var extension = Path.GetExtension(fileName);
+                    var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+                    targetPath = Path.Combine(
+                        dadosFolder,
+                        $"{nameWithoutExtension}_{DateTime.Now:HHmmssddMMyy}{extension}"
+                    );
+                }
+
+                File.Move(filePath, targetPath);
+            }
+
+            Directory.Delete(legacyFolder, recursive: true);
+        }
+        catch
+        {
+            // Legacy cleanup is best-effort; current reads/writes use dados/ directly.
+        }
     }
 
     private static void DeleteLegacyMetadata(string appFolder)
@@ -600,11 +800,6 @@ internal static class Program
         };
     }
 
-    private static void OpenBrowser(string url)
-    {
-        Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
-    }
-
     private static void ShowMessage(string message, string title)
     {
         MessageBoxW(IntPtr.Zero, message, title, 0x00000010);
@@ -637,10 +832,154 @@ internal static class Program
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        ref int attributeValue,
+        int attributeSize
+    );
+
     private sealed record HttpRequest(
         string Method,
         string Path,
         Dictionary<string, string> Headers,
         byte[] Body
     );
+
+    private sealed class AppWindow : Form
+    {
+        private readonly string _url;
+        private readonly WebView2 _webView;
+
+        public AppWindow(string url)
+        {
+            _url = url;
+            _webView = new WebView2 { Dock = DockStyle.Fill };
+
+            Text = Title;
+            StartPosition = FormStartPosition.CenterScreen;
+            MinimumSize = new Size(744, 520);
+            Size = new Size(1280, 820);
+            WindowState = FormWindowState.Maximized;
+            BackColor = ColorTranslator.FromHtml("#f8fbfd");
+
+            try
+            {
+                Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? Application.ExecutablePath);
+            }
+            catch
+            {
+                // The embedded exe icon is cosmetic; the app can run without it.
+            }
+
+            Controls.Add(_webView);
+            _webView.Visible = false;
+            Shown += async (_, _) => await InitializeWebViewAsync();
+            FormClosed += (_, _) => RequestShutdown("window-closed");
+        }
+
+        public void SetTitleBarTheme(bool darkMode, string? titleBarColor, string? titleTextColor)
+        {
+            var captionColor = ToColorRef(ChooseHexColor(titleBarColor, darkMode, "#000000", "#fafdff"));
+            var textColor = ToColorRef(ChooseHexColor(titleTextColor, darkMode, "#ffffff", "#000000"));
+
+            TrySetDwmColor(35, captionColor);
+            TrySetDwmColor(36, textColor);
+        }
+
+        private async Task InitializeWebViewAsync()
+        {
+            try
+            {
+                var userDataFolder = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "SejaElevar",
+                    "WebView2"
+                );
+                var environment = await CoreWebView2Environment.CreateAsync(
+                    browserExecutableFolder: null,
+                    userDataFolder
+                );
+
+                await _webView.EnsureCoreWebView2Async(environment);
+                _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                _webView.CoreWebView2.NavigationCompleted += (_, _) => RevealWindow();
+                _webView.CoreWebView2.Navigate(_url);
+            }
+            catch (Exception error)
+            {
+                Log($"WebView failed: {error}");
+                MessageBox.Show(
+                    this,
+                    $"Nao foi possivel abrir a janela do SejaElevar.\n\n{error.Message}",
+                    Title,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+                RequestShutdown("webview-failed");
+            }
+        }
+
+        private void RevealWindow()
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            BeginInvoke(() =>
+            {
+                _webView.Visible = true;
+                Activate();
+            });
+        }
+
+        private void TrySetDwmColor(int attribute, int color)
+        {
+            try
+            {
+                DwmSetWindowAttribute(Handle, attribute, ref color, sizeof(int));
+            }
+            catch
+            {
+                // Older Windows builds may ignore custom caption colors.
+            }
+        }
+
+        private static int ToColorRef(string hex)
+        {
+            var value = hex.TrimStart('#');
+            var red = Convert.ToInt32(value[..2], 16);
+            var green = Convert.ToInt32(value.Substring(2, 2), 16);
+            var blue = Convert.ToInt32(value.Substring(4, 2), 16);
+
+            return red | (green << 8) | (blue << 16);
+        }
+
+        private static bool IsHexColor(string? value)
+        {
+            if (value is null || value.Length != 7 || value[0] != '#')
+            {
+                return false;
+            }
+
+            return value.Skip(1).All(Uri.IsHexDigit);
+        }
+
+        private static string ChooseHexColor(
+            string? requestedColor,
+            bool darkMode,
+            string darkFallback,
+            string lightFallback
+        )
+        {
+            return IsHexColor(requestedColor)
+                ? requestedColor!
+                : darkMode
+                    ? darkFallback
+                    : lightFallback;
+        }
+    }
 }

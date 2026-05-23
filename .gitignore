@@ -61,10 +61,6 @@ temp/
 project/launcher/bin/
 project/launcher/obj/
 project/launcher/AppIcon.ico
-project/dev/SejaElevar.html
-project/dev/SejaElevar.exe
-project/dev/assets/
-project/dev/**/.gitkeep
 project/dev/*.log
 
 # Logs
