@@ -895,12 +895,6 @@ svg {
   white-space: pre-line;
 }
 
-.recovery-dialog-note {
-  margin-top: 10px !important;
-  color: #577086;
-  font-size: 0.84rem !important;
-}
-
 .dialog-close-button {
   display: grid;
   flex: 0 0 auto;

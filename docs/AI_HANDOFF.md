@@ -62,13 +62,12 @@ Current `Aprendizes` behavior:
 - If no `.xlsx` exists directly in `dados/`, the table stays in the import/missing-data state.
 - Importing asks only for the source `.xlsx`.
 - The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
-- `dados/controle.json` tracks the active on-use workbook, the backup workbook, and the reason the backup exists. The app does not treat manually dropped `.xlsx` files as active unless it must recover metadata from existing files.
+- `dados/controle.json` tracks the active workbook, one protected backup, its reason, and editing-session history for the current working data chain. Importing or recovering starts a new chain. The app does not treat manually dropped `.xlsx` files as active unless it must recover metadata from existing files.
 - Aprendizes cell edits and column reordering write back to the active workbook. Real data changes save as a fresh timestamped on-use workbook, keeping one tracked backup workbook when available.
-- Importing a new file makes the previous on-use file the backup and the imported file the new on-use. Edits to that imported workbook preserve the before-import backup, even after closing and reopening the app.
-- If the first import had no previous on-use file, no backup exists until the first edit; that edit stores the imported original workbook as backup. Imported-original backups are also preserved by later edits.
-- At app/session start, the first real edit replaces the backup only when the existing backup is replaceable: no backup exists, the backup is a normal previous/penultimate session state, or the backup was already restored. It does not replace before-import or imported-original backups.
-- `Recuperar Dados` opens a centered modal over a blurred/dimmed page. When confirmed, it copies the backup workbook to a fresh timestamped on-use workbook, deletes the prior on-use workbook, keeps the backup intact, reloads the table, and disables recovery until a new backup-producing action happens.
-- The recovery modal text is reason-specific: before import, before edits in this session, imported file before edits, previous/penultimate session, previous session's before-import state, or previous session's imported-original state.
+- If the first import has no previous active workbook, the imported workbook is recorded as its protected original; recovery is disabled until the first edit creates a distinct active state. Importing a new file over an active workbook protects the previous active state and enables recovery immediately.
+- The first editing session after an import or recovery preserves its explicit backup. Once the same working chain was edited in an earlier app session, the first edit in a later session replaces the backup with the state before the current session's edits. After reopening without a newer edit, it is described as the state before the last session with edits.
+- `Recuperar Dados` opens a centered modal over a blurred/dimmed page. Confirming swaps the active and protected workbooks; recovery remains immediately available afterward to reverse the latest recovery.
+- Current normal recovery descriptions identify: original imported state, state before the last import, state before the last recovery, state before edits in the current session, or state before the last session with edits.
 - Cell undo is value-based: one completed cell edit is one undo entry, with a current stack limit of 1000.
 - There is intentionally no export button right now, per user request.
 - Column widths and row heights are visual app settings only and are not written to the spreadsheet.

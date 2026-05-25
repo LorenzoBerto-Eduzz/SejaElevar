@@ -12,9 +12,11 @@ internal static class Program
 {
     private const string Title = "SejaElevar";
     private const string BackupReasonBeforeImport = "before_import";
+    private const string BackupReasonBeforeEdit = "before_edit";
     private const string BackupReasonBeforeSessionEdit = "before_session_edit";
     private const string BackupReasonImportOriginal = "import_original";
-    private const string BackupReasonPreviousSession = "previous_session";
+    private const string BackupReasonBeforeRecovery = "before_recovery";
+    private const string BackupReasonAfterRecovery = "after_recovery";
     private const string BackupReasonRestored = "restored";
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
@@ -50,7 +52,6 @@ internal static class Program
         Directory.CreateDirectory(GetDadosFolder(appFolder));
         MigrateLegacyPlanilhasFolder(appFolder);
         StartWorkbookSession(appFolder);
-
         try
         {
             var (listener, port) = BindListener();
@@ -586,14 +587,14 @@ internal static class Program
         {
             OnUseFile = importedFileName,
             BackupFile = previousOnUsePath is null
-                ? null
+                ? importedFileName
                 : Path.GetFileName(previousOnUsePath),
-            CloneOnNextSave = previousOnUsePath is null,
-            BackupReason = previousOnUsePath is null ? null : BackupReasonBeforeImport,
-            PendingBackupReason = previousOnUsePath is null
+            BackupReason = previousOnUsePath is null
                 ? BackupReasonImportOriginal
-                : null,
-            BackupFromPreviousSession = false
+                : BackupReasonBeforeImport,
+            RecoveryEnabled = previousOnUsePath is not null,
+            HasEditingHistory = false,
+            CaptureBackupOnNextSave = false
         };
 
         SaveWorkbookControl(appFolder, nextControl);
@@ -628,18 +629,24 @@ internal static class Program
         var control = LoadWorkbookControl(appFolder);
         var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
         var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
-        var shouldClone = control.CloneOnNextSave &&
-            ShouldReplaceBackupOnNextSave(control) &&
+        var shouldCaptureMissingBackup = backupPath is null &&
             onUsePath is not null &&
             File.Exists(onUsePath);
+        var shouldCaptureSessionStart = control.CaptureBackupOnNextSave == true &&
+            onUsePath is not null &&
+            File.Exists(onUsePath);
+        var shouldPreserveOnUseAsBackup = shouldCaptureMissingBackup ||
+            shouldCaptureSessionStart;
         var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
 
-        if (shouldClone &&
+        if (
+            shouldCaptureSessionStart &&
             backupPath is not null &&
             !string.Equals(backupPath, onUsePath, StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(backupPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
-            File.Exists(backupPath))
+            File.Exists(backupPath)
+        )
         {
             File.Delete(backupPath);
         }
@@ -647,7 +654,7 @@ internal static class Program
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
         if (
-            !shouldClone &&
+            !shouldPreserveOnUseAsBackup &&
             onUsePath is not null &&
             !string.Equals(onUsePath, targetPath, StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(onUsePath, backupPath, StringComparison.OrdinalIgnoreCase) &&
@@ -660,15 +667,17 @@ internal static class Program
         var nextControl = new WorkbookControl
         {
             OnUseFile = targetFileName,
-            BackupFile = shouldClone && onUsePath is not null
+            BackupFile = shouldPreserveOnUseAsBackup && onUsePath is not null
                 ? Path.GetFileName(onUsePath)
                 : control.BackupFile,
-            CloneOnNextSave = false,
-            BackupReason = shouldClone && onUsePath is not null
-                ? control.PendingBackupReason ?? BackupReasonBeforeSessionEdit
-                : control.BackupReason,
-            PendingBackupReason = null,
-            BackupFromPreviousSession = false
+            BackupReason = shouldCaptureSessionStart
+                ? BackupReasonBeforeEdit
+                : control.BackupReason == BackupReasonRestored
+                ? BackupReasonAfterRecovery
+                : control.BackupReason ?? BackupReasonImportOriginal,
+            RecoveryEnabled = true,
+            HasEditingHistory = true,
+            CaptureBackupOnNextSave = false
         };
 
         SaveWorkbookControl(appFolder, nextControl);
@@ -693,7 +702,7 @@ internal static class Program
         var reason = NormalizeBackupReason(control.BackupReason);
         var canRecover = backupPath is not null &&
             File.Exists(backupPath) &&
-            reason != BackupReasonRestored;
+            control.RecoveryEnabled == true;
 
         await WriteJsonAsync(
             stream,
@@ -710,8 +719,7 @@ internal static class Program
                 formattedUpdatedAt = backupPath is null
                     ? null
                     : FormatBackupDateTime(File.GetLastWriteTime(backupPath)),
-                reason,
-                fromPreviousSession = control.BackupFromPreviousSession
+                reason
             }
         );
     }
@@ -728,35 +736,24 @@ internal static class Program
         if (
             backupPath is null ||
             !File.Exists(backupPath) ||
-            NormalizeBackupReason(control.BackupReason) == BackupReasonRestored
+            onUsePath is null ||
+            !File.Exists(onUsePath) ||
+            string.Equals(backupPath, onUsePath, StringComparison.OrdinalIgnoreCase) ||
+            control.RecoveryEnabled != true
         )
         {
             await WriteJsonAsync(stream, 400, new { error = "Nenhum backup disponivel." });
             return;
         }
 
-        var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
-        var targetPath = Path.Combine(dadosFolder, targetFileName);
-        File.Copy(backupPath, targetPath);
-
-        if (
-            onUsePath is not null &&
-            !string.Equals(onUsePath, backupPath, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(onUsePath, targetPath, StringComparison.OrdinalIgnoreCase) &&
-            File.Exists(onUsePath)
-        )
-        {
-            File.Delete(onUsePath);
-        }
-
         var nextControl = new WorkbookControl
         {
-            OnUseFile = targetFileName,
-            BackupFile = Path.GetFileName(backupPath),
-            CloneOnNextSave = true,
-            BackupReason = BackupReasonRestored,
-            PendingBackupReason = BackupReasonBeforeSessionEdit,
-            BackupFromPreviousSession = false
+            OnUseFile = Path.GetFileName(backupPath),
+            BackupFile = Path.GetFileName(onUsePath),
+            BackupReason = BackupReasonBeforeRecovery,
+            RecoveryEnabled = true,
+            HasEditingHistory = false,
+            CaptureBackupOnNextSave = false
         };
 
         SaveWorkbookControl(appFolder, nextControl);
@@ -768,7 +765,7 @@ internal static class Program
             new
             {
                 ok = true,
-                fileName = targetFileName,
+                fileName = nextControl.OnUseFile,
                 onUseFile = nextControl.OnUseFile,
                 backupFile = nextControl.BackupFile
             }
@@ -885,42 +882,13 @@ internal static class Program
             return;
         }
 
-        if (control.BackupFile is not null)
+        if (control.BackupReason == BackupReasonBeforeEdit)
         {
-            control.BackupFromPreviousSession = true;
-
-            if (
-                control.BackupReason != BackupReasonBeforeImport &&
-                control.BackupReason != BackupReasonImportOriginal &&
-                control.BackupReason != BackupReasonRestored
-            )
-            {
-                control.BackupReason = BackupReasonPreviousSession;
-            }
+            control.BackupReason = BackupReasonBeforeSessionEdit;
         }
 
-        control.CloneOnNextSave = ShouldReplaceBackupOnNextSave(control);
-        control.PendingBackupReason = control.CloneOnNextSave
-            ? control.PendingBackupReason ?? BackupReasonBeforeSessionEdit
-            : null;
-
+        control.CaptureBackupOnNextSave = control.HasEditingHistory == true;
         SaveWorkbookControl(appFolder, control);
-    }
-
-    private static bool ShouldReplaceBackupOnNextSave(WorkbookControl control)
-    {
-        if (control.OnUseFile is null)
-        {
-            return false;
-        }
-
-        if (control.BackupFile is null)
-        {
-            return true;
-        }
-
-        return control.BackupReason == BackupReasonPreviousSession ||
-            control.BackupReason == BackupReasonRestored;
     }
 
     private static string? FindCurrentWorkbookPath(string appFolder)
@@ -953,7 +921,6 @@ internal static class Program
         control.OnUseFile = NormalizeTrackedWorkbookFileName(control.OnUseFile);
         control.BackupFile = NormalizeTrackedWorkbookFileName(control.BackupFile);
         control.BackupReason = NormalizeBackupReason(control.BackupReason);
-        control.PendingBackupReason = NormalizePendingBackupReason(control.PendingBackupReason);
 
         if (ResolveWorkbookPath(appFolder, control.OnUseFile) is null)
         {
@@ -964,7 +931,9 @@ internal static class Program
         {
             control.BackupFile = null;
             control.BackupReason = null;
-            control.BackupFromPreviousSession = false;
+            control.RecoveryEnabled = false;
+            control.HasEditingHistory = false;
+            control.CaptureBackupOnNextSave = false;
         }
 
         if (control.OnUseFile is null)
@@ -975,25 +944,52 @@ internal static class Program
 
             control.OnUseFile = knownWorkbooks.ElementAtOrDefault(0)?.Name;
             control.BackupFile = knownWorkbooks.ElementAtOrDefault(1)?.Name;
-            control.CloneOnNextSave = control.OnUseFile is not null;
             control.BackupReason = control.BackupFile is null
                 ? null
-                : BackupReasonPreviousSession;
-            control.PendingBackupReason = control.OnUseFile is null
-                ? null
                 : BackupReasonBeforeSessionEdit;
-            control.BackupFromPreviousSession = control.BackupFile is not null;
+            control.RecoveryEnabled = control.BackupFile is not null;
+            control.HasEditingHistory = control.BackupFile is not null;
+            control.CaptureBackupOnNextSave = false;
         }
 
         if (control.OnUseFile is null)
         {
-            control.CloneOnNextSave = false;
-            control.PendingBackupReason = null;
+            control.RecoveryEnabled = false;
+            control.HasEditingHistory = false;
+            control.CaptureBackupOnNextSave = false;
         }
 
         if (control.BackupFile is not null && control.BackupReason is null)
         {
-            control.BackupReason = BackupReasonPreviousSession;
+            control.BackupReason = BackupReasonBeforeSessionEdit;
+        }
+
+        control.RecoveryEnabled ??= control.BackupFile is not null &&
+            control.BackupReason != BackupReasonRestored;
+        control.HasEditingHistory ??= control.BackupReason switch
+        {
+            BackupReasonBeforeEdit => true,
+            BackupReasonBeforeSessionEdit => true,
+            BackupReasonImportOriginal => control.RecoveryEnabled == true,
+            _ => false
+        };
+        control.CaptureBackupOnNextSave ??= false;
+
+        if (control.BackupReason == BackupReasonRestored)
+        {
+            control.RecoveryEnabled = false;
+            control.HasEditingHistory = false;
+            control.CaptureBackupOnNextSave = false;
+        }
+
+        if (
+            control.BackupReason == BackupReasonBeforeRecovery &&
+            control.OnUseFile is not null &&
+            control.BackupFile is not null &&
+            !string.Equals(control.OnUseFile, control.BackupFile, StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            control.RecoveryEnabled = true;
         }
 
         SaveWorkbookControl(appFolder, control);
@@ -1089,20 +1085,13 @@ internal static class Program
         return reason switch
         {
             BackupReasonBeforeImport => BackupReasonBeforeImport,
+            BackupReasonBeforeEdit => BackupReasonBeforeEdit,
             BackupReasonBeforeSessionEdit => BackupReasonBeforeSessionEdit,
             BackupReasonImportOriginal => BackupReasonImportOriginal,
-            BackupReasonPreviousSession => BackupReasonPreviousSession,
+            BackupReasonBeforeRecovery => BackupReasonBeforeRecovery,
+            BackupReasonAfterRecovery => BackupReasonAfterRecovery,
+            "previous_session" => BackupReasonBeforeSessionEdit,
             BackupReasonRestored => BackupReasonRestored,
-            _ => null
-        };
-    }
-
-    private static string? NormalizePendingBackupReason(string? reason)
-    {
-        return reason switch
-        {
-            BackupReasonBeforeSessionEdit => BackupReasonBeforeSessionEdit,
-            BackupReasonImportOriginal => BackupReasonImportOriginal,
             _ => null
         };
     }
@@ -1244,10 +1233,10 @@ internal static class Program
     {
         public string? OnUseFile { get; set; }
         public string? BackupFile { get; set; }
-        public bool CloneOnNextSave { get; set; }
         public string? BackupReason { get; set; }
-        public string? PendingBackupReason { get; set; }
-        public bool BackupFromPreviousSession { get; set; }
+        public bool? RecoveryEnabled { get; set; }
+        public bool? HasEditingHistory { get; set; }
+        public bool? CaptureBackupOnNextSave { get; set; }
     }
 
     private sealed class AppWindow : Form

@@ -49,9 +49,11 @@ type ActiveCellEdit = {
 
 type RecoveryReason =
   | 'before_import'
+  | 'before_edit'
   | 'before_session_edit'
   | 'import_original'
-  | 'previous_session'
+  | 'before_recovery'
+  | 'after_recovery'
   | 'restored';
 
 type RecoveryInfo = {
@@ -61,7 +63,6 @@ type RecoveryInfo = {
   label?: string | null;
   formattedUpdatedAt?: string | null;
   reason?: RecoveryReason | null;
-  fromPreviousSession?: boolean;
 };
 
 const defaultViewSettings: TableViewSettings = {
@@ -1184,13 +1185,6 @@ export function AprendizesPage() {
               </button>
             </div>
             <p>{recoveryDescription}</p>
-            {recoveryInfo?.reason === 'previous_session' && (
-              <p className="recovery-dialog-note">
-                {
-                  'Como ainda n\u00e3o houve edi\u00e7\u00f5es nesta sess\u00e3o, o arquivo em uso e o arquivo de backup (estado final da sess\u00e3o anterior) s\u00e3o os mesmos da \u00faltima sess\u00e3o.'
-                }
-              </p>
-            )}
             <button
               className="primary-action recovery-confirm-action"
               type="button"
@@ -1208,29 +1202,19 @@ export function AprendizesPage() {
 }
 
 function getRecoveryDescription(info: RecoveryInfo | null) {
-  if (
-    info?.fromPreviousSession &&
-    info.reason === 'before_import'
-  ) {
-    return 'Recupere os dados para como estavam antes da \u00faltima importa\u00e7\u00e3o.';
-  }
-
-  if (
-    info?.fromPreviousSession &&
-    info.reason === 'import_original'
-  ) {
-    return 'Recupere os dados para como o \u00faltimo arquivo importado se encontrava antes de edi\u00e7\u00f5es.';
-  }
-
   switch (info?.reason) {
     case 'before_import':
-      return 'Recupere os dados para como estavam antes da importa\u00e7\u00e3o.';
-    case 'before_session_edit':
+      return 'Recupere os dados anteriores \u00e0 \u00faltima importa\u00e7\u00e3o.';
+    case 'before_edit':
       return 'Recupere os dados para como estavam antes de edi\u00e7\u00f5es nesta sess\u00e3o.';
+    case 'before_session_edit':
+      return 'Recupere os dados para como estavam antes da \u00faltima sess\u00e3o com edi\u00e7\u00f5es.';
     case 'import_original':
-      return 'Recupere os dados para como estavam quando o arquivo foi importado.';
-    case 'previous_session':
-      return 'Recupere os dados para como estavam na sess\u00e3o anterior \u00e0 \u00faltima.';
+      return 'Recupere os dados originais da planilha importada.';
+    case 'before_recovery':
+      return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
+    case 'after_recovery':
+      return 'Recupere os dados para como estavam ap\u00f3s a \u00faltima recupera\u00e7\u00e3o.';
     default:
       return 'Nenhum backup dispon\u00edvel para recuperar.';
   }
