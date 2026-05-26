@@ -26,16 +26,9 @@ project/dev/modelos/**
 project/dev/documentos_gerados/**
 !project/dev/documentos_gerados/
 !project/dev/documentos_gerados/.gitkeep
-exports/SejaElevar/dados/**
-!exports/SejaElevar/dados/
-!exports/SejaElevar/dados/**/
-!exports/SejaElevar/dados/**/.gitkeep
-exports/SejaElevar/modelos/**
-!exports/SejaElevar/modelos/
-!exports/SejaElevar/modelos/.gitkeep
-exports/SejaElevar/documentos_gerados/**
-!exports/SejaElevar/documentos_gerados/
-!exports/SejaElevar/documentos_gerados/.gitkeep
+
+# Generated coworker-facing packages are recreated locally from project/dev/
+exports/
 
 # Local-only assets kept on this machine
 **/local_assets/*

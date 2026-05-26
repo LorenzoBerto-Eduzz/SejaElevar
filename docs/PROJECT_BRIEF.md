@@ -40,14 +40,14 @@ Current scope is first prototype development:
 Run Vite dev server if needed: cd project && npm run dev:open
 Build dev local app package: cd project && npm run build:single
 Open/test dev package: project/dev/SejaElevar.exe
-Build local release only when user asks: cd project && npm run export:release
+Package tested dev app as local release only when user asks: cd project && npm run export:release
 Open local release: exports/SejaElevar/SejaElevar.exe
 Test: no dedicated test suite yet; use npm run build:single as the normal dev verification check. Use npm run export:release only when the user asks for a release/export/package.
 ```
 
 Do not treat `dist/` as source; it is a generated build output.
 
-Dev and release are parallel app packages. `project/dev/` is the normal testing package during development; `exports/SejaElevar/` is the generated coworker-facing package. They should keep the same folder/file structure and approved behavior. Dev may expose explicitly dev-only live tuning controls; release should hide/remove those controls and keep only the end-user app/settings.
+Dev and release are parallel app packages. Tracked `project/dev/` is the normal testing and cross-device package during development; ignored local output `exports/SejaElevar/` is the coworker-facing package prepared from the already-tested dev build without rebuilding it. They should keep the same app shape and approved behavior. Dev may expose explicitly dev-only live tuning controls; release hides/removes those controls, adds its README, and starts with clean runtime data folders.
 
 ## Important Constraints
 

@@ -9,7 +9,7 @@ The release package is not the development repo. It is the simple folder the use
 There are two local app packages, and they should have the same folder/file structure and feel like the same product:
 
 - `project/dev/`: the dev package. The user tests here during normal development by opening `project/dev/SejaElevar.exe`.
-- `exports/SejaElevar/`: the release package. Generate/update this only when the user explicitly asks for a release/export/package.
+- `exports/SejaElevar/`: the local generated release package. Generate/update this only when the user explicitly asks for a release/export/package; do not carry it through Git.
 
 The dev package should be as close as possible to the release package so the user can test the real end-user flow before asking for a release. The allowed difference is that dev may include explicitly dev-only tools, such as live tuning sliders or alignment controls, used to refine the interface. The release package should hide/remove those dev-only controls and show only the final end-user app and end-user settings.
 
@@ -54,10 +54,12 @@ Current lifecycle:
 ## Packaging Notes
 
 - Generate the local release package from `project/` with `npm run export:release`.
-- The script builds the single-file app, publishes/copies `SejaElevar.exe`, and updates `exports/SejaElevar/`.
+- The script packages the already-tested app in `project/dev/`: it copies the dev executable and app assets, writes a release-mode HTML copy, adds `README.md`, and creates clean empty runtime folders under `exports/SejaElevar/`.
+- Exporting does not rebuild source or republish `SejaElevar.exe`. If source changed since the user last tested dev, refresh dev first with `npm run build:single`, test it, and only then export.
+- Generating a release replaces the previous `exports/SejaElevar/` package, including its runtime data folders. Never use that export folder as the only copy of real operational data.
 - Do not rebuild/give the release package during normal dev work. The user explicitly wants to continue testing in dev and only receive a release/export when they ask for it.
 - Do not commit zip files.
-- The dev and release package folders are tracked so another PC can pull a runnable app package. Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy. Use `.gitkeep` files only to preserve empty folders.
+- The dev package is tracked so another PC can pull a runnable/testable app package and generate its own release. The generated `exports/` folder is ignored by Git and stays local. Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy.
 - The user can zip the folder themselves when needed; do not create a zip unless they ask.
 - Keep the root of the package quiet: ideally only the entry exe/html, `README.md`, and base folders.
 

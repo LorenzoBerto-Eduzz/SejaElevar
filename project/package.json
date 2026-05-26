@@ -8,7 +8,7 @@
     "dev:open": "vite --host 127.0.0.1 --open",
     "build": "tsc -b && vite build",
     "build:single": "npm run build && node scripts/build-single-file.mjs",
-    "export:release": "npm run build:single && node scripts/export-release.mjs",
+    "export:release": "node scripts/export-release.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "preview:open": "vite preview --host 127.0.0.1 --open",
     "start": "node scripts/serve-preview.mjs --open",

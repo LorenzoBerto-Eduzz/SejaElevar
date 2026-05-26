@@ -8,7 +8,7 @@ This file is the portable continuity note for AI coding sessions working on this
 - Project kind: local-first internal web platform / administrative tool.
 - Main project folder: `project/`.
 - Primary language/stack: Vite + React + TypeScript for the browser UI, plus a small self-contained Windows `SejaElevar.exe` launcher/provider for local file access.
-- Run/build command: from repo root, use `npm --prefix project run build:single` for the normal dev package. Then open `project/dev/SejaElevar.exe` to test. Use `npm --prefix project run export:release` only when the user explicitly asks for a release/export/package.
+- Run/build command: from repo root, use `npm --prefix project run build:single` for the normal dev package. Then open `project/dev/SejaElevar.exe` to test. Use `npm --prefix project run export:release` only when the user explicitly asks for a release/export/package; it packages the already-tested dev build rather than rebuilding it.
 - Test command: no dedicated test suite yet; use `npm --prefix project run build:single` as the current verification/build check during normal dev. Use API smoke tests against the local provider when file behavior changes.
 - Remote: `origin` points to `https://github.com/LorenzoBerto-Eduzz/SejaElevar.git`.
 - Git: initialized on `main`, tracking `origin/main`.
@@ -51,9 +51,9 @@ project/dev/
   documentos_gerados/
 ```
 
-The user should test with `project/dev/SejaElevar.exe`, not by opening `dist/` or raw generated files. The exe starts a local provider and opens the browser UI. The built dev/release package folders are intentionally tracked through Git/Git LFS for cross-PC handoff, while live operational data inside `dados/`, `modelos/`, and `documentos_gerados/` remains ignored except `.gitkeep` placeholders. The browser app intentionally renders nothing if opened directly without the exe/provider; do not add "open through the app" warning text to the UI.
+The user should test with `project/dev/SejaElevar.exe`, not by opening `dist/` or raw generated files. The exe starts a local provider and opens the browser UI. The built dev package is intentionally tracked through Git/Git LFS for cross-PC handoff, while its live operational data inside `dados/`, `modelos/`, and `documentos_gerados/` remains ignored except `.gitkeep` placeholders. `exports/` is local generated output and is ignored by Git; recreate it from dev whenever the user requests a handoff package. The browser app intentionally renders nothing if opened directly without the exe/provider; do not add "open through the app" warning text to the UI.
 
-Dev/release package rule: `project/dev/` and `exports/SejaElevar/` should have the same folder/file structure and behave like the same app. The user tests the real flow in `project/dev/` during normal development. `exports/SejaElevar/` is generated only when the user explicitly asks for release/export/package. Dev may include explicitly dev-only live tuning controls; release should hide/remove those and ship only the end-user app/settings. Before generating release, bake the approved dev state into source so release does not differ unexpectedly.
+Dev/release package rule: `project/dev/` and `exports/SejaElevar/` should have the same app shape and behave like the same app. The user tests the real flow in tracked `project/dev/` during normal development. Local-only `exports/SejaElevar/` is generated only when the user explicitly asks for release/export/package, by copying the already-tested dev executable/assets and applying release-only packaging changes. Dev may include explicitly dev-only live tuning controls; release hides/removes those, adds `README.md`, and starts with clean runtime data folders. Before generating release, bake the approved dev state into source and refresh/test dev so release does not differ unexpectedly.
 
 Current provider lifecycle: the browser page sends heartbeats and a close signal. Closing the page/tab requests immediate provider shutdown; if the close signal is missed, the heartbeat timeout is the fallback. The provider should not be treated as a permanent background service. Current heartbeat interval is 1 second from the browser, and the provider fallback timeout defaults to 5 seconds.
 
@@ -95,6 +95,7 @@ Current app icon: `project/src/assets/app-icon.png` is intentionally an exact co
 - Keep the first UI simple and functional: no fake data, clear missing/import state, and clean controls.
 - Continue testing in dev first through `project/dev/SejaElevar.exe`.
 - Do not rebuild or hand over `exports/SejaElevar/` unless the user explicitly asks for release/export/package.
+- Keep `exports/` untracked and local-only; cross-device continuity uses the tracked dev package plus the exporter script.
 - Add document generation after the workspace and apprentice listing flow are reliable.
 - Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build.
 
