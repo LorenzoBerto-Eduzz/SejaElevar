@@ -37,7 +37,7 @@ The first data workspace is pure local and populated by importing files into org
 
 ## Current App
 
-`project/` contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, app tabs for `Aprendizes`, `Turmas`, `Disciplinas`, `Arcos`, `Funcionários`, `Salas`, `Calendário`, and `Documentos`, a search popup, settings popup, hide/show sidebar behavior, development tuning controls, and an `Aprendizes` XLSX import/table flow. Non-`Aprendizes` tabs are placeholder pages for now.
+`project/` contains a Vite/React/TypeScript app shell with a light-blue sidebar, Elevar logo, app tabs for `Aprendizes`, `Turmas`, `Disciplinas`, `Arcos`, `Funcionários`, `Empresas`, `Salas`, `Calendário`, and `Documentos`, a search popup, settings popup, hide/show sidebar behavior, development tuning controls, and an `Aprendizes` XLSX import/table flow. Non-`Aprendizes` tabs are placeholder pages for now.
 
 `npm run build:single` builds the browser UI and publishes a dev package at:
 
@@ -62,6 +62,7 @@ Current `Aprendizes` behavior:
 - If no `.xlsx` exists directly in `dados/`, the table stays in the import/missing-data state.
 - Importing asks only for the source `.xlsx`.
 - The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
+- Imported Aprendizes workbooks are validated against the current required columns in `project/src/shared/data/schemas.ts`. Blank cells are allowed and extra columns are preserved, but missing required column labels block import.
 - `dados/controle.json` tracks the active workbook, one protected backup, its reason, and editing-session history for the current working data chain. Importing or recovering starts a new chain. The app does not treat manually dropped `.xlsx` files as active unless it must recover metadata from existing files.
 - Aprendizes cell edits and column reordering write back to the active workbook. Real data changes save as a fresh timestamped on-use workbook, keeping one tracked backup workbook when available.
 - If the first import has no previous active workbook, the imported workbook is recorded as its protected original; recovery is disabled until the first edit creates a distinct active state. Importing a new file over an active workbook protects the previous active state and enables recovery immediately.
@@ -71,9 +72,11 @@ Current `Aprendizes` behavior:
 - Cell undo is value-based: one completed cell edit is one undo entry, with a current stack limit of 1000.
 - There is intentionally no export button right now, per user request.
 - Column widths and row heights are visual app settings only and are not written to the spreadsheet.
+- The first visible table column is sticky/pinned horizontally so the row identity remains visible while scrolling sideways. The header uses a scrollbar spacer so header and body column dividers stay aligned at the far right.
 - The Aprendizes page stays mounted while switching tabs and gates the import state until the provider/workbook check finishes, so returning to Aprendizes should not briefly flash the import button before showing an already-loaded table.
+- The app now has a generated internal data index foundation. `project/src/shared/data/dataIndex.ts` builds normalized records from sheet rows, and the provider exposes `/api/data-index` plus `/api/data-index/entities/{entityId}`. For Aprendizes, the UI rebuilds and persists `dados/sistema/data-index.json` after load/import/recover/save/edit. The workbook remains the source of truth; the index is generated working memory for search, document generation, and future cross-tool variable lookups. Only Aprendizes is indexed for now.
 
-Current persisted UI state: theme/layout development settings are stored in `localStorage` under `sejaelevar.settings`; sidebar hidden/shown state is stored under `sejaelevar.sidebarCollapsed`. Startup motion is disabled on initial render to avoid sidebar/settings values animating or shifting during refresh/open. Current approved visual defaults have been baked into source after recovering the local browser settings: primary `#2069df`, secondary `#40a9e5`, tertiary `#ecf5fe`, page top `51`, content top `22`, gear offset `1.5`, logo height `100`, sidebar top `10`, tab gap `20`, lower action gap `5`, menu button height `47`, icon/text gap `6`, table row height `32`, table header height `48`, table top offset `14`.
+Current persisted UI state: theme/layout development settings are stored in `localStorage` under `sejaelevar.settings`; sidebar hidden/shown state is stored under `sejaelevar.sidebarCollapsed`. Startup motion is disabled on initial render to avoid sidebar/settings values animating or shifting during refresh/open. Current approved visual defaults have been baked into source after recovering the local browser settings: primary `#2069df`, secondary `#40a9e5`, tertiary `#ecf5fe`, page top `51`, content top `22`, gear offset `1.5`, logo height `100`, sidebar top `10`, tab gap `20`, lower action gap `5`, menu button height `47`, icon/text gap `6`, table row height `32`, table header height `48`, table top offset `14`. The search popup shortcut is the plain `E` key only when the user is not typing/editing/focused in a control; space must not be used because browsers can re-trigger the last focused button.
 
 Current app icon: `project/src/assets/app-icon.png` is intentionally an exact copy of the user's local `local_assets/LOGOEYnco.png`; `project/index.html` references it as the favicon, and the launcher build embeds it as the exe icon.
 
@@ -92,6 +95,7 @@ Current app icon: `project/src/assets/app-icon.png` is intentionally an exact co
 ## Suggested Near-Term Next Steps
 
 - Continue the `Aprendizes` table flow piece by piece with the user's real spreadsheet: improve display, filters/search, column controls, validation, and edit/save feedback.
+- Build search and future document tools against the generated data index rather than directly scraping visible table cells. Keep sheet files as source of truth and regenerate the index after source changes.
 - Keep the first UI simple and functional: no fake data, clear missing/import state, and clean controls.
 - Continue testing in dev first through `project/dev/SejaElevar.exe`.
 - Do not rebuild or hand over `exports/SejaElevar/` unless the user explicitly asks for release/export/package.

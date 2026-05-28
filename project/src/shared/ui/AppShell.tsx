@@ -98,7 +98,7 @@ export function AppShell({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
-        event.key !== ' ' ||
+        event.key.toLowerCase() !== 'e' ||
         event.altKey ||
         event.ctrlKey ||
         event.metaKey ||
@@ -983,8 +983,10 @@ function TabIcon({ icon }: TabIconProps) {
       return <BrainIcon />;
     case 'apple':
       return <AppleIcon />;
-    case 'building':
-      return <BuildingIcon />;
+    case 'building-community':
+      return <BuildingCommunityIcon />;
+    case 'door':
+      return <DoorIcon />;
     case 'calendar':
       return <CalendarIcon />;
     case 'document':
@@ -1050,7 +1052,7 @@ function AppleIcon() {
   );
 }
 
-function BuildingIcon() {
+function BuildingCommunityIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M8 9l5 5v7h-5v-4m0 4h-5v-7l5 -5m1 1v-6a1 1 0 0 1 1 -1h10a1 1 0 0 1 1 1v17h-8" />
@@ -1058,6 +1060,16 @@ function BuildingIcon() {
       <path d="M17 7l0 .01" />
       <path d="M17 11l0 .01" />
       <path d="M17 15l0 .01" />
+    </svg>
+  );
+}
+
+function DoorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 12v.01" />
+      <path d="M3 21h18" />
+      <path d="M6 21v-16a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v16" />
     </svg>
   );
 }

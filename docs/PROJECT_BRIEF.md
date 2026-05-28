@@ -55,6 +55,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 - The app should run as a browser-accessed local web app during early development. The current friendly local entry point is `SejaElevar.exe`, which starts the local provider and opens the browser UI. Opening the raw HTML/address without the provider should not show the app UI.
 - Data starts as files/folders: real operational spreadsheets, structured data files, document templates, generated documents, company logos/images, and related assets.
 - The first data workflow uses a real student/apprentice `.xlsx` spreadsheet as the active source. Importing asks only for the source `.xlsx`; the local provider copies it directly into `dados/` as `Aprendizes_hhmmssddmmyy.xlsx`. The provider tracks the active workbook, one protected backup, its reason, and editing-session history in `dados/controle.json`. A first import preserves its original state after editing, and a replacement import protects the previously active state. `Recuperar Dados` swaps the active and backup files so the recovery is immediately reversible. The first editing session after import or recovery preserves that checkpoint; the first edit in a later session captures the state before the current session's edits.
+- The `.xlsx` workbook remains the source of truth. The app also generates `dados/sistema/data-index.json` as disposable working memory for search, document generation, and cross-tool variables. Future tools should consume that generated index or a storage adapter, not scrape visible table cells.
 - Real student/person/company data may be sensitive. Do not commit real operational data unless the user explicitly decides that the repository/privacy setup makes that acceptable.
 - Keep any sample/anonymized demo data separate from private local data. Demo data is optional and should not replace the real local workspace concept.
 - Design the storage boundary so future adapters can target Google Drive synced folders, Google Sheets/Drive APIs, a hosted database, or another backend without rewriting every UI feature.
@@ -69,8 +70,8 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 
 1. Continue the first local browser app prototype using the Vite + React + TypeScript scaffold already in `project/`.
 2. Continue the first `Aprendizes` data slice: import/read an `.xlsx`, copy it under `dados/`, map the real columns, show the real list without fake data, and write supported edits back to the working file.
-3. Establish a workspace model where the app can import/use local spreadsheets, templates, logos/assets, generated documents, and config without committing private data.
-4. Decide whether the first `Aprendizes` slice is read-only before editing support.
+3. Build the search and document-generation foundations on the generated data index while keeping source spreadsheets plain and recoverable.
+4. Establish a workspace model where the app can import/use local spreadsheets, templates, logos/assets, generated documents, and config without committing private data.
 5. Add document generation after the workspace and apprentice listing flow are reliable.
 
 ## Glossary

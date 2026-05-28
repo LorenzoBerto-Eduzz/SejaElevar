@@ -1025,7 +1025,30 @@ svg {
   background: var(--brand-scroll-track, #000);
 }
 
+.sidebar-nav {
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-tertiary);
+}
+
+.sidebar-nav::-webkit-scrollbar-track,
+.sidebar-nav::-webkit-scrollbar-corner,
+.sidebar-nav::-webkit-scrollbar-button {
+  background: var(--brand-tertiary);
+}
+
+.sidebar-nav::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb,
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  border-color: var(--brand-tertiary);
+  background: var(--brand-scroll-thumb);
+}
+
 .data-table {
+  --table-scrollbar-size: 14px;
   width: max-content;
   min-width: 100%;
   border-collapse: separate;
@@ -1049,6 +1072,36 @@ svg {
   max-width: var(--table-column-width, 160px);
   overflow: hidden;
   background-clip: padding-box;
+}
+
+.data-table .table-scrollbar-spacer-column,
+.data-table th.table-scrollbar-spacer {
+  width: var(--table-scrollbar-size);
+  min-width: var(--table-scrollbar-size);
+  max-width: var(--table-scrollbar-size);
+}
+
+.data-table th.table-scrollbar-spacer {
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+  background: var(--brand-primary);
+}
+
+.data-table th.pinned-column,
+.data-table td.pinned-column {
+  position: sticky;
+  left: 0;
+}
+
+.data-table th.pinned-column {
+  z-index: 5;
+  background: var(--brand-primary);
+}
+
+.data-table td.pinned-column {
+  z-index: 3;
+  background: var(--brand-panel, #fff);
 }
 
 .column-heading-label {
@@ -1139,6 +1192,10 @@ svg {
 }
 
 .data-table tbody tr:hover td {
+  background: var(--brand-hover, var(--brand-tertiary));
+}
+
+.data-table tbody tr:hover td.pinned-column {
   background: var(--brand-hover, var(--brand-tertiary));
 }
 

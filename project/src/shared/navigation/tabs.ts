@@ -4,6 +4,7 @@ export type AppTab =
   | 'disciplinas'
   | 'arcos'
   | 'funcionarios'
+  | 'empresas'
   | 'salas'
   | 'calendario'
   | 'documentos';
@@ -14,7 +15,8 @@ export type NavigationIcon =
   | 'book'
   | 'brain'
   | 'apple'
-  | 'building'
+  | 'building-community'
+  | 'door'
   | 'calendar'
   | 'document';
 
@@ -30,7 +32,8 @@ export const appTabs: NavigationTab[] = [
   { id: 'disciplinas', label: 'Disciplinas', icon: 'book' },
   { id: 'arcos', label: 'Arcos', icon: 'brain' },
   { id: 'funcionarios', label: 'Funcionários', icon: 'apple' },
-  { id: 'salas', label: 'Salas', icon: 'building' },
+  { id: 'empresas', label: 'Empresas', icon: 'building-community' },
+  { id: 'salas', label: 'Salas', icon: 'door' },
   { id: 'calendario', label: 'Calendário', icon: 'calendar' },
   { id: 'documentos', label: 'Documentos', icon: 'document' },
 ];

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -248,6 +249,29 @@ internal static class Program
             {
                 MarkHeartbeat();
                 await ServeWorkbookAsync(stream, appFolder);
+                return;
+            }
+
+            if (request.Method == "GET" && request.Path == "/api/data-index")
+            {
+                MarkHeartbeat();
+                await ServeDataIndexAsync(stream, appFolder);
+                return;
+            }
+
+            const string dataIndexEntityPath = "/api/data-index/entities/";
+            if (
+                request.Method == "PUT" &&
+                request.Path.StartsWith(dataIndexEntityPath, StringComparison.Ordinal)
+            )
+            {
+                MarkHeartbeat();
+                await SaveDataIndexEntityAsync(
+                    stream,
+                    request,
+                    appFolder,
+                    request.Path[dataIndexEntityPath.Length..]
+                );
                 return;
             }
 
@@ -871,6 +895,123 @@ internal static class Program
     private static string GetWorkbookControlPath(string appFolder)
     {
         return Path.Combine(GetDadosFolder(appFolder), "controle.json");
+    }
+
+    private static string GetDataSystemFolder(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), "sistema");
+    }
+
+    private static string GetDataIndexPath(string appFolder)
+    {
+        return Path.Combine(GetDataSystemFolder(appFolder), "data-index.json");
+    }
+
+    private static async Task ServeDataIndexAsync(NetworkStream stream, string appFolder)
+    {
+        await WriteJsonAsync(stream, 200, LoadDataIndex(appFolder));
+    }
+
+    private static async Task SaveDataIndexEntityAsync(
+        NetworkStream stream,
+        HttpRequest request,
+        string appFolder,
+        string entityId
+    )
+    {
+        entityId = entityId.Trim('/');
+
+        if (!IsSafeEntityId(entityId))
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Entidade invalida." });
+            return;
+        }
+
+        JsonObject? entity;
+
+        try
+        {
+            entity = JsonNode.Parse(Encoding.UTF8.GetString(request.Body)) as JsonObject;
+        }
+        catch
+        {
+            entity = null;
+        }
+
+        if (entity is null)
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Indice invalido." });
+            return;
+        }
+
+        var index = LoadDataIndex(appFolder);
+        var entities = GetDataIndexEntities(index);
+        var now = DateTime.UtcNow.ToString("O");
+
+        entity["entity"] = entityId;
+        entity["updatedAt"] ??= now;
+        index["schemaVersion"] = 1;
+        index["updatedAt"] = now;
+        entities[entityId] = entity;
+
+        SaveDataIndex(appFolder, index);
+        await WriteJsonAsync(stream, 200, new { ok = true, entity = entityId });
+    }
+
+    private static JsonObject LoadDataIndex(string appFolder)
+    {
+        var indexPath = GetDataIndexPath(appFolder);
+        JsonObject? index = null;
+
+        try
+        {
+            if (File.Exists(indexPath))
+            {
+                index = JsonNode.Parse(File.ReadAllText(indexPath)) as JsonObject;
+            }
+        }
+        catch
+        {
+            index = null;
+        }
+
+        index ??= new JsonObject();
+        index["schemaVersion"] = 1;
+        GetDataIndexEntities(index);
+        return index;
+    }
+
+    private static JsonObject GetDataIndexEntities(JsonObject index)
+    {
+        if (index["entities"] is JsonObject entities)
+        {
+            return entities;
+        }
+
+        entities = new JsonObject();
+        index["entities"] = entities;
+        return entities;
+    }
+
+    private static void SaveDataIndex(string appFolder, JsonObject index)
+    {
+        var dataSystemFolder = GetDataSystemFolder(appFolder);
+        Directory.CreateDirectory(dataSystemFolder);
+        File.WriteAllText(
+            GetDataIndexPath(appFolder),
+            index.ToJsonString(new JsonSerializerOptions { WriteIndented = true })
+        );
+    }
+
+    private static bool IsSafeEntityId(string entityId)
+    {
+        return entityId.Length > 0 &&
+            entityId.All(character =>
+                (character >= 'a' && character <= 'z') ||
+                (character >= '0' && character <= '9') ||
+                character == '-' ||
+                character == '_'
+            );
     }
 
     private static void StartWorkbookSession(string appFolder)

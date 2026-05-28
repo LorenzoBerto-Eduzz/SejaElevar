@@ -8,6 +8,15 @@ import {
   type PointerEvent,
 } from 'react';
 import { read, utils, write } from 'xlsx';
+import {
+  APRENDIZES_ENTITY_ID,
+  buildAprendizesDataIndexEntity,
+  buildEmptyDataIndexEntity,
+} from '../../shared/data/dataIndex';
+import {
+  APRENDIZES_REQUIRED_COLUMNS,
+  normalizeColumnsForSchema,
+} from '../../shared/data/schemas';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
 
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
@@ -65,6 +74,15 @@ type RecoveryInfo = {
   reason?: RecoveryReason | null;
 };
 
+class MissingRequiredColumnsError extends Error {
+  missingColumns: string[];
+
+  constructor(missingColumns: string[]) {
+    super('missing-required-columns');
+    this.missingColumns = missingColumns;
+  }
+}
+
 const defaultViewSettings: TableViewSettings = {
   columnOrder: [],
   columnWidths: {},
@@ -73,6 +91,9 @@ const defaultViewSettings: TableViewSettings = {
 const normalizeCell = (value: unknown) => String(value ?? '').trim();
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
+
+const formatMissingColumnsMessage = (missingColumns: string[]) =>
+  `A planilha não possui as colunas necessárias: ${missingColumns.join(', ')}.`;
 
 const measureTextWidth = (text: string, font: string) => {
   if (typeof document === 'undefined') {
@@ -162,7 +183,6 @@ export function AprendizesPage() {
       JSON.stringify(settings),
     );
   };
-
   const storeImportedSheet = (sheet: ImportedSheet) => {
     latestSheetRef.current = sheet;
     setImportedSheet(sheet);
@@ -204,6 +224,29 @@ export function AprendizesPage() {
       columnOrder: nextColumnOrder,
       columnWidths: nextColumnWidths,
     });
+    void persistAprendizesDataIndex(sheet);
+  };
+
+  const persistAprendizesDataIndex = async (sheet: ImportedSheet | null) => {
+    if (!isLocalProviderActiveRef.current) {
+      return;
+    }
+
+    const entityIndex = sheet
+      ? buildAprendizesDataIndexEntity(sheet)
+      : buildEmptyDataIndexEntity(APRENDIZES_ENTITY_ID, 'Aprendizes');
+
+    try {
+      await fetch(`/api/data-index/entities/${APRENDIZES_ENTITY_ID}`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(entityIndex),
+      });
+    } catch {
+      // The table remains the source of truth; the generated index can be rebuilt.
+    }
   };
 
   const fetchRecoveryInfo = async () => {
@@ -239,6 +282,7 @@ export function AprendizesPage() {
 
     if (response.status === 404) {
       clearWorkingSheet();
+      void persistAprendizesDataIndex(null);
       setWorkspaceStatus(
         'Nenhuma planilha encontrada em dados. Importe um .xlsx.',
       );
@@ -258,7 +302,12 @@ export function AprendizesPage() {
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
 
-    await selectFile(file, options);
+    const didLoadFile = await selectFile(file, options);
+
+    if (!didLoadFile) {
+      return false;
+    }
+
     await fetchRecoveryInfo();
     return true;
   };
@@ -275,6 +324,7 @@ export function AprendizesPage() {
     }
 
     try {
+      const parsedSheet = await readSheetFile(file);
       const response = await fetch('/api/aprendizes/import', {
         method: 'POST',
         headers: {
@@ -292,12 +342,34 @@ export function AprendizesPage() {
       const result = (await response.json()) as { fileName?: string };
       const storedFileName = result.fileName || file.name;
 
-      await fetchProviderFile({
+      saveImportedSheet({
+        ...parsedSheet,
+        fileName: storedFileName,
+      }, {
         resetColumnWidths: true,
       });
+      await fetchRecoveryInfo();
       setWorkspaceStatus(`Planilha copiada para dados/${storedFileName}.`);
       setImportError('');
     } catch (error) {
+      if (error instanceof MissingRequiredColumnsError) {
+        setImportError(formatMissingColumnsMessage(error.missingColumns));
+        return;
+      }
+
+      if ((error as Error).message === 'invalid-file-type') {
+        setImportError('Selecione um arquivo .xlsx.');
+        return;
+      }
+
+      if (
+        (error as Error).message === 'missing-sheet' ||
+        (error as Error).message === 'empty-sheet'
+      ) {
+        setImportError('Não foi possível ler este arquivo .xlsx.');
+        return;
+      }
+
       if ((error as DOMException).name === 'AbortError') {
         setWorkspaceStatus('Importação cancelada.');
         return;
@@ -353,77 +425,11 @@ export function AprendizesPage() {
     } = {},
   ) => {
     if (!file) {
-      return;
-    }
-
-
-    const isXlsx =
-      file.name.toLowerCase().endsWith('.xlsx') ||
-      file.type ===
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-    if (!isXlsx) {
-      setImportError('Selecione um arquivo .xlsx.');
-      return;
+      return false;
     }
 
     try {
-      const workbook = read(await file.arrayBuffer(), {
-        cellDates: true,
-      });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-
-      if (!sheetName || !worksheet) {
-        setImportError('A planilha não possui abas para importar.');
-        return;
-      }
-
-      const sheetRows = utils.sheet_to_json<unknown[]>(worksheet, {
-        blankrows: false,
-        defval: '',
-        header: 1,
-        raw: false,
-      });
-      const headerIndex = sheetRows.findIndex((row) =>
-        row.some((cell) => normalizeCell(cell) !== ''),
-      );
-
-      if (headerIndex < 0) {
-        setImportError('A planilha está vazia.');
-        return;
-      }
-
-      const headerRow = sheetRows[headerIndex];
-      let lastColumnIndex = -1;
-      headerRow.forEach((cell, index) => {
-        if (normalizeCell(cell) !== '') {
-          lastColumnIndex = index;
-        }
-      });
-
-      if (lastColumnIndex < 0) {
-        setImportError('A planilha não possui colunas identificáveis.');
-        return;
-      }
-
-      const columns = headerRow
-        .slice(0, lastColumnIndex + 1)
-        .map((cell, index) => normalizeCell(cell) || `Coluna ${index + 1}`);
-      const rows = sheetRows
-        .slice(headerIndex + 1)
-        .map((row) =>
-          columns.map((_, columnIndex) => normalizeCell(row[columnIndex])),
-        )
-        .filter((row) => row.some((cell) => cell !== ''));
-
-      const nextSheet = {
-        fileName: file.name,
-        sheetName,
-        importedAt: new Date().toISOString(),
-        columns,
-        rows,
-      };
+      const nextSheet = await readSheetFile(file);
 
       saveImportedSheet(nextSheet, {
         resetColumnWidths: options.resetColumnWidths,
@@ -431,10 +437,94 @@ export function AprendizesPage() {
 
       setWorkspaceStatus('Planilha carregada.');
       setImportError('');
-    } catch {
+      return true;
+    } catch (error) {
       clearWorkingSheet();
+      void persistAprendizesDataIndex(null);
+
+      if (error instanceof MissingRequiredColumnsError) {
+        setImportError(formatMissingColumnsMessage(error.missingColumns));
+        return false;
+      }
+
+      if ((error as Error).message === 'invalid-file-type') {
+        setImportError('Selecione um arquivo .xlsx.');
+        return false;
+      }
+
       setImportError('Não foi possível ler este arquivo .xlsx.');
+      return false;
     }
+  };
+
+  const readSheetFile = async (file: File): Promise<ImportedSheet> => {
+    const isXlsx =
+      file.name.toLowerCase().endsWith('.xlsx') ||
+      file.type ===
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if (!isXlsx) {
+      throw new Error('invalid-file-type');
+    }
+
+    const workbook = read(await file.arrayBuffer(), {
+      cellDates: true,
+    });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+
+    if (!sheetName || !worksheet) {
+      throw new Error('missing-sheet');
+    }
+
+    const sheetRows = utils.sheet_to_json<unknown[]>(worksheet, {
+      blankrows: false,
+      defval: '',
+      header: 1,
+      raw: false,
+    });
+    const headerIndex = sheetRows.findIndex((row) =>
+      row.some((cell) => normalizeCell(cell) !== ''),
+    );
+
+    if (headerIndex < 0) {
+      throw new Error('empty-sheet');
+    }
+
+    const headerRow = sheetRows[headerIndex];
+    let lastColumnIndex = -1;
+    sheetRows.slice(headerIndex).forEach((row) => {
+      row.forEach((cell, index) => {
+        if (normalizeCell(cell) !== '') {
+          lastColumnIndex = Math.max(lastColumnIndex, index);
+        }
+      });
+    });
+
+    const rawColumns = headerRow
+      .slice(0, lastColumnIndex + 1)
+      .map((cell, index) => normalizeCell(cell) || `Coluna ${index + 1}`);
+    const { missingColumns, normalizedColumns: columns } =
+      normalizeColumnsForSchema(rawColumns, APRENDIZES_REQUIRED_COLUMNS);
+
+    if (missingColumns.length > 0) {
+      throw new MissingRequiredColumnsError(missingColumns);
+    }
+
+    const rows = sheetRows
+      .slice(headerIndex + 1)
+      .map((row) =>
+        columns.map((_, columnIndex) => normalizeCell(row[columnIndex])),
+      )
+      .filter((row) => row.some((cell) => cell !== ''));
+
+    return {
+      fileName: file.name,
+      sheetName,
+      importedAt: new Date().toISOString(),
+      columns,
+      rows,
+    };
   };
 
   useEffect(() => {
@@ -672,10 +762,13 @@ export function AprendizesPage() {
       const result = (await saveResponse.json()) as { fileName?: string };
       const savedFileName = result.fileName || sheet.fileName;
 
-      storeImportedSheet({
+      const savedSheet = {
         ...sheet,
         fileName: savedFileName,
-      });
+      };
+
+      storeImportedSheet(savedSheet);
+      void persistAprendizesDataIndex(savedSheet);
       await fetchRecoveryInfo();
 
       setWorkspaceStatus(`Alterações gravadas em dados/${savedFileName}.`);
@@ -892,6 +985,10 @@ export function AprendizesPage() {
     tableHeaderScrollRef.current.scrollLeft = tableBodyScrollRef.current.scrollLeft;
   };
 
+  useEffect(() => {
+    syncHeaderScroll();
+  }, [importedSheet, orderedColumns]);
+
   const tableClassName = isEditMode ? 'data-table editing' : 'data-table';
   const hasWorkingSheet = Boolean(importedSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
@@ -909,6 +1006,14 @@ export function AprendizesPage() {
       ))}
     </colgroup>
   );
+  const renderHeaderColumnGroup = () => (
+    <colgroup>
+      {orderedColumns.map((column) => (
+        <col key={column} style={getColumnWidthStyle(column)} />
+      ))}
+      <col className="table-scrollbar-spacer-column" />
+    </colgroup>
+  );
 
   return (
     <section className="feature-page" aria-labelledby="aprendizes-title">
@@ -924,15 +1029,6 @@ export function AprendizesPage() {
             <h1 id="aprendizes-title">Aprendizes</h1>
           </div>
           <div className="table-toolbar" aria-label="Ações da tabela">
-            <button
-              className={hasWorkingSheet ? 'square-action' : 'square-action disabled'}
-              type="button"
-              aria-label="Cadastrar aprendiz"
-              title="Cadastrar Aprendiz"
-              disabled={!hasWorkingSheet}
-            >
-              <UserPlusIcon />
-            </button>
             <button
               className={
                 hasWorkingSheet && isEditMode
@@ -1013,12 +1109,15 @@ export function AprendizesPage() {
               aria-hidden="true"
             >
               <table className={`${tableClassName} data-table-header`}>
-                {renderColumnGroup()}
+                {renderHeaderColumnGroup()}
               <thead>
                 <tr>
-                  {orderedColumns.map((column) => (
+                  {orderedColumns.map((column, orderedColumnIndex) => (
                     <th
                       key={column}
+                      className={
+                        orderedColumnIndex === 0 ? 'pinned-column' : undefined
+                      }
                       style={getColumnWidthStyle(column)}
                       draggable={isEditMode}
                       onDragStart={() => setDraggedColumn(column)}
@@ -1046,6 +1145,7 @@ export function AprendizesPage() {
                       )}
                     </th>
                   ))}
+                  <th className="table-scrollbar-spacer" aria-hidden="true" />
                 </tr>
               </thead>
               </table>
@@ -1069,6 +1169,11 @@ export function AprendizesPage() {
                       return (
                         <td
                           key={`${column}-${columnIndex}`}
+                          className={
+                            orderedColumnIndex === 0
+                              ? 'pinned-column'
+                              : undefined
+                          }
                           style={getColumnWidthStyle(column)}
                         >
                           {isEditMode ? (
@@ -1237,17 +1342,6 @@ function ImportIcon() {
       <path d="M5 21h14" />
       <path d="M5 17v4" />
       <path d="M19 17v4" />
-    </svg>
-  );
-}
-
-function UserPlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
-      <path d="M16 19h6" />
-      <path d="M19 16v6" />
-      <path d="M6 21v-2a4 4 0 0 1 4 -4h4" />
     </svg>
   );
 }
