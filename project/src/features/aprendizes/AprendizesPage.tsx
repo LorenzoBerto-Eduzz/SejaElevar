@@ -53,17 +53,36 @@ type TableSortState = {
   direction: SortDirection;
 };
 
-type CellUndoEntry = {
+type CellEditUndoEntry = {
+  kind: 'cell-edit';
   rowIndex: number;
   columnName: string;
   previousValue: string;
   nextValue: string;
 };
 
+type RowInsertUndoEntry = {
+  kind: 'row-insert';
+  rowIndex: number;
+};
+
+type TableUndoEntry = CellEditUndoEntry | RowInsertUndoEntry;
+
 type ActiveCellEdit = {
   rowIndex: number;
   columnName: string;
   initialValue: string;
+};
+
+type ActiveRegistrationEdit = {
+  columnName: string;
+  initialValue: string;
+};
+
+type RegistrationDraftUndoEntry = {
+  columnName: string;
+  previousValue: string;
+  nextValue: string;
 };
 
 type RecoveryReason =
@@ -241,11 +260,17 @@ const readSavedViewSettings = () => {
 export function AprendizesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const cellUndoStackRef = useRef<CellUndoEntry[]>([]);
+  const cellUndoStackRef = useRef<TableUndoEntry[]>([]);
+  const registrationDraftUndoStackRef = useRef<RegistrationDraftUndoEntry[]>([]);
   const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
+  const activeRegistrationEditRef = useRef<ActiveRegistrationEdit | null>(null);
+  const isApplyingUndoRef = useRef(false);
+  const undoGuardTimerRef = useRef<number | null>(null);
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
   const tableBodyScrollRef = useRef<HTMLDivElement>(null);
   const registerHighlightTimerRef = useRef<number | null>(null);
+  const wasEditModeRef = useRef(false);
+  const registrationDraftRef = useRef<Record<string, string>>({});
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
   const isLocalProviderActiveRef = useRef(false);
@@ -253,6 +278,7 @@ export function AprendizesPage() {
     readSavedViewSettings,
   );
   const [isEditMode, setIsEditMode] = useState(false);
+  const [areBodyEditInputsReady, setAreBodyEditInputsReady] = useState(false);
   const sortState = viewSettings.sortState;
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
@@ -262,9 +288,9 @@ export function AprendizesPage() {
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
-  const [registrationDraft, setRegistrationDraft] = useState<
-    Record<string, string>
-  >({});
+  const [hasRegistrationDraftValue, setHasRegistrationDraftValue] =
+    useState(false);
+  const [registrationDraftResetKey, setRegistrationDraftResetKey] = useState(0);
   const [isRegistrationFocused, setIsRegistrationFocused] = useState(false);
   const [sessionRegisteredRowIndexes, setSessionRegisteredRowIndexes] =
     useState<number[]>([]);
@@ -284,11 +310,15 @@ export function AprendizesPage() {
 
   const clearWorkingSheet = () => {
     cellUndoStackRef.current = [];
+    registrationDraftUndoStackRef.current = [];
     activeCellEditRef.current = null;
+    activeRegistrationEditRef.current = null;
     latestSheetRef.current = null;
     setImportedSheet(null);
     setRecoveryInfo(null);
-    setRegistrationDraft({});
+    registrationDraftRef.current = {};
+    setHasRegistrationDraftValue(false);
+    setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setIsRegistrationFocused(false);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
@@ -299,7 +329,9 @@ export function AprendizesPage() {
     options: { resetColumnWidths?: boolean } = {},
   ) => {
     cellUndoStackRef.current = [];
+    registrationDraftUndoStackRef.current = [];
     activeCellEditRef.current = null;
+    activeRegistrationEditRef.current = null;
     storeImportedSheet(sheet);
 
     const knownColumns = new Set(sheet.columns);
@@ -321,7 +353,9 @@ export function AprendizesPage() {
         ? viewSettings.sortState
         : null;
 
-    setRegistrationDraft({});
+    registrationDraftRef.current = {};
+    setHasRegistrationDraftValue(false);
+    setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setIsRegistrationFocused(false);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
@@ -692,15 +726,65 @@ export function AprendizesPage() {
 
   useEffect(() => {
     if (!isEditMode) {
-      setRegistrationDraft({});
+      setAreBodyEditInputsReady(false);
+      registrationDraftRef.current = {};
+      registrationDraftUndoStackRef.current = [];
+      activeRegistrationEditRef.current = null;
+      setHasRegistrationDraftValue(false);
+      setRegistrationDraftResetKey((currentKey) => currentKey + 1);
       setIsRegistrationFocused(false);
+      wasEditModeRef.current = false;
     }
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setAreBodyEditInputsReady(true);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode) {
+      return;
+    }
+
+    const handleUndoShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.shiftKey ||
+        event.key.toLowerCase() !== 'z'
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      undoLastCellEditAndSave();
+    };
+
+    window.addEventListener('keydown', handleUndoShortcut, {
+      capture: true,
+    });
+
+    return () =>
+      window.removeEventListener('keydown', handleUndoShortcut, {
+        capture: true,
+      });
   }, [isEditMode]);
 
   useEffect(
     () => () => {
       if (registerHighlightTimerRef.current !== null) {
         window.clearTimeout(registerHighlightTimerRef.current);
+      }
+
+      if (undoGuardTimerRef.current !== null) {
+        window.clearTimeout(undoGuardTimerRef.current);
       }
     },
     [],
@@ -792,15 +876,6 @@ export function AprendizesPage() {
     });
   }
 
-  const hasRegistrationDraftValue =
-    importedSheet &&
-    orderedColumns.some((column) => {
-      if (column === AGE_COLUMN) {
-        return false;
-      }
-
-      return normalizeCell(registrationDraft[column]) !== '';
-    });
   const showRegistrationHint = Boolean(
     hasRegistrationDraftValue && isRegistrationFocused,
   );
@@ -811,10 +886,10 @@ export function AprendizesPage() {
     }
 
     if (column !== AGE_COLUMN) {
-      return registrationDraft[column] || '';
+      return registrationDraftRef.current[column] || '';
     }
 
-    const birthdateValue = registrationDraft[BIRTHDATE_COLUMN] || '';
+    const birthdateValue = registrationDraftRef.current[BIRTHDATE_COLUMN] || '';
     return calculateAgeFromBirthdate(birthdateValue);
   };
 
@@ -899,8 +974,7 @@ export function AprendizesPage() {
         .trim(),
     );
     const effectiveRowHeight = Number.isFinite(rowHeight) ? rowHeight : 32;
-    const registerRowOffset = isEditMode ? effectiveRowHeight : 0;
-    const rowTop = registerRowOffset + visualRowIndex * effectiveRowHeight;
+    const rowTop = visualRowIndex * effectiveRowHeight;
     const targetScrollTop = Math.max(
       0,
       rowTop - tableBody.clientHeight / 2 + effectiveRowHeight / 2,
@@ -1144,8 +1218,11 @@ export function AprendizesPage() {
     return sheet.rows[rowIndex]?.[columnIndex] ?? '';
   };
 
-  const pushCellUndoEntry = (entry: CellUndoEntry) => {
-    if (entry.previousValue === entry.nextValue) {
+  const pushTableUndoEntry = (entry: TableUndoEntry) => {
+    if (
+      entry.kind === 'cell-edit' &&
+      entry.previousValue === entry.nextValue
+    ) {
       return;
     }
 
@@ -1155,34 +1232,72 @@ export function AprendizesPage() {
     ].slice(-CELL_UNDO_LIMIT);
   };
 
-  const commitActiveCellEdit = () => {
-    const activeEdit = activeCellEditRef.current;
+  const pushCellUndoEntry = (entry: Omit<CellEditUndoEntry, 'kind'>) => {
+    if (entry.previousValue === entry.nextValue) {
+      return;
+    }
+
+    pushTableUndoEntry({
+      kind: 'cell-edit',
+      ...entry,
+    });
+  };
+
+  const commitCellValue = (
+    rowIndex: number,
+    columnName: string,
+    value: string,
+  ) => {
     const currentSheet = latestSheetRef.current;
+
+    if (!currentSheet || columnName === AGE_COLUMN) {
+      activeCellEditRef.current = null;
+      return null;
+    }
+
+    const columnIndex = currentSheet.columns.indexOf(columnName);
+
+    if (columnIndex < 0) {
+      activeCellEditRef.current = null;
+      return null;
+    }
+
+    const previousValue = currentSheet.rows[rowIndex]?.[columnIndex] || '';
+    const activeEdit = activeCellEditRef.current;
+    const initialValue =
+      activeEdit?.rowIndex === rowIndex && activeEdit.columnName === columnName
+        ? activeEdit.initialValue
+        : previousValue;
 
     activeCellEditRef.current = null;
 
-    if (!activeEdit || !currentSheet) {
-      return false;
+    if (previousValue === value) {
+      return null;
     }
 
-    const currentValue = getCellValue(
-      currentSheet,
-      activeEdit.rowIndex,
-      activeEdit.columnName,
-    );
+    const nextRows = currentSheet.rows.map((row, index) => {
+      if (index !== rowIndex) {
+        return row;
+      }
 
-    if (currentValue === null || currentValue === activeEdit.initialValue) {
-      return false;
-    }
+      const nextRow = [...row];
+      nextRow[columnIndex] = value;
+      return nextRow;
+    });
+    const nextSheet = {
+      ...currentSheet,
+      rows: nextRows,
+    };
 
     pushCellUndoEntry({
-      rowIndex: activeEdit.rowIndex,
-      columnName: activeEdit.columnName,
-      previousValue: activeEdit.initialValue,
-      nextValue: currentValue,
+      rowIndex,
+      columnName,
+      previousValue: initialValue,
+      nextValue: value,
     });
+    storeImportedSheet(nextSheet);
 
-    return true;
+    return nextSheet;
   };
 
   const beginCellEdit = (
@@ -1199,9 +1314,95 @@ export function AprendizesPage() {
       return;
     }
 
-    commitActiveCellEdit();
+    finalizeActiveRegistrationDraftEdit();
     activeCellEditRef.current = {
       rowIndex,
+      columnName,
+      initialValue,
+    };
+  };
+
+  const hasAnyRegistrationDraftValue = (draft: Record<string, string>) =>
+    Object.values(draft).some(
+      (draftValue) => normalizeCell(draftValue) !== '',
+    );
+
+  const setRegistrationDraftColumnValue = (
+    columnName: string,
+    value: string,
+  ) => {
+    registrationDraftRef.current = {
+      ...registrationDraftRef.current,
+      [columnName]: value,
+    };
+
+    const nextHasValue = hasAnyRegistrationDraftValue(
+      registrationDraftRef.current,
+    );
+
+    setHasRegistrationDraftValue((currentHasValue) =>
+      currentHasValue === nextHasValue ? currentHasValue : nextHasValue,
+    );
+  };
+
+  const getRegistrationDraftInput = (columnName: string) => {
+    const orderedColumnIndex = orderedColumns.indexOf(columnName);
+
+    return orderedColumnIndex >= 0
+      ? cellInputRefs.current[`register-${orderedColumnIndex}`]
+      : null;
+  };
+
+  const getRegistrationDraftCurrentValue = (columnName: string) =>
+    getRegistrationDraftInput(columnName)?.value ??
+    registrationDraftRef.current[columnName] ??
+    '';
+
+  const pushRegistrationDraftUndoEntry = (
+    entry: RegistrationDraftUndoEntry,
+  ) => {
+    if (entry.previousValue === entry.nextValue) {
+      return;
+    }
+
+    registrationDraftUndoStackRef.current = [
+      ...registrationDraftUndoStackRef.current,
+      entry,
+    ].slice(-CELL_UNDO_LIMIT);
+  };
+
+  const finalizeActiveRegistrationDraftEdit = () => {
+    const activeEdit = activeRegistrationEditRef.current;
+
+    if (!activeEdit) {
+      return;
+    }
+
+    const currentValue = getRegistrationDraftCurrentValue(
+      activeEdit.columnName,
+    );
+
+    pushRegistrationDraftUndoEntry({
+      columnName: activeEdit.columnName,
+      previousValue: activeEdit.initialValue,
+      nextValue: currentValue,
+    });
+    activeRegistrationEditRef.current = null;
+  };
+
+  const beginRegistrationDraftEdit = (
+    columnName: string,
+    initialValue: string,
+  ) => {
+    const activeEdit = activeRegistrationEditRef.current;
+
+    if (activeEdit?.columnName === columnName) {
+      return;
+    }
+
+    finalizeActiveRegistrationDraftEdit();
+    activeCellEditRef.current = null;
+    activeRegistrationEditRef.current = {
       columnName,
       initialValue,
     };
@@ -1264,10 +1465,29 @@ export function AprendizesPage() {
       return;
     }
 
-    setRegistrationDraft((currentDraft) => ({
-      ...currentDraft,
-      [columnName]: value,
-    }));
+    if (activeRegistrationEditRef.current?.columnName !== columnName) {
+      finalizeActiveRegistrationDraftEdit();
+      activeCellEditRef.current = null;
+      activeRegistrationEditRef.current = {
+        columnName,
+        initialValue: registrationDraftRef.current[columnName] || '',
+      };
+    }
+
+    setRegistrationDraftColumnValue(columnName, value);
+  };
+
+  const protectUndoCommit = () => {
+    isApplyingUndoRef.current = true;
+
+    if (undoGuardTimerRef.current !== null) {
+      window.clearTimeout(undoGuardTimerRef.current);
+    }
+
+    undoGuardTimerRef.current = window.setTimeout(() => {
+      isApplyingUndoRef.current = false;
+      undoGuardTimerRef.current = null;
+    }, 0);
   };
 
   const commitRegistrationDraft = async () => {
@@ -1277,8 +1497,9 @@ export function AprendizesPage() {
       return;
     }
 
+    const draftValues = registrationDraftRef.current;
     const nextRow = currentSheet.columns.map((column) =>
-      column === AGE_COLUMN ? '' : registrationDraft[column] || '',
+      column === AGE_COLUMN ? '' : draftValues[column] || '',
     );
     const nextRowIndex = currentSheet.rows.length;
     const nextSheet = {
@@ -1293,9 +1514,17 @@ export function AprendizesPage() {
     ];
 
     activeCellEditRef.current = null;
-    setRegistrationDraft({});
+    activeRegistrationEditRef.current = null;
+    registrationDraftRef.current = {};
+    registrationDraftUndoStackRef.current = [];
+    setHasRegistrationDraftValue(false);
+    setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setSessionRegisteredRowIndexes(nextRegisteredRowIndexes);
     setHighlightedRegisteredRowIndex(nextRowIndex);
+    pushTableUndoEntry({
+      kind: 'row-insert',
+      rowIndex: nextRowIndex,
+    });
 
     if (registerHighlightTimerRef.current !== null) {
       window.clearTimeout(registerHighlightTimerRef.current);
@@ -1304,7 +1533,7 @@ export function AprendizesPage() {
     registerHighlightTimerRef.current = window.setTimeout(() => {
       setHighlightedRegisteredRowIndex(null);
       registerHighlightTimerRef.current = null;
-    }, 1650);
+    }, 1250);
 
     storeImportedSheet(nextSheet);
     window.requestAnimationFrame(() => {
@@ -1314,14 +1543,151 @@ export function AprendizesPage() {
     await writeSheetToSourceFile(nextSheet);
   };
 
+  const undoActiveDraftEdit = () => {
+    const activeRegistrationEdit = activeRegistrationEditRef.current;
+
+    if (activeRegistrationEdit) {
+      const orderedColumnIndex = orderedColumns.indexOf(
+        activeRegistrationEdit.columnName,
+      );
+      const activeInput =
+        orderedColumnIndex >= 0
+          ? cellInputRefs.current[`register-${orderedColumnIndex}`]
+          : null;
+      const currentValue =
+        activeInput?.value ??
+        registrationDraftRef.current[activeRegistrationEdit.columnName] ??
+        '';
+
+      if (currentValue !== activeRegistrationEdit.initialValue) {
+        if (activeInput) {
+          activeInput.value = activeRegistrationEdit.initialValue;
+        }
+
+        setRegistrationDraftColumnValue(
+          activeRegistrationEdit.columnName,
+          activeRegistrationEdit.initialValue,
+        );
+
+        return true;
+      }
+    }
+
+    const registrationDraftUndoEntry =
+      registrationDraftUndoStackRef.current.at(-1);
+
+    if (registrationDraftUndoEntry) {
+      registrationDraftUndoStackRef.current =
+        registrationDraftUndoStackRef.current.slice(0, -1);
+
+      const activeInput = getRegistrationDraftInput(
+        registrationDraftUndoEntry.columnName,
+      );
+
+      if (activeInput) {
+        activeInput.value = registrationDraftUndoEntry.previousValue;
+      }
+
+      setRegistrationDraftColumnValue(
+        registrationDraftUndoEntry.columnName,
+        registrationDraftUndoEntry.previousValue,
+      );
+      activeRegistrationEditRef.current = {
+        columnName: registrationDraftUndoEntry.columnName,
+        initialValue: registrationDraftUndoEntry.previousValue,
+      };
+
+      return true;
+    }
+
+    const activeEdit = activeCellEditRef.current;
+    const currentSheet = latestSheetRef.current;
+
+    if (!activeEdit || !currentSheet) {
+      return false;
+    }
+
+    const orderedColumnIndex = orderedColumns.indexOf(activeEdit.columnName);
+    const activeInput =
+      orderedColumnIndex >= 0
+        ? cellInputRefs.current[`${activeEdit.rowIndex}-${orderedColumnIndex}`]
+        : null;
+    const savedValue = getCellValue(
+      currentSheet,
+      activeEdit.rowIndex,
+      activeEdit.columnName,
+    );
+    const currentValue = activeInput?.value ?? savedValue ?? '';
+
+    if (savedValue !== null && currentValue !== activeEdit.initialValue) {
+      if (activeInput) {
+        activeInput.value = activeEdit.initialValue;
+      }
+
+      return true;
+    }
+
+    if (activeInput && savedValue !== null && activeInput.value !== savedValue) {
+      activeInput.value = activeEdit.initialValue;
+      return true;
+    }
+
+    return false;
+  };
+
   const undoLastCellEdit = () => {
-    commitActiveCellEdit();
+    if (undoActiveDraftEdit()) {
+      return true;
+    }
+
+    protectUndoCommit();
+    activeCellEditRef.current = null;
+    activeRegistrationEditRef.current = null;
 
     const currentSheet = latestSheetRef.current;
     const undoEntry = cellUndoStackRef.current.at(-1);
 
     if (!currentSheet || !undoEntry) {
       return false;
+    }
+
+    if (undoEntry.kind === 'row-insert') {
+      if (!currentSheet.rows[undoEntry.rowIndex]) {
+        cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+        return false;
+      }
+
+      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+
+      const nextSheet = {
+        ...currentSheet,
+        rows: currentSheet.rows.filter(
+          (_row, index) => index !== undoEntry.rowIndex,
+        ),
+      };
+
+      setSessionRegisteredRowIndexes((currentIndexes) =>
+        currentIndexes
+          .filter((rowIndex) => rowIndex !== undoEntry.rowIndex)
+          .map((rowIndex) =>
+            rowIndex > undoEntry.rowIndex ? rowIndex - 1 : rowIndex,
+          ),
+      );
+      setHighlightedRegisteredRowIndex((currentRowIndex) => {
+        if (currentRowIndex === null) {
+          return null;
+        }
+
+        if (currentRowIndex === undoEntry.rowIndex) {
+          return null;
+        }
+
+        return currentRowIndex > undoEntry.rowIndex
+          ? currentRowIndex - 1
+          : currentRowIndex;
+      });
+      storeImportedSheet(nextSheet);
+      return nextSheet;
     }
 
     const columnIndex = currentSheet.columns.indexOf(undoEntry.columnName);
@@ -1343,12 +1709,23 @@ export function AprendizesPage() {
       return nextRow;
     });
 
-    storeImportedSheet({
+    const nextSheet = {
       ...currentSheet,
       rows: nextRows,
-    });
+    };
 
-    return true;
+    storeImportedSheet(nextSheet);
+    return nextSheet;
+  };
+
+  const undoLastCellEditAndSave = () => {
+    const nextSheet = undoLastCellEdit();
+
+    if (nextSheet && nextSheet !== true) {
+      void writeSheetToSourceFile(nextSheet);
+    }
+
+    return Boolean(nextSheet);
   };
 
   const focusCell = (rowIndex: number, columnIndex: number) => {
@@ -1386,8 +1763,13 @@ export function AprendizesPage() {
       return;
     }
 
+    if (wasEditModeRef.current) {
+      return;
+    }
+
+    wasEditModeRef.current = true;
     focusFirstRegistrationCell();
-  }, [isEditMode, importedSheet]);
+  }, [isEditMode, Boolean(importedSheet)]);
 
   const handleCellNavigation = (
     event: KeyboardEvent<HTMLInputElement>,
@@ -1452,6 +1834,122 @@ export function AprendizesPage() {
       ))}
       <col className="table-scrollbar-spacer-column" />
     </colgroup>
+  );
+  const renderRegistrationRow = () => (
+    <table className={`${tableClassName} data-table-register`}>
+      {renderHeaderColumnGroup()}
+      <tbody>
+        <tr className="register-row">
+          {orderedColumns.map((column, orderedColumnIndex) => {
+            const value = getRegistrationDraftDisplayValue(column);
+
+            return (
+              <td
+                key={`register-${column}`}
+                className={[
+                  'register-cell',
+                  orderedColumnIndex === 0 ? 'pinned-column' : '',
+                  column === AGE_COLUMN ? 'derived-cell' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                style={getColumnWidthStyle(column)}
+              >
+                {column !== AGE_COLUMN ? (
+                  <input
+                    key={`${registrationDraftResetKey}-${column}`}
+                    ref={(element) => {
+                      cellInputRefs.current[`register-${orderedColumnIndex}`] =
+                        element;
+                    }}
+                    aria-label={`${column} cadastrar aprendiz`}
+                    data-registration-input="true"
+                    spellCheck={false}
+                    size={Math.max(value.length, 1)}
+                    style={
+                      {
+                        '--edit-input-width': `${Math.max(
+                          value.length + 2,
+                          1,
+                        )}ch`,
+                      } as CSSProperties
+                    }
+                    defaultValue={value}
+                    onFocus={(event) => {
+                      beginRegistrationDraftEdit(column, event.currentTarget.value);
+                      setIsRegistrationFocused(true);
+                    }}
+                    onBlur={() => {
+                      window.requestAnimationFrame(() => {
+                        const activeElement = document.activeElement;
+                        const nextIsRegistrationFocused =
+                          activeElement instanceof HTMLElement &&
+                          activeElement.dataset.registrationInput === 'true';
+
+                        setIsRegistrationFocused(nextIsRegistrationFocused);
+
+                        if (!nextIsRegistrationFocused) {
+                          finalizeActiveRegistrationDraftEdit();
+                        }
+                      });
+                    }}
+                    onChange={(event) =>
+                      updateRegistrationDraft(column, event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void commitRegistrationDraft();
+                        return;
+                      }
+
+                      if (
+                        ![
+                          'ArrowDown',
+                          'ArrowLeft',
+                          'ArrowRight',
+                        ].includes(event.key)
+                      ) {
+                        return;
+                      }
+
+                      event.preventDefault();
+
+                      if (event.key === 'ArrowDown') {
+                        const nextRow = displayedRows[0];
+
+                        if (nextRow) {
+                          window.requestAnimationFrame(() =>
+                            focusCell(nextRow.rowIndex, orderedColumnIndex),
+                          );
+                        }
+
+                        return;
+                      }
+
+                      const nextColumnIndex =
+                        event.key === 'ArrowLeft'
+                          ? Math.max(0, orderedColumnIndex - 1)
+                          : Math.min(
+                              orderedColumns.length - 1,
+                              orderedColumnIndex + 1,
+                            );
+
+                      window.requestAnimationFrame(() =>
+                        focusRegistrationCell(nextColumnIndex),
+                      );
+                    }}
+                  />
+                ) : (
+                  value
+                )}
+              </td>
+            );
+          })}
+          <td className="table-scrollbar-spacer" aria-hidden="true" />
+        </tr>
+      </tbody>
+    </table>
   );
   const getHeaderCellClassName = (
     column: string,
@@ -1558,7 +2056,6 @@ export function AprendizesPage() {
             <div
               className="data-table-header-scroll"
               ref={tableHeaderScrollRef}
-              aria-hidden="true"
             >
               <table className={`${tableClassName} data-table-header`}>
                 {renderHeaderColumnGroup()}
@@ -1603,7 +2100,13 @@ export function AprendizesPage() {
                 </tr>
               </thead>
               </table>
+              {isEditMode && renderRegistrationRow()}
             </div>
+            {isEditMode && showRegistrationHint && (
+              <div className="register-row-hint" aria-live="polite">
+                Aperte <kbd>Enter</kbd> para cadastrar
+              </div>
+            )}
             <div
               className="data-table-body-scroll"
               ref={tableBodyScrollRef}
@@ -1614,126 +2117,6 @@ export function AprendizesPage() {
               <table className={`${tableClassName} data-table-body`}>
                 {renderColumnGroup()}
               <tbody>
-                {isEditMode && (
-                  <tr className="register-row">
-                    {orderedColumns.map((column, orderedColumnIndex) => {
-                      const value = getRegistrationDraftDisplayValue(column);
-
-                      return (
-                        <td
-                          key={`register-${column}`}
-                          className={[
-                            'register-cell',
-                            orderedColumnIndex === 0 ? 'pinned-column' : '',
-                            column === AGE_COLUMN ? 'derived-cell' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          style={getColumnWidthStyle(column)}
-                        >
-                          {column !== AGE_COLUMN ? (
-                            <>
-                            <input
-                              ref={(element) => {
-                                cellInputRefs.current[
-                                  `register-${orderedColumnIndex}`
-                                ] = element;
-                              }}
-                              aria-label={`${column} cadastrar aprendiz`}
-                              data-registration-input="true"
-                              spellCheck={false}
-                              size={Math.max(value.length, 1)}
-                              style={
-                                {
-                                  '--edit-input-width': `${Math.max(
-                                    value.length + 2,
-                                    1,
-                                  )}ch`,
-                                } as CSSProperties
-                              }
-                              value={value}
-                              onFocus={() => setIsRegistrationFocused(true)}
-                              onBlur={() => {
-                                window.requestAnimationFrame(() => {
-                                  const activeElement = document.activeElement;
-                                  setIsRegistrationFocused(
-                                    activeElement instanceof HTMLElement &&
-                                      activeElement.dataset
-                                        .registrationInput === 'true',
-                                  );
-                                });
-                              }}
-                              onChange={(event) =>
-                                updateRegistrationDraft(
-                                  column,
-                                  event.target.value,
-                                )
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  event.preventDefault();
-                                  void commitRegistrationDraft();
-                                  return;
-                                }
-
-                                if (
-                                  ![
-                                    'ArrowDown',
-                                    'ArrowLeft',
-                                    'ArrowRight',
-                                  ].includes(event.key)
-                                ) {
-                                  return;
-                                }
-
-                                event.preventDefault();
-
-                                if (event.key === 'ArrowDown') {
-                                  const nextRow = displayedRows[0];
-
-                                  if (nextRow) {
-                                    window.requestAnimationFrame(() =>
-                                      focusCell(
-                                        nextRow.rowIndex,
-                                        orderedColumnIndex,
-                                      ),
-                                    );
-                                  }
-
-                                  return;
-                                }
-
-                                const nextColumnIndex =
-                                  event.key === 'ArrowLeft'
-                                    ? Math.max(0, orderedColumnIndex - 1)
-                                    : Math.min(
-                                        orderedColumns.length - 1,
-                                        orderedColumnIndex + 1,
-                                      );
-
-                                window.requestAnimationFrame(() =>
-                                  focusRegistrationCell(nextColumnIndex),
-                                );
-                              }}
-                            />
-                            {orderedColumnIndex === 0 &&
-                              showRegistrationHint && (
-                                <div
-                                  className="register-row-hint"
-                                  aria-live="polite"
-                                >
-                                  Aperte <kbd>Enter</kbd> para cadastrar
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            value
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                )}
                 {displayedRows.map(({ row, rowIndex }) => (
                   <tr
                     key={rowIndex}
@@ -1763,8 +2146,9 @@ export function AprendizesPage() {
                             .join(' ')}
                           style={getColumnWidthStyle(column)}
                         >
-                          {isEditMode && column !== AGE_COLUMN ? (
+                          {areBodyEditInputsReady && column !== AGE_COLUMN ? (
                             <input
+                              key={`${rowIndex}-${column}-${value}`}
                               ref={(element) => {
                                 cellInputRefs.current[
                                   `${rowIndex}-${orderedColumnIndex}`
@@ -1781,24 +2165,14 @@ export function AprendizesPage() {
                                   )}ch`,
                                 } as CSSProperties
                               }
-                              value={value}
+                              defaultValue={value}
                               onFocus={() =>
                                 beginCellEdit(rowIndex, column, value)
                               }
-                              onChange={(event) =>
-                                updateCell(rowIndex, column, event.target.value)
+                              onChange={() =>
+                                beginCellEdit(rowIndex, column, value)
                               }
                               onKeyDown={(event) => {
-                                if (
-                                  (event.ctrlKey || event.metaKey) &&
-                                  !event.shiftKey &&
-                                  event.key.toLowerCase() === 'z'
-                                ) {
-                                  event.preventDefault();
-                                  undoLastCellEdit();
-                                  return;
-                                }
-
                                 handleCellNavigation(
                                   event,
                                   rowIndex,
@@ -1810,18 +2184,28 @@ export function AprendizesPage() {
                                 }
 
                                 event.preventDefault();
-                                const hasCommittedChange = commitActiveCellEdit();
-                                const sheet = latestSheetRef.current;
+                                const sheet = commitCellValue(
+                                  rowIndex,
+                                  column,
+                                  event.currentTarget.value,
+                                );
 
-                                if (hasCommittedChange && sheet) {
+                                if (sheet) {
                                   void writeSheetToSourceFile(sheet);
                                 }
                               }}
-                              onBlur={() => {
-                                const hasCommittedChange = commitActiveCellEdit();
-                                const sheet = latestSheetRef.current;
+                              onBlur={(event) => {
+                                if (isApplyingUndoRef.current) {
+                                  return;
+                                }
 
-                                if (hasCommittedChange && sheet) {
+                                const sheet = commitCellValue(
+                                  rowIndex,
+                                  column,
+                                  event.currentTarget.value,
+                                );
+
+                                if (sheet) {
                                   void writeSheetToSourceFile(sheet);
                                 }
                               }}

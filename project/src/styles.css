@@ -970,6 +970,7 @@ svg {
 
 .data-table-frame {
   display: grid;
+  position: relative;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   max-width: 100%;
@@ -1077,16 +1078,21 @@ svg {
 }
 
 .data-table .table-scrollbar-spacer-column,
-.data-table th.table-scrollbar-spacer {
+.data-table th.table-scrollbar-spacer,
+.data-table td.table-scrollbar-spacer {
   width: var(--table-scrollbar-size);
   min-width: var(--table-scrollbar-size);
   max-width: var(--table-scrollbar-size);
 }
 
-.data-table th.table-scrollbar-spacer {
+.data-table th.table-scrollbar-spacer,
+.data-table td.table-scrollbar-spacer {
   padding: 0;
   border: 0;
   pointer-events: none;
+}
+
+.data-table th.table-scrollbar-spacer {
   background: var(--brand-primary);
 }
 
@@ -1131,26 +1137,37 @@ svg {
   background: var(--brand-panel, #fff);
 }
 
-.data-table tbody tr.register-row td {
-  position: sticky;
-  top: 0;
+.data-table-register tbody tr.register-row td {
+  position: relative;
   z-index: 7;
-  border-top: 2px solid var(--brand-primary);
-  border-bottom: 2px solid var(--brand-primary);
+  border-top: 1px solid var(--brand-primary);
+  border-right: 0;
+  border-bottom: 1px solid var(--brand-primary);
   background: var(--brand-panel, #fff);
-  animation: registerRowEnter 240ms ease-out;
 }
 
-.data-table tbody tr.register-row td:first-child {
-  border-left: 2px solid var(--brand-primary);
+.data-table-register tbody tr.register-row td:first-child {
+  border-left: 1px solid var(--brand-primary);
   overflow: visible;
 }
 
-.data-table tbody tr.register-row td:last-child {
-  border-right: 2px solid var(--brand-primary);
+.data-table-register tbody tr.register-row td:last-child {
+  border-right: 1px solid var(--brand-primary);
 }
 
-.data-table tbody tr.register-row td.pinned-column {
+.data-table-register tbody tr.register-row td:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 0;
+  bottom: 1px;
+  width: 1px;
+  background: var(--cell-line-color);
+  pointer-events: none;
+}
+
+.data-table-register tbody tr.register-row td.pinned-column {
+  position: sticky;
   left: 0;
   z-index: 9;
   background: var(--brand-panel, #fff);
@@ -1158,9 +1175,9 @@ svg {
 
 .register-row-hint {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 10;
+  top: calc(var(--table-header-height, 48px) + var(--table-row-height, 32px) + 6px);
+  left: 10px;
+  z-index: 12;
   border: 1px solid var(--brand-line);
   border-radius: 8px;
   padding: 5px 10px;
@@ -1183,7 +1200,7 @@ svg {
   border-radius: 5px;
   padding: 0 7px 1px;
   color: var(--brand-header-text);
-  background: transparent;
+  background: #000;
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--brand-header-text) 18%, transparent);
   font: inherit;
   font-size: 0.8em;
@@ -1278,7 +1295,7 @@ svg {
   overflow: visible;
 }
 
-.data-table td:not(.pinned-column):not(.register-cell):focus-within {
+.data-table td:not(.pinned-column):focus-within {
   position: relative;
 }
 
@@ -1286,17 +1303,6 @@ svg {
   position: sticky;
   left: 0;
   z-index: 8;
-}
-
-.data-table tbody tr.register-row td:focus-within {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.data-table tbody tr.register-row td.pinned-column:focus-within {
-  left: 0;
-  z-index: 12;
 }
 
 .data-table tbody tr:hover td {
@@ -1308,41 +1314,25 @@ svg {
 }
 
 .data-table tbody tr.registered-row-highlight td {
-  animation: registeredRowBreath 1650ms ease-in-out;
-}
-
-@keyframes registerRowEnter {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  animation: registeredRowBreath 1250ms ease-out;
 }
 
 @keyframes registeredRowBreath {
   0% {
     background: color-mix(in srgb, var(--brand-primary) 24%, var(--brand-panel));
     background-clip: padding-box;
-    transform: scaleY(1);
   }
 
   28% {
     background: color-mix(in srgb, var(--brand-primary) 60%, var(--brand-panel));
-    transform: scaleY(1.04);
   }
 
   54% {
     background: color-mix(in srgb, var(--brand-primary) 42%, var(--brand-panel));
-    transform: scaleY(1.02);
   }
 
   100% {
     background: var(--brand-panel, #fff);
-    transform: scaleY(1);
   }
 }
 
