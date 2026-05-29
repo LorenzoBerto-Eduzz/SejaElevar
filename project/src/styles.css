@@ -1059,6 +1059,7 @@ svg {
 
 .data-table th {
   position: relative;
+  isolation: isolate;
   height: var(--table-header-height, 48px);
   padding: 6px 10px;
   color: var(--brand-header-text);
@@ -1088,6 +1089,31 @@ svg {
   background: var(--brand-primary);
 }
 
+.data-table th.sortable-column {
+  cursor: pointer;
+  user-select: none;
+}
+
+.data-table th.sorted-ascending::after,
+.data-table th.sorted-descending::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  left: 8px;
+  z-index: 2;
+  height: 2px;
+  pointer-events: none;
+  background: var(--brand-header-text);
+}
+
+.data-table th.sorted-ascending::after {
+  bottom: 1px;
+}
+
+.data-table th.sorted-descending::after {
+  top: 1px;
+}
+
 .data-table th.pinned-column,
 .data-table td.pinned-column {
   position: sticky;
@@ -1105,6 +1131,8 @@ svg {
 }
 
 .column-heading-label {
+  position: relative;
+  z-index: 3;
   display: block;
   min-width: 0;
   overflow: hidden;

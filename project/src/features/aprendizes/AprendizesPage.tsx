@@ -26,6 +26,8 @@ const MIN_COLUMN_WIDTH = 34;
 const TABLE_HORIZONTAL_PADDING = 10;
 const TABLE_WIDTH_BUFFER = 6;
 const CELL_UNDO_LIMIT = 1000;
+const BIRTHDATE_COLUMN = 'Data de Nascimento';
+const AGE_COLUMN = 'Idade';
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
@@ -41,6 +43,14 @@ type ImportedSheet = {
 type TableViewSettings = {
   columnOrder: string[];
   columnWidths: Record<string, number>;
+  sortState: TableSortState | null;
+};
+
+type SortDirection = 'asc' | 'desc';
+
+type TableSortState = {
+  columnName: string;
+  direction: SortDirection;
 };
 
 type CellUndoEntry = {
@@ -86,9 +96,83 @@ class MissingRequiredColumnsError extends Error {
 const defaultViewSettings: TableViewSettings = {
   columnOrder: [],
   columnWidths: {},
+  sortState: null,
 };
 
 const normalizeCell = (value: unknown) => String(value ?? '').trim();
+
+const calculateAgeFromBirthdate = (birthdate: string, today = new Date()) => {
+  const match = birthdate.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+
+  if (!match) {
+    return '';
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const rawYear = Number(match[3]);
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return '';
+  }
+
+  let age = today.getFullYear() - year;
+  const hasBirthdayThisYear =
+    today.getMonth() > month - 1 ||
+    (today.getMonth() === month - 1 && today.getDate() >= day);
+
+  if (!hasBirthdayThisYear) {
+    age -= 1;
+  }
+
+  return age >= 0 ? String(age) : '';
+};
+
+const getDerivedAgeForRow = (sheet: ImportedSheet, row: string[]) => {
+  const birthdateColumnIndex = sheet.columns.indexOf(BIRTHDATE_COLUMN);
+
+  if (birthdateColumnIndex < 0) {
+    return '';
+  }
+
+  return calculateAgeFromBirthdate(row[birthdateColumnIndex] || '');
+};
+
+const getDisplayCellValue = (
+  sheet: ImportedSheet,
+  row: string[],
+  columnName: string,
+) => {
+  if (columnName === AGE_COLUMN) {
+    return getDerivedAgeForRow(sheet, row);
+  }
+
+  const columnIndex = sheet.columns.indexOf(columnName);
+  return columnIndex >= 0 ? row[columnIndex] || '' : '';
+};
+
+const withDerivedAprendizValues = (sheet: ImportedSheet) => {
+  const ageColumnIndex = sheet.columns.indexOf(AGE_COLUMN);
+
+  if (ageColumnIndex < 0) {
+    return sheet;
+  }
+
+  return {
+    ...sheet,
+    rows: sheet.rows.map((row) => {
+      const nextRow = [...row];
+      nextRow[ageColumnIndex] = getDerivedAgeForRow(sheet, row);
+      return nextRow;
+    }),
+  };
+};
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
 
@@ -168,6 +252,7 @@ export function AprendizesPage() {
     readSavedViewSettings,
   );
   const [isEditMode, setIsEditMode] = useState(false);
+  const sortState = viewSettings.sortState;
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
   const [workspaceStatus, setWorkspaceStatus] = useState('');
@@ -218,11 +303,16 @@ export function AprendizesPage() {
             knownColumns.has(column),
           ),
         );
+    const nextSortState =
+      viewSettings.sortState && knownColumns.has(viewSettings.sortState.columnName)
+        ? viewSettings.sortState
+        : null;
 
     saveViewSettings({
       ...viewSettings,
       columnOrder: nextColumnOrder,
       columnWidths: nextColumnWidths,
+      sortState: nextSortState,
     });
     void persistAprendizesDataIndex(sheet);
   };
@@ -233,7 +323,7 @@ export function AprendizesPage() {
     }
 
     const entityIndex = sheet
-      ? buildAprendizesDataIndexEntity(sheet)
+      ? buildAprendizesDataIndexEntity(withDerivedAprendizValues(sheet))
       : buildEmptyDataIndexEntity(APRENDIZES_ENTITY_ID, 'Aprendizes');
 
     try {
@@ -600,6 +690,56 @@ export function AprendizesPage() {
       ]
     : [];
 
+  const cycleColumnSort = (columnName: string) => {
+    if (isEditMode) {
+      return;
+    }
+
+    const nextSortState =
+      sortState?.columnName !== columnName
+        ? { columnName, direction: 'asc' as const }
+        : sortState.direction === 'asc'
+          ? { columnName, direction: 'desc' as const }
+          : null;
+
+    saveViewSettings({
+      ...viewSettings,
+      sortState: nextSortState,
+    });
+  };
+
+  const displayedRows =
+    importedSheet?.rows.map((row, rowIndex) => ({ row, rowIndex })) ?? [];
+
+  if (
+    importedSheet &&
+    sortState &&
+    importedSheet.columns.includes(sortState.columnName)
+  ) {
+    const sortDirection = sortState.direction === 'asc' ? 1 : -1;
+
+    displayedRows.sort((left, right) => {
+      const valueComparison = getDisplayCellValue(
+        importedSheet,
+        left.row,
+        sortState.columnName,
+      ).localeCompare(
+        getDisplayCellValue(importedSheet, right.row, sortState.columnName),
+        'pt-BR',
+        {
+          numeric: true,
+          sensitivity: 'base',
+        },
+      );
+
+      if (valueComparison !== 0) {
+        return valueComparison * sortDirection;
+      }
+
+      return left.rowIndex - right.rowIndex;
+    });
+  }
+
   const moveColumn = (sourceColumn: string, targetColumn: string) => {
     const currentSheet = latestSheetRef.current;
 
@@ -651,7 +791,12 @@ export function AprendizesPage() {
 
     const headerWidth = getWrappedHeaderWidth(column);
     const longestCellWidth = importedSheet.rows.reduce((longestWidth, row) => {
-      const cellWidth = measureTextWidth(row[columnIndex] || '', TABLE_FONT);
+      const cellWidth = measureTextWidth(
+        column === AGE_COLUMN
+          ? getDisplayCellValue(importedSheet, row, column)
+          : row[columnIndex] || '',
+        TABLE_FONT,
+      );
       return Math.max(longestWidth, cellWidth);
     }, 0);
     const textWidth = Math.ceil(Math.max(headerWidth, longestCellWidth));
@@ -713,6 +858,39 @@ export function AprendizesPage() {
     window.addEventListener('pointerup', handlePointerUp);
   };
 
+  const preserveAgeFormulas = (
+    previousWorksheet: ReturnType<typeof utils.aoa_to_sheet> | undefined,
+    nextWorksheet: ReturnType<typeof utils.aoa_to_sheet>,
+    sheet: ImportedSheet,
+  ) => {
+    if (!previousWorksheet) {
+      return;
+    }
+
+    const ageColumnIndex = sheet.columns.indexOf(AGE_COLUMN);
+
+    if (ageColumnIndex < 0) {
+      return;
+    }
+
+    for (let rowIndex = 0; rowIndex < sheet.rows.length; rowIndex += 1) {
+      const cellAddress = utils.encode_cell({
+        c: ageColumnIndex,
+        r: rowIndex + 1,
+      });
+      const previousCell = previousWorksheet[cellAddress];
+
+      if (!previousCell?.f) {
+        continue;
+      }
+
+      nextWorksheet[cellAddress] = {
+        ...nextWorksheet[cellAddress],
+        ...previousCell,
+      };
+    }
+  };
+
   const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
     if (!isLocalProviderActiveRef.current) {
       setImportError('');
@@ -733,10 +911,13 @@ export function AprendizesPage() {
       const sheetName =
         sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
       const safeSheetName = sheetName.slice(0, 31);
-      workbook.Sheets[safeSheetName] = utils.aoa_to_sheet([
+      const previousWorksheet = workbook.Sheets[safeSheetName];
+      const nextWorksheet = utils.aoa_to_sheet([
         sheet.columns,
         ...sheet.rows,
       ]);
+      preserveAgeFormulas(previousWorksheet, nextWorksheet, sheet);
+      workbook.Sheets[safeSheetName] = nextWorksheet;
 
       if (!workbook.SheetNames.includes(safeSheetName)) {
         workbook.SheetNames.push(safeSheetName);
@@ -861,6 +1042,10 @@ export function AprendizesPage() {
     const currentSheet = latestSheetRef.current;
 
     if (!currentSheet) {
+      return;
+    }
+
+    if (columnName === AGE_COLUMN) {
       return;
     }
 
@@ -1014,6 +1199,19 @@ export function AprendizesPage() {
       <col className="table-scrollbar-spacer-column" />
     </colgroup>
   );
+  const getHeaderCellClassName = (
+    column: string,
+    orderedColumnIndex: number,
+  ) =>
+    [
+      orderedColumnIndex === 0 ? 'pinned-column' : '',
+      isEditMode ? '' : 'sortable-column',
+      sortState?.columnName === column
+        ? `sorted-${sortState.direction === 'asc' ? 'ascending' : 'descending'}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
 
   return (
     <section className="feature-page" aria-labelledby="aprendizes-title">
@@ -1115,11 +1313,13 @@ export function AprendizesPage() {
                   {orderedColumns.map((column, orderedColumnIndex) => (
                     <th
                       key={column}
-                      className={
-                        orderedColumnIndex === 0 ? 'pinned-column' : undefined
-                      }
+                      className={getHeaderCellClassName(
+                        column,
+                        orderedColumnIndex,
+                      )}
                       style={getColumnWidthStyle(column)}
                       draggable={isEditMode}
+                      onClick={() => cycleColumnSort(column)}
                       onDragStart={() => setDraggedColumn(column)}
                       onDragOver={(event) => {
                         if (isEditMode) {
@@ -1160,23 +1360,29 @@ export function AprendizesPage() {
               <table className={`${tableClassName} data-table-body`}>
                 {renderColumnGroup()}
               <tbody>
-                {importedSheet.rows.map((row, rowIndex) => (
+                {displayedRows.map(({ row, rowIndex }) => (
                   <tr key={rowIndex}>
                     {orderedColumns.map((column, orderedColumnIndex) => {
                       const columnIndex = importedSheet.columns.indexOf(column);
                       const value = row[columnIndex] || '';
+                      const displayValue = getDisplayCellValue(
+                        importedSheet,
+                        row,
+                        column,
+                      );
 
                       return (
                         <td
                           key={`${column}-${columnIndex}`}
-                          className={
-                            orderedColumnIndex === 0
-                              ? 'pinned-column'
-                              : undefined
-                          }
+                          className={[
+                            orderedColumnIndex === 0 ? 'pinned-column' : '',
+                            column === AGE_COLUMN ? 'derived-cell' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
                           style={getColumnWidthStyle(column)}
                         >
-                          {isEditMode ? (
+                          {isEditMode && column !== AGE_COLUMN ? (
                             <input
                               ref={(element) => {
                                 cellInputRefs.current[
@@ -1239,7 +1445,7 @@ export function AprendizesPage() {
                               }}
                             />
                           ) : (
-                            value
+                            displayValue
                           )}
                         </td>
                       );

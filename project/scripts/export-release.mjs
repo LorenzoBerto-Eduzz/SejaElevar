@@ -77,6 +77,7 @@ async function exportTo(releaseRoot) {
   await writeFile(join(releaseRoot, 'SejaElevar.html'), releaseHtml, 'utf-8');
   await cp(devExePath, join(releaseRoot, 'SejaElevar.exe'));
   await cp(devAssetsPath, join(releaseRoot, 'assets'), { recursive: true });
+  await rm(join(releaseRoot, 'assets', 'window-settings.json'), { force: true });
   await writeFile(join(releaseRoot, 'dados', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'modelos', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'documentos_gerados', '.gitkeep'), '', 'utf-8');

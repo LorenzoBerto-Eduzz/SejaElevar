@@ -19,6 +19,7 @@ internal static class Program
     private const string BackupReasonBeforeRecovery = "before_recovery";
     private const string BackupReasonAfterRecovery = "after_recovery";
     private const string BackupReasonRestored = "restored";
+    private const double DefaultZoomFactor = 1.1;
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
         GetIntEnvironment("SEJAELEVAR_IDLE_TIMEOUT_MS", 5000)
@@ -63,7 +64,7 @@ internal static class Program
             if (Environment.GetEnvironmentVariable("SEJAELEVAR_NO_OPEN") != "1")
             {
                 ApplicationConfiguration.Initialize();
-                _mainWindow = new AppWindow(url);
+                _mainWindow = new AppWindow(url, appFolder);
                 _ = Task.Run(() => AcceptClientsAsync(listener, appFolder));
                 Application.Run(_mainWindow);
                 RequestShutdown("app-run-ended");
@@ -892,6 +893,11 @@ internal static class Program
         return Path.Combine(appFolder, "dados");
     }
 
+    private static string GetAssetsFolder(string appFolder)
+    {
+        return Path.Combine(appFolder, "assets");
+    }
+
     private static string GetWorkbookControlPath(string appFolder)
     {
         return Path.Combine(GetDadosFolder(appFolder), "controle.json");
@@ -1380,13 +1386,20 @@ internal static class Program
         public bool? CaptureBackupOnNextSave { get; set; }
     }
 
+    private sealed class RuntimeWindowSettings
+    {
+        public double? ZoomFactor { get; set; }
+    }
+
     private sealed class AppWindow : Form
     {
+        private readonly string _appFolder;
         private readonly string _url;
         private readonly WebView2 _webView;
 
-        public AppWindow(string url)
+        public AppWindow(string url, string appFolder)
         {
+            _appFolder = appFolder;
             _url = url;
             _webView = new WebView2 { Dock = DockStyle.Fill };
 
@@ -1438,6 +1451,8 @@ internal static class Program
                 await _webView.EnsureCoreWebView2Async(environment);
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                _webView.ZoomFactor = LoadZoomFactor();
+                _webView.ZoomFactorChanged += (_, _) => SaveZoomFactor(_webView.ZoomFactor);
                 _webView.CoreWebView2.NavigationCompleted += (_, _) => RevealWindow();
                 _webView.CoreWebView2.Navigate(_url);
             }
@@ -1453,6 +1468,66 @@ internal static class Program
                 );
                 RequestShutdown("webview-failed");
             }
+        }
+
+        private string GetWindowSettingsPath()
+        {
+            return Path.Combine(GetAssetsFolder(_appFolder), "window-settings.json");
+        }
+
+        private double LoadZoomFactor()
+        {
+            try
+            {
+                var settingsPath = GetWindowSettingsPath();
+
+                if (!File.Exists(settingsPath))
+                {
+                    return DefaultZoomFactor;
+                }
+
+                var settings = JsonSerializer.Deserialize<RuntimeWindowSettings>(
+                    File.ReadAllText(settingsPath)
+                );
+
+                return ClampZoomFactor(settings?.ZoomFactor ?? DefaultZoomFactor);
+            }
+            catch
+            {
+                return DefaultZoomFactor;
+            }
+        }
+
+        private void SaveZoomFactor(double zoomFactor)
+        {
+            try
+            {
+                Directory.CreateDirectory(GetAssetsFolder(_appFolder));
+                File.WriteAllText(
+                    GetWindowSettingsPath(),
+                    JsonSerializer.Serialize(
+                        new RuntimeWindowSettings
+                        {
+                            ZoomFactor = ClampZoomFactor(zoomFactor)
+                        },
+                        new JsonSerializerOptions { WriteIndented = true }
+                    )
+                );
+            }
+            catch
+            {
+                // Zoom is a convenience setting; the app should keep running if it cannot be saved.
+            }
+        }
+
+        private static double ClampZoomFactor(double zoomFactor)
+        {
+            if (double.IsNaN(zoomFactor) || double.IsInfinity(zoomFactor))
+            {
+                return DefaultZoomFactor;
+            }
+
+            return Math.Clamp(zoomFactor, 0.5, 3.0);
         }
 
         private void RevealWindow()
