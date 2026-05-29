@@ -245,6 +245,7 @@ export function AprendizesPage() {
   const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
   const tableBodyScrollRef = useRef<HTMLDivElement>(null);
+  const registerHighlightTimerRef = useRef<number | null>(null);
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
   const isLocalProviderActiveRef = useRef(false);
@@ -261,6 +262,14 @@ export function AprendizesPage() {
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
+  const [registrationDraft, setRegistrationDraft] = useState<
+    Record<string, string>
+  >({});
+  const [isRegistrationFocused, setIsRegistrationFocused] = useState(false);
+  const [sessionRegisteredRowIndexes, setSessionRegisteredRowIndexes] =
+    useState<number[]>([]);
+  const [highlightedRegisteredRowIndex, setHighlightedRegisteredRowIndex] =
+    useState<number | null>(null);
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
     window.localStorage.setItem(
@@ -279,6 +288,10 @@ export function AprendizesPage() {
     latestSheetRef.current = null;
     setImportedSheet(null);
     setRecoveryInfo(null);
+    setRegistrationDraft({});
+    setIsRegistrationFocused(false);
+    setSessionRegisteredRowIndexes([]);
+    setHighlightedRegisteredRowIndex(null);
   };
 
   const saveImportedSheet = (
@@ -308,6 +321,10 @@ export function AprendizesPage() {
         ? viewSettings.sortState
         : null;
 
+    setRegistrationDraft({});
+    setIsRegistrationFocused(false);
+    setSessionRegisteredRowIndexes([]);
+    setHighlightedRegisteredRowIndex(null);
     saveViewSettings({
       ...viewSettings,
       columnOrder: nextColumnOrder,
@@ -673,6 +690,22 @@ export function AprendizesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isEditMode) {
+      setRegistrationDraft({});
+      setIsRegistrationFocused(false);
+    }
+  }, [isEditMode]);
+
+  useEffect(
+    () => () => {
+      if (registerHighlightTimerRef.current !== null) {
+        window.clearTimeout(registerHighlightTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
@@ -738,7 +771,143 @@ export function AprendizesPage() {
 
       return left.rowIndex - right.rowIndex;
     });
+  } else if (sessionRegisteredRowIndexes.length > 0) {
+    const registeredOrder = new Map(
+      sessionRegisteredRowIndexes.map((rowIndex, orderIndex) => [
+        rowIndex,
+        orderIndex,
+      ]),
+    );
+
+    displayedRows.sort((left, right) => {
+      const leftOrder = registeredOrder.get(left.rowIndex);
+      const rightOrder = registeredOrder.get(right.rowIndex);
+
+      if (leftOrder !== undefined || rightOrder !== undefined) {
+        return (leftOrder ?? Number.MAX_SAFE_INTEGER) -
+          (rightOrder ?? Number.MAX_SAFE_INTEGER);
+      }
+
+      return left.rowIndex - right.rowIndex;
+    });
   }
+
+  const hasRegistrationDraftValue =
+    importedSheet &&
+    orderedColumns.some((column) => {
+      if (column === AGE_COLUMN) {
+        return false;
+      }
+
+      return normalizeCell(registrationDraft[column]) !== '';
+    });
+  const showRegistrationHint = Boolean(
+    hasRegistrationDraftValue && isRegistrationFocused,
+  );
+
+  const getRegistrationDraftDisplayValue = (column: string) => {
+    if (!importedSheet) {
+      return '';
+    }
+
+    if (column !== AGE_COLUMN) {
+      return registrationDraft[column] || '';
+    }
+
+    const birthdateValue = registrationDraft[BIRTHDATE_COLUMN] || '';
+    return calculateAgeFromBirthdate(birthdateValue);
+  };
+
+  const getVisualRowIndex = (
+    sheet: ImportedSheet,
+    targetRowIndex: number,
+    registeredRowIndexes: number[],
+  ) => {
+    const visualRows = sheet.rows.map((row, rowIndex) => ({ row, rowIndex }));
+
+    if (sortState && sheet.columns.includes(sortState.columnName)) {
+      const sortDirection = sortState.direction === 'asc' ? 1 : -1;
+
+      visualRows.sort((left, right) => {
+        const valueComparison = getDisplayCellValue(
+          sheet,
+          left.row,
+          sortState.columnName,
+        ).localeCompare(
+          getDisplayCellValue(sheet, right.row, sortState.columnName),
+          'pt-BR',
+          {
+            numeric: true,
+            sensitivity: 'base',
+          },
+        );
+
+        if (valueComparison !== 0) {
+          return valueComparison * sortDirection;
+        }
+
+        return left.rowIndex - right.rowIndex;
+      });
+    } else if (registeredRowIndexes.length > 0) {
+      const registeredOrder = new Map(
+        registeredRowIndexes.map((rowIndex, orderIndex) => [
+          rowIndex,
+          orderIndex,
+        ]),
+      );
+
+      visualRows.sort((left, right) => {
+        const leftOrder = registeredOrder.get(left.rowIndex);
+        const rightOrder = registeredOrder.get(right.rowIndex);
+
+        if (leftOrder !== undefined || rightOrder !== undefined) {
+          return (leftOrder ?? Number.MAX_SAFE_INTEGER) -
+            (rightOrder ?? Number.MAX_SAFE_INTEGER);
+        }
+
+        return left.rowIndex - right.rowIndex;
+      });
+    }
+
+    return visualRows.findIndex(({ rowIndex }) => rowIndex === targetRowIndex);
+  };
+
+  const scrollToRegisteredRow = (
+    sheet: ImportedSheet,
+    targetRowIndex: number,
+    registeredRowIndexes: number[],
+  ) => {
+    const tableBody = tableBodyScrollRef.current;
+
+    if (!tableBody) {
+      return;
+    }
+
+    const visualRowIndex = getVisualRowIndex(
+      sheet,
+      targetRowIndex,
+      registeredRowIndexes,
+    );
+
+    if (visualRowIndex < 0) {
+      return;
+    }
+
+    const rowHeight = Number.parseFloat(
+      getComputedStyle(document.documentElement)
+        .getPropertyValue('--table-row-height')
+        .trim(),
+    );
+    const effectiveRowHeight = Number.isFinite(rowHeight) ? rowHeight : 32;
+    const registerRowOffset = isEditMode ? effectiveRowHeight : 0;
+    const rowTop = registerRowOffset + visualRowIndex * effectiveRowHeight;
+    const targetScrollTop = Math.max(
+      0,
+      rowTop - tableBody.clientHeight / 2 + effectiveRowHeight / 2,
+    );
+
+    tableBody.scrollTop = targetScrollTop;
+  };
 
   const moveColumn = (sourceColumn: string, targetColumn: string) => {
     const currentSheet = latestSheetRef.current;
@@ -1090,6 +1259,61 @@ export function AprendizesPage() {
     storeImportedSheet(nextSheet);
   };
 
+  const updateRegistrationDraft = (columnName: string, value: string) => {
+    if (columnName === AGE_COLUMN) {
+      return;
+    }
+
+    setRegistrationDraft((currentDraft) => ({
+      ...currentDraft,
+      [columnName]: value,
+    }));
+  };
+
+  const commitRegistrationDraft = async () => {
+    const currentSheet = latestSheetRef.current;
+
+    if (!currentSheet || !hasRegistrationDraftValue) {
+      return;
+    }
+
+    const nextRow = currentSheet.columns.map((column) =>
+      column === AGE_COLUMN ? '' : registrationDraft[column] || '',
+    );
+    const nextRowIndex = currentSheet.rows.length;
+    const nextSheet = {
+      ...currentSheet,
+      rows: [...currentSheet.rows, nextRow],
+    };
+    const nextRegisteredRowIndexes = [
+      nextRowIndex,
+      ...sessionRegisteredRowIndexes.filter(
+        (rowIndex) => rowIndex !== nextRowIndex,
+      ),
+    ];
+
+    activeCellEditRef.current = null;
+    setRegistrationDraft({});
+    setSessionRegisteredRowIndexes(nextRegisteredRowIndexes);
+    setHighlightedRegisteredRowIndex(nextRowIndex);
+
+    if (registerHighlightTimerRef.current !== null) {
+      window.clearTimeout(registerHighlightTimerRef.current);
+    }
+
+    registerHighlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedRegisteredRowIndex(null);
+      registerHighlightTimerRef.current = null;
+    }, 1650);
+
+    storeImportedSheet(nextSheet);
+    window.requestAnimationFrame(() => {
+      scrollToRegisteredRow(nextSheet, nextRowIndex, nextRegisteredRowIndexes);
+      focusFirstRegistrationCell();
+    });
+    await writeSheetToSourceFile(nextSheet);
+  };
+
   const undoLastCellEdit = () => {
     commitActiveCellEdit();
 
@@ -1134,6 +1358,36 @@ export function AprendizesPage() {
     input?.focus();
     input?.select();
   };
+
+  const focusRegistrationCell = (columnIndex: number) => {
+    const key = `register-${columnIndex}`;
+    const input = cellInputRefs.current[key];
+
+    input?.focus();
+    input?.select();
+  };
+
+  const focusFirstRegistrationCell = () => {
+    const firstEditableColumnIndex = orderedColumns.findIndex(
+      (column) => column !== AGE_COLUMN,
+    );
+
+    if (firstEditableColumnIndex < 0) {
+      return;
+    }
+
+    window.requestAnimationFrame(() =>
+      focusRegistrationCell(firstEditableColumnIndex),
+    );
+  };
+
+  useEffect(() => {
+    if (!isEditMode || !importedSheet) {
+      return;
+    }
+
+    focusFirstRegistrationCell();
+  }, [isEditMode, importedSheet]);
 
   const handleCellNavigation = (
     event: KeyboardEvent<HTMLInputElement>,
@@ -1360,8 +1614,135 @@ export function AprendizesPage() {
               <table className={`${tableClassName} data-table-body`}>
                 {renderColumnGroup()}
               <tbody>
+                {isEditMode && (
+                  <tr className="register-row">
+                    {orderedColumns.map((column, orderedColumnIndex) => {
+                      const value = getRegistrationDraftDisplayValue(column);
+
+                      return (
+                        <td
+                          key={`register-${column}`}
+                          className={[
+                            'register-cell',
+                            orderedColumnIndex === 0 ? 'pinned-column' : '',
+                            column === AGE_COLUMN ? 'derived-cell' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          style={getColumnWidthStyle(column)}
+                        >
+                          {column !== AGE_COLUMN ? (
+                            <>
+                            <input
+                              ref={(element) => {
+                                cellInputRefs.current[
+                                  `register-${orderedColumnIndex}`
+                                ] = element;
+                              }}
+                              aria-label={`${column} cadastrar aprendiz`}
+                              data-registration-input="true"
+                              spellCheck={false}
+                              size={Math.max(value.length, 1)}
+                              style={
+                                {
+                                  '--edit-input-width': `${Math.max(
+                                    value.length + 2,
+                                    1,
+                                  )}ch`,
+                                } as CSSProperties
+                              }
+                              value={value}
+                              onFocus={() => setIsRegistrationFocused(true)}
+                              onBlur={() => {
+                                window.requestAnimationFrame(() => {
+                                  const activeElement = document.activeElement;
+                                  setIsRegistrationFocused(
+                                    activeElement instanceof HTMLElement &&
+                                      activeElement.dataset
+                                        .registrationInput === 'true',
+                                  );
+                                });
+                              }}
+                              onChange={(event) =>
+                                updateRegistrationDraft(
+                                  column,
+                                  event.target.value,
+                                )
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  void commitRegistrationDraft();
+                                  return;
+                                }
+
+                                if (
+                                  ![
+                                    'ArrowDown',
+                                    'ArrowLeft',
+                                    'ArrowRight',
+                                  ].includes(event.key)
+                                ) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+
+                                if (event.key === 'ArrowDown') {
+                                  const nextRow = displayedRows[0];
+
+                                  if (nextRow) {
+                                    window.requestAnimationFrame(() =>
+                                      focusCell(
+                                        nextRow.rowIndex,
+                                        orderedColumnIndex,
+                                      ),
+                                    );
+                                  }
+
+                                  return;
+                                }
+
+                                const nextColumnIndex =
+                                  event.key === 'ArrowLeft'
+                                    ? Math.max(0, orderedColumnIndex - 1)
+                                    : Math.min(
+                                        orderedColumns.length - 1,
+                                        orderedColumnIndex + 1,
+                                      );
+
+                                window.requestAnimationFrame(() =>
+                                  focusRegistrationCell(nextColumnIndex),
+                                );
+                              }}
+                            />
+                            {orderedColumnIndex === 0 &&
+                              showRegistrationHint && (
+                                <div
+                                  className="register-row-hint"
+                                  aria-live="polite"
+                                >
+                                  Aperte <kbd>Enter</kbd> para cadastrar
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            value
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
                 {displayedRows.map(({ row, rowIndex }) => (
-                  <tr key={rowIndex}>
+                  <tr
+                    key={rowIndex}
+                    className={
+                      rowIndex === highlightedRegisteredRowIndex
+                        ? 'registered-row-highlight'
+                        : ''
+                    }
+                  >
                     {orderedColumns.map((column, orderedColumnIndex) => {
                       const columnIndex = importedSheet.columns.indexOf(column);
                       const value = row[columnIndex] || '';
@@ -1390,6 +1771,7 @@ export function AprendizesPage() {
                                 ] = element;
                               }}
                               aria-label={`${column} linha ${rowIndex + 1}`}
+                              spellCheck={false}
                               size={Math.max(value.length, 1)}
                               style={
                                 {
