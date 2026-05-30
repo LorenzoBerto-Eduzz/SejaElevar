@@ -253,6 +253,13 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "POST" && request.Path == "/api/aprendizes/export")
+            {
+                MarkHeartbeat();
+                await ExportWorkbookAsync(stream, appFolder);
+                return;
+            }
+
             if (request.Method == "GET" && request.Path == "/api/data-index")
             {
                 MarkHeartbeat();
@@ -573,6 +580,78 @@ internal static class Program
                 ["x-file-name"] = Uri.EscapeDataString(fileName)
             }
         );
+    }
+
+    private static async Task ExportWorkbookAsync(NetworkStream stream, string appFolder)
+    {
+        var control = LoadWorkbookControl(appFolder);
+        var workbookPath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+
+        if (workbookPath is null || !File.Exists(workbookPath))
+        {
+            await WriteJsonAsync(stream, 404, new { error = "Planilha nao importada." });
+            return;
+        }
+
+        var exportPath = await PickWorkbookExportPathAsync(Path.GetFileName(workbookPath));
+
+        if (string.IsNullOrWhiteSpace(exportPath))
+        {
+            await WriteJsonAsync(stream, 200, new { canceled = true });
+            return;
+        }
+
+        try
+        {
+            File.Copy(workbookPath, exportPath, true);
+            await WriteJsonAsync(
+                stream,
+                200,
+                new
+                {
+                    ok = true,
+                    fileName = Path.GetFileName(exportPath),
+                    path = exportPath
+                }
+            );
+        }
+        catch
+        {
+            await WriteJsonAsync(stream, 500, new { error = "Nao foi possivel exportar a planilha." });
+        }
+    }
+
+    private static Task<string?> PickWorkbookExportPathAsync(string defaultFileName)
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        var completion = new TaskCompletionSource<string?>();
+
+        try
+        {
+            window.BeginInvoke(() =>
+            {
+                try
+                {
+                    completion.SetResult(window.PickWorkbookExportPath(defaultFileName));
+                }
+                catch
+                {
+                    completion.SetResult(null);
+                }
+            });
+        }
+        catch
+        {
+            completion.SetResult(null);
+        }
+
+        return completion.Task;
     }
 
     private static async Task ImportWorkbookAsync(
@@ -1434,6 +1513,28 @@ internal static class Program
             TrySetDwmColor(36, textColor);
         }
 
+        public string? PickWorkbookExportPath(string defaultFileName)
+        {
+            using var dialog = new SaveFileDialog
+            {
+                AddExtension = true,
+                CheckPathExists = true,
+                CreatePrompt = false,
+                DefaultExt = "xlsx",
+                FileName = defaultFileName,
+                Filter = "Planilha Excel (*.xlsx)|*.xlsx",
+                InitialDirectory = GetDownloadsFolder(),
+                OverwritePrompt = true,
+                RestoreDirectory = true,
+                SupportMultiDottedExtensions = true,
+                Title = "Exportar planilha"
+            };
+
+            return dialog.ShowDialog(this) == DialogResult.OK
+                ? dialog.FileName
+                : null;
+        }
+
         private async Task InitializeWebViewAsync()
         {
             try
@@ -1473,6 +1574,18 @@ internal static class Program
         private string GetWindowSettingsPath()
         {
             return Path.Combine(GetAssetsFolder(_appFolder), "window-settings.json");
+        }
+
+        private static string GetDownloadsFolder()
+        {
+            var downloadsFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads"
+            );
+
+            return Directory.Exists(downloadsFolder)
+                ? downloadsFolder
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
 
         private double LoadZoomFactor()

@@ -19,7 +19,11 @@ const applyDarkMode = (isDarkMode: boolean) => {
   );
 };
 
-export function ThemeToggleButton() {
+type ThemeToggleButtonProps = {
+  className?: string;
+};
+
+export function ThemeToggleButton({ className = '' }: ThemeToggleButtonProps) {
   const [isDarkMode, setIsDarkMode] = useState(readDarkMode);
 
   useEffect(() => {
@@ -53,9 +57,12 @@ export function ThemeToggleButton() {
 
   return (
     <button
-      className={
-        isDarkMode ? 'square-action theme-toggle active' : 'square-action theme-toggle'
-      }
+      className={[
+        isDarkMode ? 'square-action theme-toggle active' : 'square-action theme-toggle',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
       type="button"
       aria-label="Ativar modo escuro"
       aria-pressed={isDarkMode}

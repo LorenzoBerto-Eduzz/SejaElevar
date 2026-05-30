@@ -66,7 +66,16 @@ type RowInsertUndoEntry = {
   rowIndex: number;
 };
 
-type TableUndoEntry = CellEditUndoEntry | RowInsertUndoEntry;
+type RowDeleteUndoEntry = {
+  kind: 'row-delete';
+  rowIndex: number;
+  rowValues: string[];
+};
+
+type TableUndoEntry =
+  | CellEditUndoEntry
+  | RowInsertUndoEntry
+  | RowDeleteUndoEntry;
 
 type ActiveCellEdit = {
   rowIndex: number;
@@ -269,7 +278,7 @@ export function AprendizesPage() {
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
   const tableBodyScrollRef = useRef<HTMLDivElement>(null);
   const registerHighlightTimerRef = useRef<number | null>(null);
-  const wasEditModeRef = useRef(false);
+  const wasRegistrationModeRef = useRef(false);
   const registrationDraftRef = useRef<Record<string, string>>({});
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
@@ -278,6 +287,8 @@ export function AprendizesPage() {
     readSavedViewSettings,
   );
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isRegistrationMode, setIsRegistrationMode] = useState(false);
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [areBodyEditInputsReady, setAreBodyEditInputsReady] = useState(false);
   const sortState = viewSettings.sortState;
   const [draggedColumn, setDraggedColumn] = useState('');
@@ -296,6 +307,11 @@ export function AprendizesPage() {
     useState<number[]>([]);
   const [highlightedRegisteredRowIndex, setHighlightedRegisteredRowIndex] =
     useState<number | null>(null);
+  const [selectedDeleteRow, setSelectedDeleteRow] = useState<{
+    rowIndex: number;
+    visualIndex: number;
+  } | null>(null);
+  const [tableScrollTop, setTableScrollTop] = useState(0);
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
     window.localStorage.setItem(
@@ -320,6 +336,11 @@ export function AprendizesPage() {
     setHasRegistrationDraftValue(false);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setIsRegistrationFocused(false);
+    setIsEditMode(false);
+    setIsRegistrationMode(false);
+    setIsDeleteMode(false);
+    setSelectedDeleteRow(null);
+    setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
   };
@@ -357,6 +378,11 @@ export function AprendizesPage() {
     setHasRegistrationDraftValue(false);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setIsRegistrationFocused(false);
+    setIsEditMode(false);
+    setIsRegistrationMode(false);
+    setIsDeleteMode(false);
+    setSelectedDeleteRow(null);
+    setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
     saveViewSettings({
@@ -524,6 +550,39 @@ export function AprendizesPage() {
 
   const importFromPicker = async () => {
     fileInputRef.current?.click();
+  };
+
+  const exportWorkingFile = async () => {
+    if (!hasWorkingSheet || !isLocalProviderActiveRef.current) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/aprendizes/export', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('export-failed');
+      }
+
+      const result = (await response.json()) as {
+        canceled?: boolean;
+        fileName?: string;
+      };
+
+      if (result.canceled) {
+        setWorkspaceStatus('Exporta\u00e7\u00e3o cancelada.');
+        return;
+      }
+
+      setWorkspaceStatus(
+        `Planilha exportada como ${result.fileName || 'Aprendizes.xlsx'}.`,
+      );
+      setImportError('');
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel exportar a planilha.');
+    }
   };
 
   const recoverBackup = async () => {
@@ -727,15 +786,21 @@ export function AprendizesPage() {
   useEffect(() => {
     if (!isEditMode) {
       setAreBodyEditInputsReady(false);
+      activeCellEditRef.current = null;
+    }
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!isRegistrationMode) {
       registrationDraftRef.current = {};
       registrationDraftUndoStackRef.current = [];
       activeRegistrationEditRef.current = null;
       setHasRegistrationDraftValue(false);
       setRegistrationDraftResetKey((currentKey) => currentKey + 1);
       setIsRegistrationFocused(false);
-      wasEditModeRef.current = false;
+      wasRegistrationModeRef.current = false;
     }
-  }, [isEditMode]);
+  }, [isRegistrationMode]);
 
   useEffect(() => {
     if (!isEditMode) {
@@ -750,7 +815,7 @@ export function AprendizesPage() {
   }, [isEditMode]);
 
   useEffect(() => {
-    if (!isEditMode) {
+    if (!isEditMode && !isRegistrationMode && !isDeleteMode) {
       return;
     }
 
@@ -775,7 +840,64 @@ export function AprendizesPage() {
       window.removeEventListener('keydown', handleUndoShortcut, {
         capture: true,
       });
-  }, [isEditMode]);
+  }, [isEditMode, isRegistrationMode, isDeleteMode]);
+
+  useEffect(() => {
+    if (!isDeleteMode || selectedDeleteRow === null) {
+      return;
+    }
+
+    const handleDeleteShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Delete' && event.key !== 'Del') {
+        return;
+      }
+
+      const target =
+        event.target instanceof HTMLElement ? event.target : null;
+
+      if (
+        target?.closest(
+          'input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]',
+        )
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      deleteRowAndSave(selectedDeleteRow.rowIndex);
+    };
+
+    window.addEventListener('keydown', handleDeleteShortcut, {
+      capture: true,
+    });
+
+    return () =>
+      window.removeEventListener('keydown', handleDeleteShortcut, {
+        capture: true,
+      });
+  }, [isDeleteMode, selectedDeleteRow]);
+
+  useEffect(() => {
+    if (!isDeleteMode || selectedDeleteRow === null) {
+      return;
+    }
+
+    const clearDeleteSelection = (event: globalThis.PointerEvent) => {
+      const target =
+        event.target instanceof HTMLElement ? event.target : null;
+
+      if (target?.closest('.data-table-body tbody tr')) {
+        return;
+      }
+
+      setSelectedDeleteRow(null);
+    };
+
+    window.addEventListener('pointerdown', clearDeleteSelection);
+
+    return () =>
+      window.removeEventListener('pointerdown', clearDeleteSelection);
+  }, [isDeleteMode, selectedDeleteRow]);
 
   useEffect(
     () => () => {
@@ -947,6 +1069,27 @@ export function AprendizesPage() {
     return visualRows.findIndex(({ rowIndex }) => rowIndex === targetRowIndex);
   };
 
+  const getNumericAppCssValue = (propertyName: string, fallback: number) => {
+    if (typeof document === 'undefined') {
+      return fallback;
+    }
+
+    const appShell = document.querySelector('.app-shell');
+    const value = Number.parseFloat(
+      getComputedStyle(appShell ?? document.documentElement)
+        .getPropertyValue(propertyName)
+        .trim(),
+    );
+
+    return Number.isFinite(value) ? value : fallback;
+  };
+
+  const getCurrentTableRowHeight = () =>
+    getNumericAppCssValue('--table-row-height', 32);
+
+  const getCurrentTableHeaderHeight = () =>
+    getNumericAppCssValue('--table-header-height', 48);
+
   const scrollToRegisteredRow = (
     sheet: ImportedSheet,
     targetRowIndex: number,
@@ -968,12 +1111,7 @@ export function AprendizesPage() {
       return;
     }
 
-    const rowHeight = Number.parseFloat(
-      getComputedStyle(document.documentElement)
-        .getPropertyValue('--table-row-height')
-        .trim(),
-    );
-    const effectiveRowHeight = Number.isFinite(rowHeight) ? rowHeight : 32;
+    const effectiveRowHeight = getCurrentTableRowHeight();
     const rowTop = visualRowIndex * effectiveRowHeight;
     const targetScrollTop = Math.max(
       0,
@@ -1300,6 +1438,54 @@ export function AprendizesPage() {
     return nextSheet;
   };
 
+  const deleteRow = (rowIndex: number) => {
+    const currentSheet = latestSheetRef.current;
+    const deletedRow = currentSheet?.rows[rowIndex];
+
+    if (!currentSheet || !deletedRow) {
+      return null;
+    }
+
+    const nextSheet = {
+      ...currentSheet,
+      rows: currentSheet.rows.filter((_row, index) => index !== rowIndex),
+    };
+
+    pushTableUndoEntry({
+      kind: 'row-delete',
+      rowIndex,
+      rowValues: deletedRow,
+    });
+    setSelectedDeleteRow(null);
+    setSessionRegisteredRowIndexes((currentIndexes) =>
+      currentIndexes
+        .filter((currentRowIndex) => currentRowIndex !== rowIndex)
+        .map((currentRowIndex) =>
+          currentRowIndex > rowIndex ? currentRowIndex - 1 : currentRowIndex,
+        ),
+    );
+    setHighlightedRegisteredRowIndex((currentRowIndex) => {
+      if (currentRowIndex === null || currentRowIndex === rowIndex) {
+        return null;
+      }
+
+      return currentRowIndex > rowIndex
+        ? currentRowIndex - 1
+        : currentRowIndex;
+    });
+    storeImportedSheet(nextSheet);
+
+    return nextSheet;
+  };
+
+  const deleteRowAndSave = (rowIndex: number) => {
+    const nextSheet = deleteRow(rowIndex);
+
+    if (nextSheet) {
+      void writeSheetToSourceFile(nextSheet);
+    }
+  };
+
   const beginCellEdit = (
     rowIndex: number,
     columnName: string,
@@ -1562,6 +1748,8 @@ export function AprendizesPage() {
       if (currentValue !== activeRegistrationEdit.initialValue) {
         if (activeInput) {
           activeInput.value = activeRegistrationEdit.initialValue;
+          activeInput.focus();
+          activeInput.select();
         }
 
         setRegistrationDraftColumnValue(
@@ -1586,6 +1774,8 @@ export function AprendizesPage() {
 
       if (activeInput) {
         activeInput.value = registrationDraftUndoEntry.previousValue;
+        activeInput.focus();
+        activeInput.select();
       }
 
       setRegistrationDraftColumnValue(
@@ -1622,6 +1812,8 @@ export function AprendizesPage() {
     if (savedValue !== null && currentValue !== activeEdit.initialValue) {
       if (activeInput) {
         activeInput.value = activeEdit.initialValue;
+        activeInput.focus();
+        activeInput.select();
       }
 
       return true;
@@ -1629,6 +1821,8 @@ export function AprendizesPage() {
 
     if (activeInput && savedValue !== null && activeInput.value !== savedValue) {
       activeInput.value = activeEdit.initialValue;
+      activeInput.focus();
+      activeInput.select();
       return true;
     }
 
@@ -1687,6 +1881,36 @@ export function AprendizesPage() {
           : currentRowIndex;
       });
       storeImportedSheet(nextSheet);
+      window.requestAnimationFrame(() => {
+        if (isRegistrationMode) {
+          focusFirstRegistrationCell();
+        }
+      });
+      return nextSheet;
+    }
+
+    if (undoEntry.kind === 'row-delete') {
+      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+
+      const nextRows = [...currentSheet.rows];
+      nextRows.splice(undoEntry.rowIndex, 0, undoEntry.rowValues);
+
+      const nextSheet = {
+        ...currentSheet,
+        rows: nextRows,
+      };
+
+      setSessionRegisteredRowIndexes((currentIndexes) =>
+        currentIndexes.map((rowIndex) =>
+          rowIndex >= undoEntry.rowIndex ? rowIndex + 1 : rowIndex,
+        ),
+      );
+      setHighlightedRegisteredRowIndex((currentRowIndex) =>
+        currentRowIndex !== null && currentRowIndex >= undoEntry.rowIndex
+          ? currentRowIndex + 1
+          : currentRowIndex,
+      );
+      storeImportedSheet(nextSheet);
       return nextSheet;
     }
 
@@ -1715,6 +1939,20 @@ export function AprendizesPage() {
     };
 
     storeImportedSheet(nextSheet);
+    window.requestAnimationFrame(() => {
+      const orderedColumnIndex = orderedColumns.indexOf(undoEntry.columnName);
+
+      if (orderedColumnIndex < 0) {
+        return;
+      }
+
+      scrollToRegisteredRow(
+        nextSheet,
+        undoEntry.rowIndex,
+        sessionRegisteredRowIndexes,
+      );
+      focusCell(undoEntry.rowIndex, orderedColumnIndex);
+    });
     return nextSheet;
   };
 
@@ -1759,17 +1997,17 @@ export function AprendizesPage() {
   };
 
   useEffect(() => {
-    if (!isEditMode || !importedSheet) {
+    if (!isRegistrationMode || !importedSheet) {
       return;
     }
 
-    if (wasEditModeRef.current) {
+    if (wasRegistrationModeRef.current) {
       return;
     }
 
-    wasEditModeRef.current = true;
+    wasRegistrationModeRef.current = true;
     focusFirstRegistrationCell();
-  }, [isEditMode, Boolean(importedSheet)]);
+  }, [isRegistrationMode, Boolean(importedSheet)]);
 
   const handleCellNavigation = (
     event: KeyboardEvent<HTMLInputElement>,
@@ -1810,9 +2048,55 @@ export function AprendizesPage() {
     syncHeaderScroll();
   }, [importedSheet, orderedColumns]);
 
-  const tableClassName = isEditMode ? 'data-table editing' : 'data-table';
+  const tableClassName = [
+    'data-table',
+    isEditMode ? 'editing' : '',
+    isDeleteMode ? 'delete-mode' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   const hasWorkingSheet = Boolean(importedSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
+  const toggleEditMode = () => {
+    setIsEditMode((current) => {
+      const nextMode = !current;
+
+      if (nextMode) {
+        setIsRegistrationMode(false);
+        setIsDeleteMode(false);
+        setSelectedDeleteRow(null);
+      }
+
+      return nextMode;
+    });
+  };
+  const toggleRegistrationMode = () => {
+    setIsRegistrationMode((current) => {
+      const nextMode = !current;
+
+      if (nextMode) {
+        setIsEditMode(false);
+        setIsDeleteMode(false);
+        setSelectedDeleteRow(null);
+      }
+
+      return nextMode;
+    });
+  };
+  const toggleDeleteMode = () => {
+    setIsDeleteMode((current) => {
+      const nextMode = !current;
+
+      if (nextMode) {
+        setIsEditMode(false);
+        setIsRegistrationMode(false);
+      } else {
+        setSelectedDeleteRow(null);
+      }
+
+      return nextMode;
+    });
+  };
   const recoveryButtonLabel =
     recoveryInfo?.formattedUpdatedAt
       ? `Recuperar ${recoveryInfo.label || 'Aprendizes'} - ${
@@ -1835,6 +2119,27 @@ export function AprendizesPage() {
       <col className="table-scrollbar-spacer-column" />
     </colgroup>
   );
+  const getDeleteHintPosition = () => {
+    const tableBodyRect = tableBodyScrollRef.current?.getBoundingClientRect();
+
+    if (!tableBodyRect || selectedDeleteRow === null) {
+      return { left: 0, top: 0 };
+    }
+
+    const calculatedTop =
+      tableBodyRect.top +
+      selectedDeleteRow.visualIndex * getCurrentTableRowHeight() -
+      tableScrollTop +
+      getCurrentTableRowHeight() +
+      6;
+    const viewportBottom = window.innerHeight - 44;
+
+    return {
+      left: tableBodyRect.left + 10,
+      top: Math.min(calculatedTop, viewportBottom),
+    };
+  };
+  const deleteHintPosition = getDeleteHintPosition();
   const renderRegistrationRow = () => (
     <table className={`${tableClassName} data-table-register`}>
       {renderHeaderColumnGroup()}
@@ -1992,15 +2297,49 @@ export function AprendizesPage() {
               aria-pressed={hasWorkingSheet ? isEditMode : false}
               title="Editar tabela"
               disabled={!hasWorkingSheet}
-              onClick={() => setIsEditMode((current) => !current)}
+              onClick={toggleEditMode}
             >
               <PencilIcon />
             </button>
             <button
               className={
-                hasWorkingSheet && canRecoverBackup
-                  ? 'square-action'
+                hasWorkingSheet && isRegistrationMode
+                  ? 'square-action active'
+                  : hasWorkingSheet
+                    ? 'square-action'
                   : 'square-action disabled'
+              }
+              type="button"
+              aria-label="Cadastrar aprendiz"
+              aria-pressed={hasWorkingSheet ? isRegistrationMode : false}
+              title="Cadastrar Aprendiz"
+              disabled={!hasWorkingSheet}
+              onClick={toggleRegistrationMode}
+            >
+              <UserStarIcon />
+            </button>
+            <button
+              className={
+                hasWorkingSheet && isDeleteMode
+                  ? 'square-action active'
+                  : hasWorkingSheet
+                    ? 'square-action'
+                  : 'square-action disabled'
+              }
+              type="button"
+              aria-label="Deletar cadastro"
+              aria-pressed={hasWorkingSheet ? isDeleteMode : false}
+              title="Deletar Cadastro"
+              disabled={!hasWorkingSheet}
+              onClick={toggleDeleteMode}
+            >
+              <UserXIcon />
+            </button>
+            <button
+              className={
+                hasWorkingSheet && canRecoverBackup
+                  ? 'square-action toolbar-section-start'
+                  : 'square-action toolbar-section-start disabled'
               }
               type="button"
               aria-label="Recuperar dados"
@@ -2019,7 +2358,21 @@ export function AprendizesPage() {
             >
               <ImportIcon />
             </button>
-            <ThemeToggleButton />
+            <button
+              className={
+                hasWorkingSheet
+                  ? 'square-action'
+                  : 'square-action disabled'
+              }
+              type="button"
+              aria-label="Exportar dados"
+              title="Exportar Dados"
+              disabled={!hasWorkingSheet}
+              onClick={() => void exportWorkingFile()}
+            >
+              <ExportIcon />
+            </button>
+            <ThemeToggleButton className="toolbar-section-start" />
           </div>
       </div>
 
@@ -2100,11 +2453,23 @@ export function AprendizesPage() {
                 </tr>
               </thead>
               </table>
-              {isEditMode && renderRegistrationRow()}
+              {isRegistrationMode && renderRegistrationRow()}
             </div>
-            {isEditMode && showRegistrationHint && (
+            {isRegistrationMode && showRegistrationHint && (
               <div className="register-row-hint" aria-live="polite">
                 Aperte <kbd>Enter</kbd> para cadastrar
+              </div>
+            )}
+            {isDeleteMode && selectedDeleteRow !== null && (
+              <div
+                className="register-row-hint delete-row-hint"
+                style={{
+                  left: `${deleteHintPosition.left}px`,
+                  top: `${deleteHintPosition.top}px`,
+                }}
+                aria-live="polite"
+              >
+                Aperte <kbd>Delete</kbd> para descadastrar
               </div>
             )}
             <div
@@ -2112,19 +2477,37 @@ export function AprendizesPage() {
               ref={tableBodyScrollRef}
               role="region"
               tabIndex={0}
-              onScroll={syncHeaderScroll}
+              onScroll={(event) => {
+                syncHeaderScroll();
+                setTableScrollTop(event.currentTarget.scrollTop);
+              }}
             >
               <table className={`${tableClassName} data-table-body`}>
                 {renderColumnGroup()}
               <tbody>
-                {displayedRows.map(({ row, rowIndex }) => (
+                {displayedRows.map(({ row, rowIndex }, visualIndex) => (
                   <tr
                     key={rowIndex}
                     className={
-                      rowIndex === highlightedRegisteredRowIndex
-                        ? 'registered-row-highlight'
-                        : ''
+                      [
+                        rowIndex === highlightedRegisteredRowIndex
+                          ? 'registered-row-highlight'
+                          : '',
+                        selectedDeleteRow?.rowIndex === rowIndex
+                          ? 'delete-row-selected'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
                     }
+                    onClick={() => {
+                      if (isDeleteMode) {
+                        setTableScrollTop(
+                          tableBodyScrollRef.current?.scrollTop ?? 0,
+                        );
+                        setSelectedDeleteRow({ rowIndex, visualIndex });
+                      }
+                    }}
                   >
                     {orderedColumns.map((column, orderedColumnIndex) => {
                       const columnIndex = importedSheet.columns.indexOf(column);
@@ -2318,11 +2701,44 @@ function ImportIcon() {
   );
 }
 
+function ExportIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 15V3" />
+      <path d="m8 7 4 -4 4 4" />
+      <path d="M5 21h14" />
+      <path d="M5 17v4" />
+      <path d="M19 17v4" />
+    </svg>
+  );
+}
+
 function RotateClockwiseIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M19.95 11a8 8 0 1 0 -.5 4" />
       <path d="M20 4v7h-7" />
+    </svg>
+  );
+}
+
+function UserXIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
+      <path d="M6 21v-2a4 4 0 0 1 4 -4h3.5" />
+      <path d="M15.7 15.9l5.1 5.1" />
+      <path d="M20.8 15.9l-5.1 5.1" />
+    </svg>
+  );
+}
+
+function UserStarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
+      <path d="M6 21v-2a4 4 0 0 1 4 -4h2.5" />
+      <path d="M18 14l1.18 2.38l2.62 .38l-1.9 1.84l.45 2.6l-2.35 -1.23l-2.35 1.23l.45 -2.6l-1.9 -1.84l2.62 -.38l1.18 -2.38Z" />
     </svg>
   );
 }

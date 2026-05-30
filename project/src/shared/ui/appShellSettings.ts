@@ -15,6 +15,7 @@ export type ThemeSettings = AppBrand['theme'] & {
   activeIcon: string;
   activeText: string;
   headerText: string;
+  deleteHint: string;
 };
 
 export type DarkThemeSettings = {
@@ -34,6 +35,7 @@ export type DarkThemeSettings = {
   activeIcon: string;
   activeText: string;
   headerText: string;
+  deleteHint: string;
 };
 
 export type LayoutSettings = {
@@ -85,6 +87,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     activeIcon: '#ffffff',
     activeText: '#ffffff',
     headerText: '#ffffff',
+    deleteHint: '#d93025',
   },
   darkTheme: {
     primary: '#2c3b9a',
@@ -103,6 +106,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     activeIcon: '#8c8c8c',
     activeText: '#8c8c8c',
     headerText: '#8c8c8c',
+    deleteHint: '#f03228',
   },
   layout: {
     pageTopOffset: 51,
@@ -122,7 +126,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     menuButtonSize: 47,
     iconTextGap: 6,
     featureHeadingVerticalOffset: -24,
-    tableRowHeight: 28,
+    tableRowHeight: 30,
     tableHeaderHeight: 40,
     tableTopOffset: 0,
     tableHeightOffset: 3,
@@ -146,13 +150,22 @@ export const readSavedAppSettings = (brand: AppBrand) => {
   try {
     if (savedSettings) {
       const parsedSettings = JSON.parse(savedSettings) as Partial<AppSettings>;
+      const savedLayout = { ...parsedSettings.layout };
+
+      if (
+        savedLayout.tableRowHeight === 28 ||
+        savedLayout.tableRowHeight === 32
+      ) {
+        savedLayout.tableRowHeight = defaultSettings.layout.tableRowHeight;
+      }
+
       return {
         theme: { ...defaultSettings.theme, ...parsedSettings.theme },
         darkTheme: {
           ...defaultSettings.darkTheme,
           ...parsedSettings.darkTheme,
         },
-        layout: { ...defaultSettings.layout, ...parsedSettings.layout },
+        layout: { ...defaultSettings.layout, ...savedLayout },
       };
     }
 
