@@ -9,6 +9,53 @@
     />
     <link rel="icon" type="image/png" href="/src/assets/app-icon.png" />
     <title>SejaElevar</title>
+    <script>
+      (() => {
+        try {
+          const darkMode =
+            window.localStorage.getItem('sejaelevar.darkMode') === 'true';
+          const savedSettings = JSON.parse(
+            window.localStorage.getItem('sejaelevar.settings') || '{}',
+          );
+          const theme = darkMode
+            ? savedSettings.darkTheme || {}
+            : savedSettings.theme || {};
+          const fallbackBackground = darkMode ? '#000000' : '#fafdff';
+          const background = theme.surface || fallbackBackground;
+
+          document.documentElement.dataset.bootTheme = darkMode
+            ? 'dark'
+            : 'light';
+          document.documentElement.classList.toggle('dark-mode', darkMode);
+          document.documentElement.style.setProperty(
+            '--boot-background',
+            background,
+          );
+          document.documentElement.style.setProperty('--brand-surface', background);
+          document.documentElement.style.background = background;
+        } catch {
+          document.documentElement.dataset.bootTheme = 'light';
+          document.documentElement.style.setProperty(
+            '--boot-background',
+            '#fafdff',
+          );
+        }
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        background: var(--boot-background, #fafdff);
+      }
+
+      html[data-boot-theme='dark'],
+      html[data-boot-theme='dark'] body,
+      html[data-boot-theme='dark'] #root {
+        background: var(--boot-background, #000000);
+        color-scheme: dark;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
