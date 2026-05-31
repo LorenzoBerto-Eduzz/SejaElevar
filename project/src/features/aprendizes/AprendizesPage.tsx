@@ -301,6 +301,9 @@ const readSavedViewSettings = () => {
 export function AprendizesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const rowDetailsInputRefs = useRef<Record<string, HTMLInputElement | null>>(
+    {},
+  );
   const cellUndoStackRef = useRef<TableUndoEntry[]>([]);
   const registrationDraftUndoStackRef = useRef<RegistrationDraftUndoEntry[]>([]);
   const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
@@ -348,9 +351,26 @@ export function AprendizesPage() {
     rowIndex: number;
     visualIndex: number;
   } | null>(null);
+  const rowDetailsPanelStyleRef = useRef<CSSProperties>({});
   const [rowDetailsPanelStyle, setRowDetailsPanelStyle] =
     useState<CSSProperties>({});
   const [tableScrollTop, setTableScrollTop] = useState(0);
+  const applyRowDetailsPanelStyle = (nextStyle: CSSProperties) => {
+    const currentStyle = rowDetailsPanelStyleRef.current;
+    const isSameStyle =
+      currentStyle.display === nextStyle.display &&
+      currentStyle.left === nextStyle.left &&
+      currentStyle.top === nextStyle.top &&
+      currentStyle.width === nextStyle.width &&
+      currentStyle.height === nextStyle.height;
+
+    if (isSameStyle) {
+      return;
+    }
+
+    rowDetailsPanelStyleRef.current = nextStyle;
+    setRowDetailsPanelStyle(nextStyle);
+  };
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
     window.localStorage.setItem(
@@ -380,7 +400,7 @@ export function AprendizesPage() {
     setIsDeleteMode(false);
     setSelectedDeleteRow(null);
     setSelectedDetailsRow(null);
-    setRowDetailsPanelStyle({});
+    applyRowDetailsPanelStyle({});
     setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
@@ -424,7 +444,7 @@ export function AprendizesPage() {
     setIsDeleteMode(false);
     setSelectedDeleteRow(null);
     setSelectedDetailsRow(null);
-    setRowDetailsPanelStyle({});
+    applyRowDetailsPanelStyle({});
     setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
@@ -858,7 +878,12 @@ export function AprendizesPage() {
   }, [isEditMode]);
 
   useEffect(() => {
-    if (!isEditMode && !isRegistrationMode && !isDeleteMode) {
+    if (
+      !isEditMode &&
+      !isRegistrationMode &&
+      !isDeleteMode &&
+      !selectedDetailsRow
+    ) {
       return;
     }
 
@@ -883,7 +908,7 @@ export function AprendizesPage() {
       window.removeEventListener('keydown', handleUndoShortcut, {
         capture: true,
       });
-  }, [isEditMode, isRegistrationMode, isDeleteMode]);
+  }, [isEditMode, isRegistrationMode, isDeleteMode, selectedDetailsRow]);
 
   useEffect(() => {
     if (!isDeleteMode || selectedDeleteRow === null) {
@@ -945,7 +970,7 @@ export function AprendizesPage() {
   useEffect(() => {
     if (isEditMode || isRegistrationMode || isDeleteMode) {
       setSelectedDetailsRow(null);
-      setRowDetailsPanelStyle({});
+      applyRowDetailsPanelStyle({});
     }
   }, [isEditMode, isRegistrationMode, isDeleteMode]);
 
@@ -1254,7 +1279,7 @@ export function AprendizesPage() {
 
   useEffect(() => {
     if (!selectedDetailsRow || !importedSheet) {
-      setRowDetailsPanelStyle({});
+      applyRowDetailsPanelStyle({});
       return;
     }
 
@@ -1262,15 +1287,19 @@ export function AprendizesPage() {
       const frame = tableFrameRef.current;
 
       if (!frame || orderedColumns.length === 0) {
-        setRowDetailsPanelStyle({});
+        applyRowDetailsPanelStyle({});
         return;
       }
 
       const frameWidth = frame.clientWidth;
       const frameHeight = frame.clientHeight;
       const preferredPanelSize = getRowDetailsPanelSize(frame);
-
-      const firstColumnWidth = getColumnWidth(orderedColumns[0]);
+      const firstHeaderCell =
+        tableHeaderScrollRef.current?.querySelector<HTMLTableCellElement>(
+          'th:not(.table-scrollbar-spacer)',
+        );
+      const firstColumnWidth =
+        firstHeaderCell?.offsetWidth ?? getColumnWidth(orderedColumns[0]);
       const headerHeight =
         tableHeaderScrollRef.current?.offsetHeight ??
         readPixelCustomProperty(
@@ -1290,47 +1319,95 @@ export function AprendizesPage() {
       const top = maximumBottom - height;
 
       if (width <= 0 || height <= 0) {
-        setRowDetailsPanelStyle({
+        applyRowDetailsPanelStyle({
           display: 'none',
         });
         return;
       }
 
-      setRowDetailsPanelStyle({
-        left: Math.max(left, minimumLeft),
-        top: Math.max(top, minimumTop),
-        width,
-        height,
+      applyRowDetailsPanelStyle({
+        left: Math.round(Math.max(left, minimumLeft)),
+        top: Math.round(Math.max(top, minimumTop)),
+        width: Math.round(width),
+        height: Math.round(height),
       });
     };
 
     updatePanelMetrics();
 
+    let resizeUpdateTimer: number | null = null;
+    let animationFrameId: number | null = null;
+
+    const schedulePanelMetricsUpdate = (delay = 0) => {
+      if (resizeUpdateTimer !== null) {
+        window.clearTimeout(resizeUpdateTimer);
+        resizeUpdateTimer = null;
+      }
+
+      if (delay > 0) {
+        resizeUpdateTimer = window.setTimeout(() => {
+          resizeUpdateTimer = null;
+          schedulePanelMetricsUpdate();
+        }, delay);
+        return;
+      }
+
+      if (animationFrameId !== null) {
+        return;
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        updatePanelMetrics();
+      });
+    };
+
     const frame = tableFrameRef.current;
 
     if (!frame || typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updatePanelMetrics);
-      return () => window.removeEventListener('resize', updatePanelMetrics);
+      const handleWindowResize = () => schedulePanelMetricsUpdate(140);
+      window.addEventListener('resize', handleWindowResize);
+
+      return () => {
+        if (resizeUpdateTimer !== null) {
+          window.clearTimeout(resizeUpdateTimer);
+        }
+
+        if (animationFrameId !== null) {
+          window.cancelAnimationFrame(animationFrameId);
+        }
+
+        window.removeEventListener('resize', handleWindowResize);
+      };
     }
 
-    const observer = new ResizeObserver(updatePanelMetrics);
+    const observer = new ResizeObserver(() => schedulePanelMetricsUpdate(180));
     const shell = frame.closest('.app-shell');
     let settingsObserver: MutationObserver | null = null;
+    const handleWindowResize = () => schedulePanelMetricsUpdate(140);
 
     observer.observe(frame);
     if (shell && typeof MutationObserver !== 'undefined') {
-      settingsObserver = new MutationObserver(updatePanelMetrics);
+      settingsObserver = new MutationObserver(() => schedulePanelMetricsUpdate());
       settingsObserver.observe(shell, {
         attributes: true,
         attributeFilter: ['style'],
       });
     }
-    window.addEventListener('resize', updatePanelMetrics);
+    window.addEventListener('resize', handleWindowResize);
 
     return () => {
+      if (resizeUpdateTimer !== null) {
+        window.clearTimeout(resizeUpdateTimer);
+      }
+
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
       observer.disconnect();
       settingsObserver?.disconnect();
-      window.removeEventListener('resize', updatePanelMetrics);
+      window.removeEventListener('resize', handleWindowResize);
     };
   }, [
     selectedDetailsRow,
@@ -1517,6 +1594,21 @@ export function AprendizesPage() {
       kind: 'cell-edit',
       ...entry,
     });
+  };
+
+  const getCellEditInput = (rowIndex: number, columnName: string) => {
+    const rowDetailsInput =
+      rowDetailsInputRefs.current[`${rowIndex}-${columnName}`];
+
+    if (rowDetailsInput) {
+      return rowDetailsInput;
+    }
+
+    const orderedColumnIndex = orderedColumns.indexOf(columnName);
+
+    return orderedColumnIndex >= 0
+      ? cellInputRefs.current[`${rowIndex}-${orderedColumnIndex}`]
+      : null;
   };
 
   const commitCellValue = (
@@ -1935,11 +2027,10 @@ export function AprendizesPage() {
       return false;
     }
 
-    const orderedColumnIndex = orderedColumns.indexOf(activeEdit.columnName);
-    const activeInput =
-      orderedColumnIndex >= 0
-        ? cellInputRefs.current[`${activeEdit.rowIndex}-${orderedColumnIndex}`]
-        : null;
+    const activeInput = getCellEditInput(
+      activeEdit.rowIndex,
+      activeEdit.columnName,
+    );
     const savedValue = getCellValue(
       currentSheet,
       activeEdit.rowIndex,
@@ -2105,6 +2196,17 @@ export function AprendizesPage() {
   };
 
   const focusCell = (rowIndex: number, columnIndex: number) => {
+    const columnName = orderedColumns[columnIndex];
+    const rowDetailsInput = columnName
+      ? rowDetailsInputRefs.current[`${rowIndex}-${columnName}`]
+      : null;
+
+    if (rowDetailsInput) {
+      rowDetailsInput.focus();
+      rowDetailsInput.select();
+      return;
+    }
+
     const key = `${rowIndex}-${columnIndex}`;
     const input = cellInputRefs.current[key];
 
@@ -2243,6 +2345,30 @@ export function AprendizesPage() {
         }`
       : `Recuperar ${recoveryInfo?.label || 'Aprendizes'}`;
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
+  const selectedDetailsRowValues =
+    importedSheet && selectedDetailsRow
+      ? importedSheet.rows[selectedDetailsRow.rowIndex] || null
+      : null;
+  const selectedDetailsNameColumn =
+    importedSheet?.columns.find(
+      (column) => column.trim().toLowerCase() === 'nome',
+    ) ||
+    importedSheet?.columns[0] ||
+    'Nome';
+  const selectedDetailsName =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          selectedDetailsNameColumn,
+        )
+      : '';
+  const isRowDetailsPanelPositioned =
+    rowDetailsPanelStyle.display !== 'none' &&
+    rowDetailsPanelStyle.left !== undefined &&
+    rowDetailsPanelStyle.top !== undefined &&
+    rowDetailsPanelStyle.width !== undefined &&
+    rowDetailsPanelStyle.height !== undefined;
   const renderColumnGroup = () => (
     <colgroup>
       {orderedColumns.map((column) => (
@@ -2756,16 +2882,123 @@ export function AprendizesPage() {
             {selectedDetailsRow && !isEditMode && !isRegistrationMode && !isDeleteMode && (
               <aside
                 className="row-details-panel"
-                style={rowDetailsPanelStyle}
+                style={{
+                  visibility: isRowDetailsPanelPositioned
+                    ? 'visible'
+                    : 'hidden',
+                  ...rowDetailsPanelStyle,
+                }}
                 aria-label="Detalhes do aprendiz"
               >
+                <div className="row-details-content">
+                    <section
+                      className="row-details-info-section"
+                      aria-label="Informações do aprendiz"
+                    >
+                      <div className="row-details-field-layer">
+                        <div className="row-details-field row-details-field-name">
+                          <span className="row-details-field-label">Nome</span>
+                          <span className="row-details-field-value">
+                            <input
+                              key={`${selectedDetailsRow.rowIndex}-${selectedDetailsNameColumn}-${selectedDetailsName}`}
+                              ref={(element) => {
+                                rowDetailsInputRefs.current[
+                                  `${selectedDetailsRow.rowIndex}-${selectedDetailsNameColumn}`
+                                ] = element;
+                              }}
+                              className="row-details-field-value-input"
+                              aria-label={`${selectedDetailsNameColumn} do aprendiz`}
+                              spellCheck={false}
+                              defaultValue={selectedDetailsName}
+                              onFocus={() =>
+                                beginCellEdit(
+                                  selectedDetailsRow.rowIndex,
+                                  selectedDetailsNameColumn,
+                                  selectedDetailsName,
+                                )
+                              }
+                              onChange={() =>
+                                beginCellEdit(
+                                  selectedDetailsRow.rowIndex,
+                                  selectedDetailsNameColumn,
+                                  selectedDetailsName,
+                                )
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter') {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                const sheet = commitCellValue(
+                                  selectedDetailsRow.rowIndex,
+                                  selectedDetailsNameColumn,
+                                  event.currentTarget.value,
+                                );
+
+                                if (sheet) {
+                                  void writeSheetToSourceFile(sheet);
+                                }
+                              }}
+                              onBlur={(event) => {
+                                if (isApplyingUndoRef.current) {
+                                  return;
+                                }
+
+                                const sheet = commitCellValue(
+                                  selectedDetailsRow.rowIndex,
+                                  selectedDetailsNameColumn,
+                                  event.currentTarget.value,
+                                );
+
+                                if (sheet) {
+                                  void writeSheetToSourceFile(sheet);
+                                }
+                              }}
+                            />
+                          </span>
+                        </div>
+                      </div>
+                      {Array.from({ length: 7 }, (_, layerIndex) => (
+                        <div
+                          className="row-details-field-layer row-details-template-layer"
+                          key={`template-layer-${layerIndex}`}
+                        >
+                          <div className="row-details-field row-details-field-name">
+                            <span className="row-details-field-label">Nome</span>
+                            <span className="row-details-field-value">
+                              <input
+                                className="row-details-field-value-input"
+                                aria-label={`Modelo ${layerIndex + 1}`}
+                                readOnly
+                                tabIndex={-1}
+                                value=""
+                              />
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                    <footer
+                      className="row-details-actions"
+                      aria-label="Ações do aprendiz"
+                    >
+                      <button
+                        className="row-details-action-button"
+                        type="button"
+                        aria-disabled="true"
+                      >
+                        Ação
+                      </button>
+                    </footer>
+                </div>
                 <button
                   className="row-details-close-button"
                   type="button"
                   aria-label="Fechar detalhes"
                   onClick={() => {
                     setSelectedDetailsRow(null);
-                    setRowDetailsPanelStyle({});
+                    applyRowDetailsPanelStyle({});
                   }}
                 >
                   <CloseIcon />

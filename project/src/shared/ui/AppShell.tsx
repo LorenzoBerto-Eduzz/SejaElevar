@@ -393,6 +393,9 @@ export function AppShell({
           '--table-height-offset': `${settings.layout.tableHeightOffset}px`,
           '--row-details-panel-width': `${settings.layout.rowDetailsPanelWidth}px`,
           '--row-details-panel-height': `${settings.layout.rowDetailsPanelHeight}px`,
+          '--row-details-field-horizontal-offset': `${settings.layout.rowDetailsFieldHorizontalOffset}px`,
+          '--row-details-close-icon-horizontal-offset': `${settings.layout.rowDetailsCloseIconHorizontalOffset}px`,
+          '--settings-close-icon-horizontal-offset': `${settings.layout.settingsCloseIconHorizontalOffset}px`,
         } as CSSProperties
       }
     >
@@ -897,8 +900,8 @@ export function AppShell({
                 />
                 <SliderField
                   label="Largura popup item"
-                  min={280}
-                  max={760}
+                  min={160}
+                  max={1200}
                   step={1}
                   value={settings.layout.rowDetailsPanelWidth}
                   onChange={(value) =>
@@ -909,14 +912,42 @@ export function AppShell({
                 />
                 <SliderField
                   label="Altura popup item"
-                  min={180}
-                  max={620}
+                  min={120}
+                  max={900}
                   step={1}
                   value={settings.layout.rowDetailsPanelHeight}
                   onChange={(value) =>
                     updateLayout('rowDetailsPanelHeight', value)
                   }
                   onReset={() => resetLayout('rowDetailsPanelHeight')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Posição X popup"
+                  min={-12}
+                  max={12}
+                  step={0.1}
+                  value={settings.layout.rowDetailsCloseIconHorizontalOffset}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsCloseIconHorizontalOffset', value)
+                  }
+                  onReset={() =>
+                    resetLayout('rowDetailsCloseIconHorizontalOffset')
+                  }
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Posição X config"
+                  min={-12}
+                  max={12}
+                  step={0.1}
+                  value={settings.layout.settingsCloseIconHorizontalOffset}
+                  onChange={(value) =>
+                    updateLayout('settingsCloseIconHorizontalOffset', value)
+                  }
+                  onReset={() =>
+                    resetLayout('settingsCloseIconHorizontalOffset')
+                  }
                   className="dev-visible-slider-field"
                 />
               </>
@@ -1161,8 +1192,8 @@ function GearIcon({ outerOffset }: GearIconProps) {
 function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="m7 7 10 10" />
-      <path d="m17 7-10 10" />
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
     </svg>
   );
 }

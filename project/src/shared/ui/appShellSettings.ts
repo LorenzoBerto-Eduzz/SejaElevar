@@ -62,6 +62,9 @@ export type LayoutSettings = {
   tableHeightOffset: number;
   rowDetailsPanelWidth: number;
   rowDetailsPanelHeight: number;
+  rowDetailsFieldHorizontalOffset: number;
+  rowDetailsCloseIconHorizontalOffset: number;
+  settingsCloseIconHorizontalOffset: number;
 };
 
 export type AppSettings = {
@@ -132,8 +135,11 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     tableHeaderHeight: 40,
     tableTopOffset: 0,
     tableHeightOffset: 3,
-    rowDetailsPanelWidth: 504,
-    rowDetailsPanelHeight: 360,
+    rowDetailsPanelWidth: 804,
+    rowDetailsPanelHeight: 591,
+    rowDetailsFieldHorizontalOffset: -2,
+    rowDetailsCloseIconHorizontalOffset: -1.7,
+    settingsCloseIconHorizontalOffset: 0,
   },
 });
 
