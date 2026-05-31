@@ -37,7 +37,7 @@ const htmlWithoutAssets = html
 
 const singleFileHtml = htmlWithoutAssets.replace(
   '</body>',
-  () => `    <script>\n${script}\n</script>\n  </body>`,
+  () => `    <script type="module">\n${script}\n</script>\n  </body>`,
 );
 
 const preservedDevEntries = new Set([

@@ -425,9 +425,7 @@ svg {
   height: 100vh;
   background: var(--brand-page-background);
   overflow: visible;
-  padding: var(--page-top-offset, 42px) clamp(22px, 4vw, 42px)
-    clamp(22px, 4vw, 42px);
-  transition: padding 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  padding: var(--page-top-offset, 42px) 42px 42px;
 }
 
 .app-content > div:not([hidden]) {
@@ -1304,6 +1302,53 @@ svg {
 .data-table tbody tr.delete-row-selected td,
 .data-table tbody tr.delete-row-selected td.pinned-column {
   background-color: var(--brand-hover, var(--brand-tertiary));
+}
+
+.data-table tbody tr.row-details-selected td,
+.data-table tbody tr.row-details-selected td.pinned-column {
+  background-color: var(--brand-hover, var(--brand-tertiary));
+}
+
+.row-details-panel {
+  position: absolute;
+  z-index: 14;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px 0 0 0;
+  background: var(--brand-panel);
+  box-shadow: 0 18px 45px rgba(16, 42, 64, 0.22);
+  overflow: hidden;
+}
+
+.row-details-close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  color: var(--brand-primary);
+  background: var(--brand-panel);
+}
+
+.row-details-close-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.row-details-close-button:hover,
+.row-details-close-button:focus-visible {
+  color: var(--brand-active-icon);
+  background: var(--brand-primary);
+  outline: none;
 }
 
 .data-table tbody tr.registered-row-highlight td {

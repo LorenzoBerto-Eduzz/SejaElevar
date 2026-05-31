@@ -216,6 +216,7 @@ export function AppShell({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           darkMode: isDarkMode,
+          backgroundColor: activeTheme.surface,
           titleBarColor: activeTheme.titleBar,
           titleTextColor: activeTheme.titleBarText,
         }),

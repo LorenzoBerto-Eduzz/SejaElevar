@@ -28,6 +28,9 @@ const TABLE_WIDTH_BUFFER = 6;
 const CELL_UNDO_LIMIT = 1000;
 const BIRTHDATE_COLUMN = 'Data de Nascimento';
 const AGE_COLUMN = 'Idade';
+const ROW_DETAILS_PANEL_MARGIN = 20;
+const ROW_DETAILS_PANEL_HEIGHT = 360;
+const ROW_DETAILS_PANEL_WIDTH = ROW_DETAILS_PANEL_HEIGHT * 1.4;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
@@ -277,6 +280,7 @@ export function AprendizesPage() {
   const undoGuardTimerRef = useRef<number | null>(null);
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
   const tableBodyScrollRef = useRef<HTMLDivElement>(null);
+  const tableFrameRef = useRef<HTMLDivElement>(null);
   const registerHighlightTimerRef = useRef<number | null>(null);
   const wasRegistrationModeRef = useRef(false);
   const registrationDraftRef = useRef<Record<string, string>>({});
@@ -311,6 +315,16 @@ export function AprendizesPage() {
     rowIndex: number;
     visualIndex: number;
   } | null>(null);
+  const [selectedDetailsRow, setSelectedDetailsRow] = useState<{
+    rowIndex: number;
+    visualIndex: number;
+  } | null>(null);
+  const [rowDetailsPanelSize, setRowDetailsPanelSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [rowDetailsPanelStyle, setRowDetailsPanelStyle] =
+    useState<CSSProperties>({});
   const [tableScrollTop, setTableScrollTop] = useState(0);
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
@@ -340,6 +354,9 @@ export function AprendizesPage() {
     setIsRegistrationMode(false);
     setIsDeleteMode(false);
     setSelectedDeleteRow(null);
+    setSelectedDetailsRow(null);
+    setRowDetailsPanelSize(null);
+    setRowDetailsPanelStyle({});
     setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
@@ -382,6 +399,9 @@ export function AprendizesPage() {
     setIsRegistrationMode(false);
     setIsDeleteMode(false);
     setSelectedDeleteRow(null);
+    setSelectedDetailsRow(null);
+    setRowDetailsPanelSize(null);
+    setRowDetailsPanelStyle({});
     setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
@@ -899,6 +919,14 @@ export function AprendizesPage() {
       window.removeEventListener('pointerdown', clearDeleteSelection);
   }, [isDeleteMode, selectedDeleteRow]);
 
+  useEffect(() => {
+    if (isEditMode || isRegistrationMode || isDeleteMode) {
+      setSelectedDetailsRow(null);
+      setRowDetailsPanelSize(null);
+      setRowDetailsPanelStyle({});
+    }
+  }, [isEditMode, isRegistrationMode, isDeleteMode]);
+
   useEffect(
     () => () => {
       if (registerHighlightTimerRef.current !== null) {
@@ -1200,6 +1228,73 @@ export function AprendizesPage() {
       maxWidth: width,
     };
   };
+  const orderedColumnsKey = orderedColumns.join('\u001f');
+
+  useEffect(() => {
+    if (!selectedDetailsRow || !importedSheet) {
+      setRowDetailsPanelStyle({});
+      return;
+    }
+
+    const updatePanelMetrics = () => {
+      const frame = tableFrameRef.current;
+
+      if (!frame || orderedColumns.length === 0) {
+        setRowDetailsPanelStyle({});
+        return;
+      }
+
+      const frameWidth = frame.clientWidth;
+      const panelSize =
+        rowDetailsPanelSize ?? {
+          height: ROW_DETAILS_PANEL_HEIGHT,
+          width: ROW_DETAILS_PANEL_WIDTH,
+        };
+
+      if (!rowDetailsPanelSize) {
+        setRowDetailsPanelSize(panelSize);
+      }
+
+      const firstColumnWidth = getColumnWidth(orderedColumns[0]);
+      const rightAnchoredLeft =
+        frameWidth - panelSize.width - ROW_DETAILS_PANEL_MARGIN;
+      const left = Math.max(
+        rightAnchoredLeft,
+        firstColumnWidth + ROW_DETAILS_PANEL_MARGIN,
+      );
+
+      setRowDetailsPanelStyle({
+        left,
+        bottom: ROW_DETAILS_PANEL_MARGIN,
+        width: panelSize.width,
+        height: panelSize.height,
+      });
+    };
+
+    updatePanelMetrics();
+
+    const frame = tableFrameRef.current;
+
+    if (!frame || typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updatePanelMetrics);
+      return () => window.removeEventListener('resize', updatePanelMetrics);
+    }
+
+    const observer = new ResizeObserver(updatePanelMetrics);
+    observer.observe(frame);
+    window.addEventListener('resize', updatePanelMetrics);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updatePanelMetrics);
+    };
+  }, [
+    selectedDetailsRow,
+    importedSheet,
+    rowDetailsPanelSize,
+    orderedColumnsKey,
+    viewSettings.columnWidths,
+  ]);
 
   const resizeColumn = (column: string, width: number) => {
     saveViewSettings({
@@ -2090,6 +2185,7 @@ export function AprendizesPage() {
       if (nextMode) {
         setIsEditMode(false);
         setIsRegistrationMode(false);
+        setSelectedDetailsRow(null);
       } else {
         setSelectedDeleteRow(null);
       }
@@ -2405,7 +2501,7 @@ export function AprendizesPage() {
 
       {importedSheet && (
         <div className="data-table-panel">
-          <div className="data-table-frame">
+          <div className="data-table-frame" ref={tableFrameRef}>
             <div
               className="data-table-header-scroll"
               ref={tableHeaderScrollRef}
@@ -2496,6 +2592,9 @@ export function AprendizesPage() {
                         selectedDeleteRow?.rowIndex === rowIndex
                           ? 'delete-row-selected'
                           : '',
+                        selectedDetailsRow?.rowIndex === rowIndex
+                          ? 'row-details-selected'
+                          : '',
                       ]
                         .filter(Boolean)
                         .join(' ')
@@ -2506,6 +2605,11 @@ export function AprendizesPage() {
                           tableBodyScrollRef.current?.scrollTop ?? 0,
                         );
                         setSelectedDeleteRow({ rowIndex, visualIndex });
+                        return;
+                      }
+
+                      if (!isEditMode && !isRegistrationMode) {
+                        setSelectedDetailsRow({ rowIndex, visualIndex });
                       }
                     }}
                   >
@@ -2602,8 +2706,28 @@ export function AprendizesPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
             </div>
+            {selectedDetailsRow && !isEditMode && !isRegistrationMode && !isDeleteMode && (
+              <aside
+                className="row-details-panel"
+                style={rowDetailsPanelStyle}
+                aria-label="Detalhes do aprendiz"
+              >
+                <button
+                  className="row-details-close-button"
+                  type="button"
+                  aria-label="Fechar detalhes"
+                  onClick={() => {
+                    setSelectedDetailsRow(null);
+                    setRowDetailsPanelSize(null);
+                    setRowDetailsPanelStyle({});
+                  }}
+                >
+                  <CloseIcon />
+                </button>
+              </aside>
+            )}
           </div>
         </div>
       )}

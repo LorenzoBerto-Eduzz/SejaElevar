@@ -6,13 +6,26 @@ import { appTabs } from './shared/navigation/tabs';
 import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
 
+const isLocalAppAddress = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return (
+    window.location.protocol === 'http:' &&
+    ['127.0.0.1', 'localhost', '::1'].includes(window.location.hostname)
+  );
+};
+
 export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('aprendizes');
-  const [isProviderReady, setIsProviderReady] = useState(false);
+  const [isProviderReady, setIsProviderReady] = useState(isLocalAppAddress);
 
   useEffect(() => {
     let isActive = true;
+    let didConnectProvider = false;
     let heartbeat: number | undefined;
+    let statusRetry: number | undefined;
 
     const pingLocalProvider = () => {
       if (!isActive) {
@@ -26,6 +39,20 @@ export function App() {
         // The app renders only when the provider is present.
       });
     };
+    const scheduleProviderRetry = () => {
+      if (!isActive) {
+        return;
+      }
+
+      if (statusRetry !== undefined) {
+        window.clearTimeout(statusRetry);
+      }
+
+      statusRetry = window.setTimeout(() => {
+        statusRetry = undefined;
+        void startProviderSession();
+      }, 250);
+    };
     const notifyLocalProviderClosed = () => {
       if (!isActive) {
         return;
@@ -33,8 +60,16 @@ export function App() {
 
       isActive = false;
 
+      if (statusRetry !== undefined) {
+        window.clearTimeout(statusRetry);
+      }
+
       if (heartbeat !== undefined) {
         window.clearInterval(heartbeat);
+      }
+
+      if (!didConnectProvider) {
+        return;
       }
 
       if (!navigator.sendBeacon?.('/api/app/closed')) {
@@ -55,16 +90,20 @@ export function App() {
         const status = response.ok ? await response.json() : null;
 
         if (!isActive || !status?.localProvider) {
+          scheduleProviderRetry();
           return;
         }
 
+        didConnectProvider = true;
         setIsProviderReady(true);
         pingLocalProvider();
-        heartbeat = window.setInterval(pingLocalProvider, 1000);
+        if (heartbeat === undefined) {
+          heartbeat = window.setInterval(pingLocalProvider, 1000);
+        }
         window.addEventListener('pagehide', notifyLocalProviderClosed);
         window.addEventListener('beforeunload', notifyLocalProviderClosed);
       } catch {
-        // Opened outside the executable/provider: render nothing.
+        scheduleProviderRetry();
       }
     };
 

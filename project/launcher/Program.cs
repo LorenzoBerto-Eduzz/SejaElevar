@@ -58,7 +58,8 @@ internal static class Program
         {
             var (listener, port) = BindListener();
             _listener = listener;
-            var url = $"http://127.0.0.1:{port}/";
+            var startupToken = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var url = $"http://127.0.0.1:{port}/?startup={startupToken}";
             Log($"Listening on {url}");
 
             if (Environment.GetEnvironmentVariable("SEJAELEVAR_NO_OPEN") != "1")
@@ -130,6 +131,31 @@ internal static class Program
             var response = await client.GetAsync($"http://127.0.0.1:{PreferredPort}/api/app/status");
 
             if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            var statusJson = await response.Content.ReadAsStringAsync();
+            var shouldFocusExistingWindow = true;
+
+            try
+            {
+                using var status = JsonDocument.Parse(statusJson);
+
+                if (
+                    status.RootElement.TryGetProperty("windowAvailable", out var windowAvailable)
+                )
+                {
+                    shouldFocusExistingWindow =
+                        windowAvailable.ValueKind == JsonValueKind.True;
+                }
+            }
+            catch
+            {
+                shouldFocusExistingWindow = true;
+            }
+
+            if (!shouldFocusExistingWindow)
             {
                 return false;
             }
@@ -209,6 +235,7 @@ internal static class Program
                     new
                     {
                         localProvider = true,
+                        windowAvailable = _mainWindow is not null && !_mainWindow.IsDisposed,
                         releaseRoot = appFolder,
                         workbookPath = FindCurrentWorkbookPath(appFolder)
                     }
@@ -515,14 +542,45 @@ internal static class Program
             using var document = JsonDocument.Parse(request.Body);
             var darkMode = document.RootElement.TryGetProperty("darkMode", out var value) &&
                 value.ValueKind == JsonValueKind.True;
+            var backgroundColor = GetJsonString(document.RootElement, "backgroundColor");
             var titleBarColor = GetJsonString(document.RootElement, "titleBarColor");
             var titleTextColor = GetJsonString(document.RootElement, "titleTextColor");
 
             ApplyWindowTheme(darkMode, titleBarColor, titleTextColor);
+            SaveWindowThemeSettings(darkMode, backgroundColor, titleBarColor, titleTextColor);
         }
         catch
         {
             // Window chrome color is cosmetic and should never interrupt the app.
+        }
+    }
+
+    private static void SaveWindowThemeSettings(
+        bool darkMode,
+        string? backgroundColor,
+        string? titleBarColor,
+        string? titleTextColor
+    )
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            window.SaveWindowThemeSettings(
+                darkMode,
+                backgroundColor,
+                titleBarColor,
+                titleTextColor
+            );
+        }
+        catch
+        {
+            // Startup color persistence should never interrupt the app.
         }
     }
 
@@ -904,7 +962,8 @@ internal static class Program
             stream,
             200,
             GetContentType(Path.GetExtension(fullPath)),
-            await File.ReadAllBytesAsync(fullPath)
+            await File.ReadAllBytesAsync(fullPath),
+            new Dictionary<string, string> { ["cache-control"] = "no-store" }
         );
     }
 
@@ -1468,26 +1527,40 @@ internal static class Program
     private sealed class RuntimeWindowSettings
     {
         public double? ZoomFactor { get; set; }
+        public bool? DarkMode { get; set; }
+        public string? BackgroundColor { get; set; }
+        public string? TitleBarColor { get; set; }
+        public string? TitleTextColor { get; set; }
     }
 
     private sealed class AppWindow : Form
     {
         private readonly string _appFolder;
         private readonly string _url;
-        private readonly WebView2 _webView;
+        private readonly Color _startupBackgroundColor;
+        private WebView2 _webView;
 
         public AppWindow(string url, string appFolder)
         {
             _appFolder = appFolder;
             _url = url;
             _webView = new WebView2 { Dock = DockStyle.Fill };
+            var startupTheme = LoadWindowSettings();
+            var startupBackground = ChooseHexColor(
+                startupTheme.BackgroundColor,
+                startupTheme.DarkMode == true,
+                "#000000",
+                "#fafdff"
+            );
+            _startupBackgroundColor = ColorTranslator.FromHtml(startupBackground);
 
             Text = Title;
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(744, 520);
             Size = new Size(1280, 820);
             WindowState = FormWindowState.Maximized;
-            BackColor = ColorTranslator.FromHtml("#f8fbfd");
+            BackColor = _startupBackgroundColor;
+            _webView.DefaultBackgroundColor = _startupBackgroundColor;
 
             try
             {
@@ -1499,9 +1572,14 @@ internal static class Program
             }
 
             Controls.Add(_webView);
-            _webView.Visible = false;
             Shown += async (_, _) => await InitializeWebViewAsync();
             FormClosed += (_, _) => RequestShutdown("window-closed");
+
+            SetTitleBarTheme(
+                startupTheme.DarkMode == true,
+                startupTheme.TitleBarColor,
+                startupTheme.TitleTextColor
+            );
         }
 
         public void SetTitleBarTheme(bool darkMode, string? titleBarColor, string? titleTextColor)
@@ -1542,16 +1620,22 @@ internal static class Program
                 var userDataFolder = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "SejaElevar",
-                    "WebView2"
+                    "WebView2-runtime"
                 );
-                var environment = await CoreWebView2Environment.CreateAsync(
-                    browserExecutableFolder: null,
-                    userDataFolder
-                );
-
-                await _webView.EnsureCoreWebView2Async(environment);
+                await EnsureWebViewWithProfileAsync(userDataFolder);
+                Log($"WebView runtime: {_webView.CoreWebView2.Environment.BrowserVersionString}");
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                _webView.CoreWebView2.NavigationStarting += (_, args) =>
+                    Log($"WebView navigation starting: {args.Uri}");
+                _webView.CoreWebView2.NavigationCompleted += (_, args) =>
+                {
+                    Log(
+                        $"WebView navigation completed: success={args.IsSuccess} status={args.HttpStatusCode} error={args.WebErrorStatus}"
+                    );
+                };
+                _webView.CoreWebView2.ProcessFailed += (_, args) =>
+                    Log($"WebView process failed: {args.ProcessFailedKind}");
                 _webView.ZoomFactor = LoadZoomFactor();
                 _webView.ZoomFactorChanged += (_, _) => SaveZoomFactor(_webView.ZoomFactor);
                 _webView.CoreWebView2.NavigationCompleted += (_, _) => RevealWindow();
@@ -1569,6 +1653,73 @@ internal static class Program
                 );
                 RequestShutdown("webview-failed");
             }
+        }
+
+        private async Task EnsureWebViewWithProfileAsync(string userDataFolder)
+        {
+            try
+            {
+                await EnsureWebViewCoreAsync(userDataFolder);
+            }
+            catch (Exception error) when (IsRecoverableWebViewStartupError(error))
+            {
+                var fallbackFolder = Path.Combine(
+                    Path.GetTempPath(),
+                    "SejaElevar",
+                    $"WebView2-recovery-{DateTime.Now:yyyyMMddHHmmss}"
+                );
+                Log(
+                    $"WebView profile failed ({GetErrorCode(error)}); retrying with {fallbackFolder}"
+                );
+                ResetWebViewControl();
+                await EnsureWebViewCoreAsync(fallbackFolder);
+            }
+        }
+
+        private void ResetWebViewControl()
+        {
+            try
+            {
+                Controls.Remove(_webView);
+                _webView.Dispose();
+            }
+            catch
+            {
+                // The failed control may already be partially disposed.
+            }
+
+            _webView = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                DefaultBackgroundColor = _startupBackgroundColor
+            };
+            Controls.Add(_webView);
+        }
+
+        private async Task EnsureWebViewCoreAsync(string userDataFolder)
+        {
+            Directory.CreateDirectory(userDataFolder);
+            Log($"WebView profile: {userDataFolder}");
+            var environment = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder
+            );
+
+            await _webView.EnsureCoreWebView2Async(environment);
+        }
+
+        private static bool IsRecoverableWebViewStartupError(Exception error)
+        {
+            return error is UnauthorizedAccessException ||
+                error is IOException ||
+                error.HResult is unchecked((int)0x800700AA) or unchecked((int)0x8000FFFF);
+        }
+
+        private static string GetErrorCode(Exception error)
+        {
+            return error.HResult == 0
+                ? error.GetType().Name
+                : $"{error.HResult:X8}";
         }
 
         private string GetWindowSettingsPath()
@@ -1590,24 +1741,27 @@ internal static class Program
 
         private double LoadZoomFactor()
         {
+            return ClampZoomFactor(LoadWindowSettings().ZoomFactor ?? DefaultZoomFactor);
+        }
+
+        private RuntimeWindowSettings LoadWindowSettings()
+        {
             try
             {
                 var settingsPath = GetWindowSettingsPath();
 
                 if (!File.Exists(settingsPath))
                 {
-                    return DefaultZoomFactor;
+                    return new RuntimeWindowSettings();
                 }
 
-                var settings = JsonSerializer.Deserialize<RuntimeWindowSettings>(
+                return JsonSerializer.Deserialize<RuntimeWindowSettings>(
                     File.ReadAllText(settingsPath)
-                );
-
-                return ClampZoomFactor(settings?.ZoomFactor ?? DefaultZoomFactor);
+                ) ?? new RuntimeWindowSettings();
             }
             catch
             {
-                return DefaultZoomFactor;
+                return new RuntimeWindowSettings();
             }
         }
 
@@ -1616,13 +1770,12 @@ internal static class Program
             try
             {
                 Directory.CreateDirectory(GetAssetsFolder(_appFolder));
+                var settings = LoadWindowSettings();
+                settings.ZoomFactor = ClampZoomFactor(zoomFactor);
                 File.WriteAllText(
                     GetWindowSettingsPath(),
                     JsonSerializer.Serialize(
-                        new RuntimeWindowSettings
-                        {
-                            ZoomFactor = ClampZoomFactor(zoomFactor)
-                        },
+                        settings,
                         new JsonSerializerOptions { WriteIndented = true }
                     )
                 );
@@ -1631,6 +1784,28 @@ internal static class Program
             {
                 // Zoom is a convenience setting; the app should keep running if it cannot be saved.
             }
+        }
+
+        public void SaveWindowThemeSettings(
+            bool darkMode,
+            string? backgroundColor,
+            string? titleBarColor,
+            string? titleTextColor
+        )
+        {
+            var settings = LoadWindowSettings();
+            settings.DarkMode = darkMode;
+            settings.BackgroundColor = IsHexColor(backgroundColor) ? backgroundColor : null;
+            settings.TitleBarColor = IsHexColor(titleBarColor) ? titleBarColor : null;
+            settings.TitleTextColor = IsHexColor(titleTextColor) ? titleTextColor : null;
+            Directory.CreateDirectory(GetAssetsFolder(_appFolder));
+            File.WriteAllText(
+                GetWindowSettingsPath(),
+                JsonSerializer.Serialize(
+                    settings,
+                    new JsonSerializerOptions { WriteIndented = true }
+                )
+            );
         }
 
         private static double ClampZoomFactor(double zoomFactor)
@@ -1652,7 +1827,7 @@ internal static class Program
 
             BeginInvoke(() =>
             {
-                _webView.Visible = true;
+                Log("WebView activating window after navigation");
                 Activate();
             });
         }
