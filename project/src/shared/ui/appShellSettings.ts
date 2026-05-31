@@ -60,6 +60,8 @@ export type LayoutSettings = {
   tableHeaderHeight: number;
   tableTopOffset: number;
   tableHeightOffset: number;
+  rowDetailsPanelWidth: number;
+  rowDetailsPanelHeight: number;
 };
 
 export type AppSettings = {
@@ -130,6 +132,8 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     tableHeaderHeight: 40,
     tableTopOffset: 0,
     tableHeightOffset: 3,
+    rowDetailsPanelWidth: 504,
+    rowDetailsPanelHeight: 360,
   },
 });
 

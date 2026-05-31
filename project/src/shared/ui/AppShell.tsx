@@ -391,6 +391,8 @@ export function AppShell({
           '--table-header-height': `${settings.layout.tableHeaderHeight}px`,
           '--table-top-offset': `${settings.layout.tableTopOffset}px`,
           '--table-height-offset': `${settings.layout.tableHeightOffset}px`,
+          '--row-details-panel-width': `${settings.layout.rowDetailsPanelWidth}px`,
+          '--row-details-panel-height': `${settings.layout.rowDetailsPanelHeight}px`,
         } as CSSProperties
       }
     >
@@ -893,6 +895,30 @@ export function AppShell({
                   onChange={(value) => updateLayout('tableTopOffset', value)}
                   onReset={() => resetLayout('tableTopOffset')}
                 />
+                <SliderField
+                  label="Largura popup item"
+                  min={280}
+                  max={760}
+                  step={1}
+                  value={settings.layout.rowDetailsPanelWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsPanelWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsPanelWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Altura popup item"
+                  min={180}
+                  max={620}
+                  step={1}
+                  value={settings.layout.rowDetailsPanelHeight}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsPanelHeight', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsPanelHeight')}
+                  className="dev-visible-slider-field"
+                />
               </>
             )}
           </div>
@@ -939,6 +965,7 @@ type SliderFieldProps = {
   value: number;
   onChange: (value: number) => void;
   onReset: () => void;
+  className?: string;
 };
 
 function SliderField({
@@ -949,10 +976,11 @@ function SliderField({
   value,
   onChange,
   onReset,
+  className,
 }: SliderFieldProps) {
   return (
     <label
-      className="slider-field"
+      className={['slider-field', className].filter(Boolean).join(' ')}
       onContextMenu={(event) => {
         event.preventDefault();
         onReset();

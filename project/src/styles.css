@@ -536,7 +536,7 @@ svg {
 }
 
 .settings-fields > .color-field:nth-of-type(n + 5),
-.settings-fields > .slider-field {
+.settings-fields > .slider-field:not(.dev-visible-slider-field) {
   display: none;
 }
 
@@ -634,16 +634,23 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
   min-height: 50px;
   transform: translateY(var(--feature-heading-vertical-offset, 0px));
+}
+
+.feature-heading > div:first-child {
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 
 .feature-heading h1 {
   margin: 0 0 0 12px;
   color: var(--brand-primary);
-  font-size: clamp(1.75rem, 3vw, 2.35rem);
+  font-size: 2.35rem;
   line-height: 1.15;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .empty-data-state {
@@ -777,9 +784,36 @@ svg {
 }
 
 .table-toolbar {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
+  scrollbar-width: thin;
+}
+
+.table-toolbar-track {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 14px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.table-toolbar::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-toolbar::-webkit-scrollbar-track {
+  background: var(--brand-scroll-track);
+}
+
+.table-toolbar::-webkit-scrollbar-thumb {
+  border: 2px solid var(--brand-scroll-track);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
 }
 
 .table-toolbar .toolbar-section-start {
@@ -789,8 +823,13 @@ svg {
 .square-action {
   display: grid;
   place-items: center;
+  flex: 0 0 50px;
   width: 50px;
+  min-width: 50px;
+  max-width: 50px;
   height: 50px;
+  min-height: 50px;
+  max-height: 50px;
   border: 1px solid var(--brand-line);
   border-radius: 8px;
   color: var(--brand-primary);
@@ -964,6 +1003,8 @@ svg {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   gap: 12px;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 0;
   height: calc(100% + var(--table-height-offset, 0px));
@@ -975,6 +1016,7 @@ svg {
   display: grid;
   position: relative;
   grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
   height: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1315,7 +1357,7 @@ svg {
   min-width: 0;
   min-height: 0;
   border: 1px solid var(--brand-line);
-  border-radius: 8px 0 0 0;
+  border-radius: 8px;
   background: var(--brand-panel);
   box-shadow: 0 18px 45px rgba(16, 42, 64, 0.22);
   overflow: hidden;

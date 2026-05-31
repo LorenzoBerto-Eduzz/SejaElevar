@@ -35,6 +35,35 @@ const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 
+const readPixelCustomProperty = (
+  element: Element,
+  name: string,
+  fallback: number,
+) => {
+  const value = Number.parseFloat(
+    window.getComputedStyle(element).getPropertyValue(name),
+  );
+
+  return Number.isFinite(value) ? value : fallback;
+};
+
+const getRowDetailsPanelSize = (frame: HTMLElement) => {
+  const settingsSource = frame.closest('.app-shell') ?? document.documentElement;
+
+  return {
+    width: readPixelCustomProperty(
+      settingsSource,
+      '--row-details-panel-width',
+      ROW_DETAILS_PANEL_WIDTH,
+    ),
+    height: readPixelCustomProperty(
+      settingsSource,
+      '--row-details-panel-height',
+      ROW_DETAILS_PANEL_HEIGHT,
+    ),
+  };
+};
+
 type ImportedSheet = {
   fileName: string;
   sheetName: string;
@@ -319,10 +348,6 @@ export function AprendizesPage() {
     rowIndex: number;
     visualIndex: number;
   } | null>(null);
-  const [rowDetailsPanelSize, setRowDetailsPanelSize] = useState<{
-    width: number;
-    height: number;
-  } | null>(null);
   const [rowDetailsPanelStyle, setRowDetailsPanelStyle] =
     useState<CSSProperties>({});
   const [tableScrollTop, setTableScrollTop] = useState(0);
@@ -355,7 +380,6 @@ export function AprendizesPage() {
     setIsDeleteMode(false);
     setSelectedDeleteRow(null);
     setSelectedDetailsRow(null);
-    setRowDetailsPanelSize(null);
     setRowDetailsPanelStyle({});
     setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
@@ -400,7 +424,6 @@ export function AprendizesPage() {
     setIsDeleteMode(false);
     setSelectedDeleteRow(null);
     setSelectedDetailsRow(null);
-    setRowDetailsPanelSize(null);
     setRowDetailsPanelStyle({});
     setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
@@ -922,7 +945,6 @@ export function AprendizesPage() {
   useEffect(() => {
     if (isEditMode || isRegistrationMode || isDeleteMode) {
       setSelectedDetailsRow(null);
-      setRowDetailsPanelSize(null);
       setRowDetailsPanelStyle({});
     }
   }, [isEditMode, isRegistrationMode, isDeleteMode]);
@@ -1245,29 +1267,40 @@ export function AprendizesPage() {
       }
 
       const frameWidth = frame.clientWidth;
-      const panelSize =
-        rowDetailsPanelSize ?? {
-          height: ROW_DETAILS_PANEL_HEIGHT,
-          width: ROW_DETAILS_PANEL_WIDTH,
-        };
-
-      if (!rowDetailsPanelSize) {
-        setRowDetailsPanelSize(panelSize);
-      }
+      const frameHeight = frame.clientHeight;
+      const preferredPanelSize = getRowDetailsPanelSize(frame);
 
       const firstColumnWidth = getColumnWidth(orderedColumns[0]);
-      const rightAnchoredLeft =
-        frameWidth - panelSize.width - ROW_DETAILS_PANEL_MARGIN;
-      const left = Math.max(
-        rightAnchoredLeft,
-        firstColumnWidth + ROW_DETAILS_PANEL_MARGIN,
-      );
+      const headerHeight =
+        tableHeaderScrollRef.current?.offsetHeight ??
+        readPixelCustomProperty(
+          frame,
+          '--table-header-height',
+          getCurrentTableHeaderHeight(),
+        );
+      const minimumLeft = firstColumnWidth + ROW_DETAILS_PANEL_MARGIN;
+      const maximumRight = frameWidth - ROW_DETAILS_PANEL_MARGIN;
+      const availableWidth = Math.max(0, maximumRight - minimumLeft);
+      const width = Math.min(preferredPanelSize.width, availableWidth);
+      const left = maximumRight - width;
+      const minimumTop = headerHeight + ROW_DETAILS_PANEL_MARGIN;
+      const maximumBottom = frameHeight - ROW_DETAILS_PANEL_MARGIN;
+      const availableHeight = Math.max(0, maximumBottom - minimumTop);
+      const height = Math.min(preferredPanelSize.height, availableHeight);
+      const top = maximumBottom - height;
+
+      if (width <= 0 || height <= 0) {
+        setRowDetailsPanelStyle({
+          display: 'none',
+        });
+        return;
+      }
 
       setRowDetailsPanelStyle({
-        left,
-        bottom: ROW_DETAILS_PANEL_MARGIN,
-        width: panelSize.width,
-        height: panelSize.height,
+        left: Math.max(left, minimumLeft),
+        top: Math.max(top, minimumTop),
+        width,
+        height,
       });
     };
 
@@ -1281,17 +1314,27 @@ export function AprendizesPage() {
     }
 
     const observer = new ResizeObserver(updatePanelMetrics);
+    const shell = frame.closest('.app-shell');
+    let settingsObserver: MutationObserver | null = null;
+
     observer.observe(frame);
+    if (shell && typeof MutationObserver !== 'undefined') {
+      settingsObserver = new MutationObserver(updatePanelMetrics);
+      settingsObserver.observe(shell, {
+        attributes: true,
+        attributeFilter: ['style'],
+      });
+    }
     window.addEventListener('resize', updatePanelMetrics);
 
     return () => {
       observer.disconnect();
+      settingsObserver?.disconnect();
       window.removeEventListener('resize', updatePanelMetrics);
     };
   }, [
     selectedDetailsRow,
     importedSheet,
-    rowDetailsPanelSize,
     orderedColumnsKey,
     viewSettings.columnWidths,
   ]);
@@ -2380,6 +2423,7 @@ export function AprendizesPage() {
             <h1 id="aprendizes-title">Aprendizes</h1>
           </div>
           <div className="table-toolbar" aria-label="Ações da tabela">
+            <div className="table-toolbar-track">
             <button
               className={
                 hasWorkingSheet && isEditMode
@@ -2469,6 +2513,7 @@ export function AprendizesPage() {
               <ExportIcon />
             </button>
             <ThemeToggleButton className="toolbar-section-start" />
+            </div>
           </div>
       </div>
 
@@ -2720,7 +2765,6 @@ export function AprendizesPage() {
                   aria-label="Fechar detalhes"
                   onClick={() => {
                     setSelectedDetailsRow(null);
-                    setRowDetailsPanelSize(null);
                     setRowDetailsPanelStyle({});
                   }}
                 >
