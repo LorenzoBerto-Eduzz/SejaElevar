@@ -20,6 +20,7 @@ const isLocalAppAddress = () => {
 export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('aprendizes');
   const [isProviderReady, setIsProviderReady] = useState(isLocalAppAddress);
+  const [isInitialPageReady, setIsInitialPageReady] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -116,6 +117,41 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isProviderReady || !isInitialPageReady) {
+      return;
+    }
+
+    let isActive = true;
+    let firstFrame = 0;
+    let secondFrame = 0;
+    let readyTimer = 0;
+
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        readyTimer = window.setTimeout(() => {
+          if (!isActive) {
+            return;
+          }
+
+          void fetch('/api/app/ready', {
+            method: 'POST',
+            cache: 'no-store',
+          }).catch(() => {
+            // Browser preview can run without the local launcher reveal bridge.
+          });
+        }, 80);
+      });
+    });
+
+    return () => {
+      isActive = false;
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      window.clearTimeout(readyTimer);
+    };
+  }, [isInitialPageReady, isProviderReady]);
+
   if (!isProviderReady) {
     return null;
   }
@@ -128,7 +164,7 @@ export function App() {
       onTabChange={setActiveTab}
     >
       <div hidden={activeTab !== 'aprendizes'}>
-        <AprendizesPage />
+        <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
       </div>
       {activeTab !== 'aprendizes' && (
         <FeaturePlaceholderPage

@@ -256,6 +256,14 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "POST" && request.Path == "/api/app/ready")
+            {
+                MarkHeartbeat();
+                RevealMainWindow();
+                await WriteJsonAsync(stream, 200, new { ok = true });
+                return;
+            }
+
             if (request.Method == "POST" && request.Path == "/api/app/focus")
             {
                 MarkHeartbeat();
@@ -508,6 +516,25 @@ internal static class Program
         catch
         {
             // Focusing is a convenience; startup should not fail if it is denied.
+        }
+    }
+
+    private static void RevealMainWindow()
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            window.RevealWebView();
+        }
+        catch
+        {
+            // Startup reveal is visual only; the app should keep running.
         }
     }
 
@@ -1544,12 +1571,17 @@ internal static class Program
         private readonly string _url;
         private readonly Color _startupBackgroundColor;
         private WebView2 _webView;
+        private Panel _startupCover;
+        private int _isWebViewRevealed;
 
         public AppWindow(string url, string appFolder)
         {
             _appFolder = appFolder;
             _url = url;
-            _webView = new WebView2 { Dock = DockStyle.Fill };
+            _webView = new WebView2
+            {
+                Dock = DockStyle.Fill
+            };
             var startupTheme = LoadWindowSettings();
             var startupBackground = ChooseHexColor(
                 startupTheme.BackgroundColor,
@@ -1566,6 +1598,11 @@ internal static class Program
             WindowState = FormWindowState.Maximized;
             BackColor = _startupBackgroundColor;
             _webView.DefaultBackgroundColor = _startupBackgroundColor;
+            _startupCover = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = _startupBackgroundColor
+            };
 
             try
             {
@@ -1577,6 +1614,8 @@ internal static class Program
             }
 
             Controls.Add(_webView);
+            Controls.Add(_startupCover);
+            _startupCover.BringToFront();
             Shown += async (_, _) => await InitializeWebViewAsync();
             FormClosed += (_, _) => RequestShutdown("window-closed");
 
@@ -1643,7 +1682,7 @@ internal static class Program
                     Log($"WebView process failed: {args.ProcessFailedKind}");
                 _webView.ZoomFactor = LoadZoomFactor();
                 _webView.ZoomFactorChanged += (_, _) => SaveZoomFactor(_webView.ZoomFactor);
-                _webView.CoreWebView2.NavigationCompleted += (_, _) => RevealWindow();
+                _webView.CoreWebView2.NavigationCompleted += (_, _) => ScheduleFallbackReveal();
                 _webView.CoreWebView2.Navigate(_url);
             }
             catch (Exception error)
@@ -1699,6 +1738,8 @@ internal static class Program
                 DefaultBackgroundColor = _startupBackgroundColor
             };
             Controls.Add(_webView);
+            _startupCover.Visible = true;
+            _startupCover.BringToFront();
         }
 
         private async Task EnsureWebViewCoreAsync(string userDataFolder)
@@ -1819,16 +1860,32 @@ internal static class Program
             return Math.Clamp(zoomFactor, 0.5, 3.0);
         }
 
-        private void RevealWindow()
+        private void ScheduleFallbackReveal()
         {
-            if (IsDisposed)
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(4000);
+                RevealWebView();
+            });
+        }
+
+        public void RevealWebView()
+        {
+            if (IsDisposed || Interlocked.Exchange(ref _isWebViewRevealed, 1) == 1)
             {
                 return;
             }
 
             BeginInvoke(() =>
             {
-                Log("WebView activating window after navigation");
+                if (IsDisposed)
+                {
+                    return;
+                }
+
+                Log("WebView revealing after app startup");
+                _startupCover.Visible = false;
+                _webView.BringToFront();
                 Activate();
             });
         }

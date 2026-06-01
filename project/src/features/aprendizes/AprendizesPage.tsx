@@ -161,6 +161,10 @@ type RecoveryInfo = {
   reason?: RecoveryReason | null;
 };
 
+type AprendizesPageProps = {
+  onInitialReady?: () => void;
+};
+
 class MissingRequiredColumnsError extends Error {
   missingColumns: string[];
 
@@ -315,7 +319,7 @@ const readSavedViewSettings = () => {
   }
 };
 
-export function AprendizesPage() {
+export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const rowDetailsInputRefs = useRef<Record<string, HTMLInputElement | null>>(
@@ -862,6 +866,14 @@ export function AprendizesPage() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasCheckedWorkspace) {
+      return;
+    }
+
+    onInitialReady?.();
+  }, [hasCheckedWorkspace, onInitialReady]);
 
   useEffect(() => {
     if (!isEditMode) {
