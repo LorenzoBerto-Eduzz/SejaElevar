@@ -63,6 +63,27 @@ export type LayoutSettings = {
   rowDetailsPanelWidth: number;
   rowDetailsPanelHeight: number;
   rowDetailsFieldHorizontalOffset: number;
+  rowDetailsLayerGap: number;
+  rowDetailsNameWidth: number;
+  rowDetailsSexWidth: number;
+  rowDetailsBirthdateWidth: number;
+  rowDetailsAgeWidth: number;
+  rowDetailsEmailWidth: number;
+  rowDetailsContactWidth: number;
+  rowDetailsRgWidth: number;
+  rowDetailsCpfWidth: number;
+  rowDetailsResponsibleNameWidth: number;
+  rowDetailsResponsibleEmailWidth: number;
+  rowDetailsResponsibleContactWidth: number;
+  rowDetailsAddressWidth: number;
+  rowDetailsCompanyWidth: number;
+  rowDetailsInstitutionWidth: number;
+  rowDetailsLearningArcWidth: number;
+  rowDetailsRoleWidth: number;
+  rowDetailsAdmissionDateWidth: number;
+  rowDetailsEndDateWidth: number;
+  rowDetailsClassWidth: number;
+  rowDetailsPeriodWidth: number;
   rowDetailsCloseIconHorizontalOffset: number;
   settingsCloseIconHorizontalOffset: number;
 };
@@ -135,11 +156,32 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     tableHeaderHeight: 40,
     tableTopOffset: 0,
     tableHeightOffset: 3,
-    rowDetailsPanelWidth: 804,
+    rowDetailsPanelWidth: 796,
     rowDetailsPanelHeight: 591,
     rowDetailsFieldHorizontalOffset: -2,
+    rowDetailsLayerGap: 16,
+    rowDetailsNameWidth: 336,
+    rowDetailsSexWidth: 35,
+    rowDetailsBirthdateWidth: 147,
+    rowDetailsAgeWidth: 42,
+    rowDetailsEmailWidth: 273,
+    rowDetailsContactWidth: 168,
+    rowDetailsRgWidth: 105,
+    rowDetailsCpfWidth: 133,
+    rowDetailsResponsibleNameWidth: 252,
+    rowDetailsResponsibleEmailWidth: 280,
+    rowDetailsResponsibleContactWidth: 168,
+    rowDetailsAddressWidth: 728,
+    rowDetailsCompanyWidth: 252,
+    rowDetailsInstitutionWidth: 336,
+    rowDetailsLearningArcWidth: 224,
+    rowDetailsRoleWidth: 168,
+    rowDetailsAdmissionDateWidth: 126,
+    rowDetailsEndDateWidth: 126,
+    rowDetailsClassWidth: 196,
+    rowDetailsPeriodWidth: 126,
     rowDetailsCloseIconHorizontalOffset: -1.7,
-    settingsCloseIconHorizontalOffset: 0,
+    settingsCloseIconHorizontalOffset: -2,
   },
 });
 

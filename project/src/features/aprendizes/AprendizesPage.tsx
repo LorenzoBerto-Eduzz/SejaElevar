@@ -28,6 +28,23 @@ const TABLE_WIDTH_BUFFER = 6;
 const CELL_UNDO_LIMIT = 1000;
 const BIRTHDATE_COLUMN = 'Data de Nascimento';
 const AGE_COLUMN = 'Idade';
+const SEX_COLUMN = 'Sexo';
+const CONTACT_COLUMN = 'Contato';
+const EMAIL_COLUMN = 'E-mail';
+const RG_COLUMN = 'RG';
+const CPF_COLUMN = 'CPF';
+const ADDRESS_COLUMN = 'Endereço';
+const RESPONSIBLE_COLUMN = 'Responsável';
+const RESPONSIBLE_CONTACT_COLUMN = 'Contato do Responsável';
+const RESPONSIBLE_EMAIL_COLUMN = 'E-mail do Responsável';
+const INSTITUTION_COLUMN = 'Instituição de Ensino';
+const COMPANY_COLUMN = 'Empresa';
+const LEARNING_ARC_COLUMN = 'Arco de Aprendizagem';
+const ROLE_COLUMN = 'Função';
+const ADMISSION_DATE_COLUMN = 'Data de Admissão';
+const END_DATE_COLUMN = 'Data do Término';
+const CLASS_COLUMN = 'Turma';
+const PERIOD_COLUMN = 'Período';
 const ROW_DETAILS_PANEL_MARGIN = 20;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
 const ROW_DETAILS_PANEL_WIDTH = ROW_DETAILS_PANEL_HEIGHT * 1.4;
@@ -2363,12 +2380,221 @@ export function AprendizesPage() {
           selectedDetailsNameColumn,
         )
       : '';
+  const selectedDetailsSex =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, SEX_COLUMN)
+      : '';
+  const selectedDetailsBirthdate =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          BIRTHDATE_COLUMN,
+        )
+      : '';
+  const selectedDetailsAge =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, AGE_COLUMN)
+      : '';
+  const selectedDetailsEmail =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, EMAIL_COLUMN)
+      : '';
+  const selectedDetailsContact =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          CONTACT_COLUMN,
+        )
+      : '';
+  const selectedDetailsRg =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, RG_COLUMN)
+      : '';
+  const selectedDetailsCpf =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, CPF_COLUMN)
+      : '';
+  const selectedDetailsResponsible =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          RESPONSIBLE_COLUMN,
+        )
+      : '';
+  const selectedDetailsResponsibleEmail =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          RESPONSIBLE_EMAIL_COLUMN,
+        )
+      : '';
+  const selectedDetailsResponsibleContact =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          RESPONSIBLE_CONTACT_COLUMN,
+        )
+      : '';
+  const selectedDetailsAddress =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          ADDRESS_COLUMN,
+        )
+      : '';
+  const selectedDetailsCompany =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          COMPANY_COLUMN,
+        )
+      : '';
+  const selectedDetailsInstitution =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          INSTITUTION_COLUMN,
+        )
+      : '';
+  const selectedDetailsLearningArc =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          LEARNING_ARC_COLUMN,
+        )
+      : '';
+  const selectedDetailsRole =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, ROLE_COLUMN)
+      : '';
+  const selectedDetailsAdmissionDate =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          ADMISSION_DATE_COLUMN,
+        )
+      : '';
+  const selectedDetailsEndDate =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(
+          importedSheet,
+          selectedDetailsRowValues,
+          END_DATE_COLUMN,
+        )
+      : '';
+  const selectedDetailsClass =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, CLASS_COLUMN)
+      : '';
+  const selectedDetailsPeriod =
+    importedSheet && selectedDetailsRowValues
+      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, PERIOD_COLUMN)
+      : '';
   const isRowDetailsPanelPositioned =
     rowDetailsPanelStyle.display !== 'none' &&
     rowDetailsPanelStyle.left !== undefined &&
     rowDetailsPanelStyle.top !== undefined &&
     rowDetailsPanelStyle.width !== undefined &&
     rowDetailsPanelStyle.height !== undefined;
+  const renderRowDetailsField = ({
+    className = '',
+    columnName,
+    label,
+    readOnly = false,
+    value,
+  }: {
+    className?: string;
+    columnName: string;
+    label: string;
+    readOnly?: boolean;
+    value: string;
+  }) => {
+    if (!selectedDetailsRow) {
+      return null;
+    }
+
+    const fieldClassName = ['row-details-field', className]
+      .filter(Boolean)
+      .join(' ');
+
+    return (
+      <div className={fieldClassName}>
+        <span className="row-details-field-label">{label}</span>
+        <span
+          className={[
+            'row-details-field-value',
+            readOnly ? 'row-details-field-value-readonly' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          {readOnly ? (
+            value
+          ) : (
+            <input
+              key={`${selectedDetailsRow.rowIndex}-${columnName}-${value}`}
+              ref={(element) => {
+                rowDetailsInputRefs.current[
+                  `${selectedDetailsRow.rowIndex}-${columnName}`
+                ] = element;
+              }}
+              className="row-details-field-value-input"
+              aria-label={`${label} do aprendiz`}
+              spellCheck={false}
+              defaultValue={value}
+              onFocus={() =>
+                beginCellEdit(selectedDetailsRow.rowIndex, columnName, value)
+              }
+              onChange={() =>
+                beginCellEdit(selectedDetailsRow.rowIndex, columnName, value)
+              }
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') {
+                  return;
+                }
+
+                event.preventDefault();
+                const sheet = commitCellValue(
+                  selectedDetailsRow.rowIndex,
+                  columnName,
+                  event.currentTarget.value,
+                );
+
+                if (sheet) {
+                  void writeSheetToSourceFile(sheet);
+                }
+              }}
+              onBlur={(event) => {
+                if (isApplyingUndoRef.current) {
+                  return;
+                }
+
+                const sheet = commitCellValue(
+                  selectedDetailsRow.rowIndex,
+                  columnName,
+                  event.currentTarget.value,
+                );
+
+                if (sheet) {
+                  void writeSheetToSourceFile(sheet);
+                }
+              }}
+            />
+          )}
+        </span>
+      </div>
+    );
+  };
   const renderColumnGroup = () => (
     <colgroup>
       {orderedColumns.map((column) => (
@@ -2895,89 +3121,141 @@ export function AprendizesPage() {
                       className="row-details-info-section"
                       aria-label="Informações do aprendiz"
                     >
-                      <div className="row-details-field-layer">
-                        <div className="row-details-field row-details-field-name">
-                          <span className="row-details-field-label">Nome</span>
-                          <span className="row-details-field-value">
-                            <input
-                              key={`${selectedDetailsRow.rowIndex}-${selectedDetailsNameColumn}-${selectedDetailsName}`}
-                              ref={(element) => {
-                                rowDetailsInputRefs.current[
-                                  `${selectedDetailsRow.rowIndex}-${selectedDetailsNameColumn}`
-                                ] = element;
-                              }}
-                              className="row-details-field-value-input"
-                              aria-label={`${selectedDetailsNameColumn} do aprendiz`}
-                              spellCheck={false}
-                              defaultValue={selectedDetailsName}
-                              onFocus={() =>
-                                beginCellEdit(
-                                  selectedDetailsRow.rowIndex,
-                                  selectedDetailsNameColumn,
-                                  selectedDetailsName,
-                                )
-                              }
-                              onChange={() =>
-                                beginCellEdit(
-                                  selectedDetailsRow.rowIndex,
-                                  selectedDetailsNameColumn,
-                                  selectedDetailsName,
-                                )
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key !== 'Enter') {
-                                  return;
-                                }
-
-                                event.preventDefault();
-                                const sheet = commitCellValue(
-                                  selectedDetailsRow.rowIndex,
-                                  selectedDetailsNameColumn,
-                                  event.currentTarget.value,
-                                );
-
-                                if (sheet) {
-                                  void writeSheetToSourceFile(sheet);
-                                }
-                              }}
-                              onBlur={(event) => {
-                                if (isApplyingUndoRef.current) {
-                                  return;
-                                }
-
-                                const sheet = commitCellValue(
-                                  selectedDetailsRow.rowIndex,
-                                  selectedDetailsNameColumn,
-                                  event.currentTarget.value,
-                                );
-
-                                if (sheet) {
-                                  void writeSheetToSourceFile(sheet);
-                                }
-                              }}
-                            />
-                          </span>
-                        </div>
+                      <div className="row-details-field-layer row-details-primary-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-name',
+                          columnName: selectedDetailsNameColumn,
+                          label: 'Nome',
+                          value: selectedDetailsName,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-sex',
+                          columnName: SEX_COLUMN,
+                          label: 'Sexo',
+                          value: selectedDetailsSex,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-birthdate',
+                          columnName: BIRTHDATE_COLUMN,
+                          label: 'Data Nascimento',
+                          value: selectedDetailsBirthdate,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-age',
+                          columnName: AGE_COLUMN,
+                          label: 'Idade',
+                          readOnly: true,
+                          value: selectedDetailsAge,
+                        })}
                       </div>
-                      {Array.from({ length: 7 }, (_, layerIndex) => (
-                        <div
-                          className="row-details-field-layer row-details-template-layer"
-                          key={`template-layer-${layerIndex}`}
-                        >
-                          <div className="row-details-field row-details-field-name">
-                            <span className="row-details-field-label">Nome</span>
-                            <span className="row-details-field-value">
-                              <input
-                                className="row-details-field-value-input"
-                                aria-label={`Modelo ${layerIndex + 1}`}
-                                readOnly
-                                tabIndex={-1}
-                                value=""
-                              />
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                      <div className="row-details-field-layer row-details-secondary-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-email',
+                          columnName: EMAIL_COLUMN,
+                          label: 'E-mail',
+                          value: selectedDetailsEmail,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-contact',
+                          columnName: CONTACT_COLUMN,
+                          label: 'Contato',
+                          value: selectedDetailsContact,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-cpf',
+                          columnName: CPF_COLUMN,
+                          label: 'CPF',
+                          value: selectedDetailsCpf,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-rg',
+                          columnName: RG_COLUMN,
+                          label: 'RG',
+                          value: selectedDetailsRg,
+                        })}
+                      </div>
+                      <div className="row-details-field-layer row-details-tertiary-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-responsible-name',
+                          columnName: RESPONSIBLE_COLUMN,
+                          label: 'Nome Responsável',
+                          value: selectedDetailsResponsible,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-responsible-email',
+                          columnName: RESPONSIBLE_EMAIL_COLUMN,
+                          label: 'Email Responsável',
+                          value: selectedDetailsResponsibleEmail,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-responsible-contact',
+                          columnName: RESPONSIBLE_CONTACT_COLUMN,
+                          label: 'Contato Responsável',
+                          value: selectedDetailsResponsibleContact,
+                        })}
+                      </div>
+                      <div className="row-details-field-layer row-details-address-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-address',
+                          columnName: ADDRESS_COLUMN,
+                          label: 'Endereço',
+                          value: selectedDetailsAddress,
+                        })}
+                      </div>
+                      <div className="row-details-field-layer row-details-company-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-company',
+                          columnName: COMPANY_COLUMN,
+                          label: 'Empresa',
+                          value: selectedDetailsCompany,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-institution',
+                          columnName: INSTITUTION_COLUMN,
+                          label: 'Instituição Ensino',
+                          value: selectedDetailsInstitution,
+                        })}
+                      </div>
+                      <div className="row-details-field-layer row-details-learning-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-learning-arc',
+                          columnName: LEARNING_ARC_COLUMN,
+                          label: 'Arco Aprendizagem',
+                          value: selectedDetailsLearningArc,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-role',
+                          columnName: ROLE_COLUMN,
+                          label: 'Função',
+                          value: selectedDetailsRole,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-admission-date',
+                          columnName: ADMISSION_DATE_COLUMN,
+                          label: 'Data Admissão',
+                          value: selectedDetailsAdmissionDate,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-end-date',
+                          columnName: END_DATE_COLUMN,
+                          label: 'Data Término',
+                          value: selectedDetailsEndDate,
+                        })}
+                      </div>
+                      <div className="row-details-field-layer row-details-class-layer">
+                        {renderRowDetailsField({
+                          className: 'row-details-field-class',
+                          columnName: CLASS_COLUMN,
+                          label: 'Turma',
+                          value: selectedDetailsClass,
+                        })}
+                        {renderRowDetailsField({
+                          className: 'row-details-field-period',
+                          columnName: PERIOD_COLUMN,
+                          label: 'Período',
+                          value: selectedDetailsPeriod,
+                        })}
+                      </div>
                     </section>
                     <footer
                       className="row-details-actions"

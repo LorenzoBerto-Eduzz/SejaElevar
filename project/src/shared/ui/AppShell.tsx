@@ -394,6 +394,27 @@ export function AppShell({
           '--row-details-panel-width': `${settings.layout.rowDetailsPanelWidth}px`,
           '--row-details-panel-height': `${settings.layout.rowDetailsPanelHeight}px`,
           '--row-details-field-horizontal-offset': `${settings.layout.rowDetailsFieldHorizontalOffset}px`,
+          '--row-details-layer-gap': `${settings.layout.rowDetailsLayerGap}px`,
+          '--row-details-name-width': `${settings.layout.rowDetailsNameWidth}px`,
+          '--row-details-sex-width': `${settings.layout.rowDetailsSexWidth}px`,
+          '--row-details-birthdate-width': `${settings.layout.rowDetailsBirthdateWidth}px`,
+          '--row-details-age-width': `${settings.layout.rowDetailsAgeWidth}px`,
+          '--row-details-email-width': `${settings.layout.rowDetailsEmailWidth}px`,
+          '--row-details-contact-width': `${settings.layout.rowDetailsContactWidth}px`,
+          '--row-details-rg-width': `${settings.layout.rowDetailsRgWidth}px`,
+          '--row-details-cpf-width': `${settings.layout.rowDetailsCpfWidth}px`,
+          '--row-details-responsible-name-width': `${settings.layout.rowDetailsResponsibleNameWidth}px`,
+          '--row-details-responsible-email-width': `${settings.layout.rowDetailsResponsibleEmailWidth}px`,
+          '--row-details-responsible-contact-width': `${settings.layout.rowDetailsResponsibleContactWidth}px`,
+          '--row-details-address-width': `${settings.layout.rowDetailsAddressWidth}px`,
+          '--row-details-company-width': `${settings.layout.rowDetailsCompanyWidth}px`,
+          '--row-details-institution-width': `${settings.layout.rowDetailsInstitutionWidth}px`,
+          '--row-details-learning-arc-width': `${settings.layout.rowDetailsLearningArcWidth}px`,
+          '--row-details-role-width': `${settings.layout.rowDetailsRoleWidth}px`,
+          '--row-details-admission-date-width': `${settings.layout.rowDetailsAdmissionDateWidth}px`,
+          '--row-details-end-date-width': `${settings.layout.rowDetailsEndDateWidth}px`,
+          '--row-details-class-width': `${settings.layout.rowDetailsClassWidth}px`,
+          '--row-details-period-width': `${settings.layout.rowDetailsPeriodWidth}px`,
           '--row-details-close-icon-horizontal-offset': `${settings.layout.rowDetailsCloseIconHorizontalOffset}px`,
           '--settings-close-icon-horizontal-offset': `${settings.layout.settingsCloseIconHorizontalOffset}px`,
         } as CSSProperties
@@ -768,7 +789,7 @@ export function AppShell({
               onChange={(value) => updateDarkColor('headerText', value)}
               onReset={() => resetDarkColor('headerText')}
             />
-            {!isReleaseMode && (
+            {false && !isReleaseMode && (
               <>
                 <SliderField
                   label="Espaço botões inferiores"
@@ -899,18 +920,6 @@ export function AppShell({
                   onReset={() => resetLayout('tableTopOffset')}
                 />
                 <SliderField
-                  label="Largura popup item"
-                  min={160}
-                  max={1200}
-                  step={1}
-                  value={settings.layout.rowDetailsPanelWidth}
-                  onChange={(value) =>
-                    updateLayout('rowDetailsPanelWidth', value)
-                  }
-                  onReset={() => resetLayout('rowDetailsPanelWidth')}
-                  className="dev-visible-slider-field"
-                />
-                <SliderField
                   label="Altura popup item"
                   min={120}
                   max={900}
@@ -923,31 +932,225 @@ export function AppShell({
                   className="dev-visible-slider-field"
                 />
                 <SliderField
-                  label="Posição X popup"
-                  min={-12}
-                  max={12}
-                  step={0.1}
-                  value={settings.layout.rowDetailsCloseIconHorizontalOffset}
-                  onChange={(value) =>
-                    updateLayout('rowDetailsCloseIconHorizontalOffset', value)
-                  }
-                  onReset={() =>
-                    resetLayout('rowDetailsCloseIconHorizontalOffset')
-                  }
+                  label="Popup Nome"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsNameWidth}
+                  onChange={(value) => updateLayout('rowDetailsNameWidth', value)}
+                  onReset={() => resetLayout('rowDetailsNameWidth')}
                   className="dev-visible-slider-field"
                 />
                 <SliderField
-                  label="Posição X config"
-                  min={-12}
-                  max={12}
-                  step={0.1}
-                  value={settings.layout.settingsCloseIconHorizontalOffset}
+                  label="Popup Sexo"
+                  min={7}
+                  max={280}
+                  step={7}
+                  value={settings.layout.rowDetailsSexWidth}
+                  onChange={(value) => updateLayout('rowDetailsSexWidth', value)}
+                  onReset={() => resetLayout('rowDetailsSexWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Nascimento"
+                  min={7}
+                  max={560}
+                  step={7}
+                  value={settings.layout.rowDetailsBirthdateWidth}
                   onChange={(value) =>
-                    updateLayout('settingsCloseIconHorizontalOffset', value)
+                    updateLayout('rowDetailsBirthdateWidth', value)
                   }
-                  onReset={() =>
-                    resetLayout('settingsCloseIconHorizontalOffset')
+                  onReset={() => resetLayout('rowDetailsBirthdateWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Idade"
+                  min={7}
+                  max={280}
+                  step={7}
+                  value={settings.layout.rowDetailsAgeWidth}
+                  onChange={(value) => updateLayout('rowDetailsAgeWidth', value)}
+                  onReset={() => resetLayout('rowDetailsAgeWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup E-mail"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsEmailWidth}
+                  onChange={(value) => updateLayout('rowDetailsEmailWidth', value)}
+                  onReset={() => resetLayout('rowDetailsEmailWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Contato"
+                  min={7}
+                  max={420}
+                  step={7}
+                  value={settings.layout.rowDetailsContactWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsContactWidth', value)
                   }
+                  onReset={() => resetLayout('rowDetailsContactWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup CPF"
+                  min={7}
+                  max={420}
+                  step={7}
+                  value={settings.layout.rowDetailsCpfWidth}
+                  onChange={(value) => updateLayout('rowDetailsCpfWidth', value)}
+                  onReset={() => resetLayout('rowDetailsCpfWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup RG"
+                  min={7}
+                  max={420}
+                  step={7}
+                  value={settings.layout.rowDetailsRgWidth}
+                  onChange={(value) => updateLayout('rowDetailsRgWidth', value)}
+                  onReset={() => resetLayout('rowDetailsRgWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Nome Responsável"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsResponsibleNameWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsResponsibleNameWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsResponsibleNameWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Email Responsável"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsResponsibleEmailWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsResponsibleEmailWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsResponsibleEmailWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Contato Responsável"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsResponsibleContactWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsResponsibleContactWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsResponsibleContactWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Endereço"
+                  min={7}
+                  max={900}
+                  step={7}
+                  value={settings.layout.rowDetailsAddressWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsAddressWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsAddressWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Empresa"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsCompanyWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsCompanyWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsCompanyWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Instituição"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsInstitutionWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsInstitutionWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsInstitutionWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Arco"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsLearningArcWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsLearningArcWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsLearningArcWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Função"
+                  min={7}
+                  max={700}
+                  step={7}
+                  value={settings.layout.rowDetailsRoleWidth}
+                  onChange={(value) => updateLayout('rowDetailsRoleWidth', value)}
+                  onReset={() => resetLayout('rowDetailsRoleWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Admissão"
+                  min={7}
+                  max={560}
+                  step={7}
+                  value={settings.layout.rowDetailsAdmissionDateWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsAdmissionDateWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsAdmissionDateWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Término"
+                  min={7}
+                  max={560}
+                  step={7}
+                  value={settings.layout.rowDetailsEndDateWidth}
+                  onChange={(value) =>
+                    updateLayout('rowDetailsEndDateWidth', value)
+                  }
+                  onReset={() => resetLayout('rowDetailsEndDateWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Turma"
+                  min={7}
+                  max={560}
+                  step={7}
+                  value={settings.layout.rowDetailsClassWidth}
+                  onChange={(value) => updateLayout('rowDetailsClassWidth', value)}
+                  onReset={() => resetLayout('rowDetailsClassWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Popup Período"
+                  min={7}
+                  max={560}
+                  step={7}
+                  value={settings.layout.rowDetailsPeriodWidth}
+                  onChange={(value) => updateLayout('rowDetailsPeriodWidth', value)}
+                  onReset={() => resetLayout('rowDetailsPeriodWidth')}
                   className="dev-visible-slider-field"
                 />
               </>

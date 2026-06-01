@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Forms;
@@ -24,6 +25,11 @@ internal static class Program
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
         GetIntEnvironment("SEJAELEVAR_IDLE_TIMEOUT_MS", 5000)
     );
+    private static readonly JsonSerializerOptions PrettyUtf8JsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
     private static readonly object HeartbeatLock = new();
     private static DateTime _lastHeartbeatAt = DateTime.UtcNow;
     private static string? _logPath;
@@ -973,7 +979,7 @@ internal static class Program
             stream,
             statusCode,
             "application/json; charset=utf-8",
-            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body)),
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body, PrettyUtf8JsonOptions)),
             new Dictionary<string, string> { ["cache-control"] = "no-store" }
         );
     }
@@ -1143,7 +1149,8 @@ internal static class Program
         Directory.CreateDirectory(dataSystemFolder);
         File.WriteAllText(
             GetDataIndexPath(appFolder),
-            index.ToJsonString(new JsonSerializerOptions { WriteIndented = true })
+            index.ToJsonString(PrettyUtf8JsonOptions),
+            Encoding.UTF8
         );
     }
 
@@ -1287,10 +1294,8 @@ internal static class Program
         Directory.CreateDirectory(dadosFolder);
         File.WriteAllText(
             GetWorkbookControlPath(appFolder),
-            JsonSerializer.Serialize(
-                control,
-                new JsonSerializerOptions { WriteIndented = true }
-            )
+            JsonSerializer.Serialize(control, PrettyUtf8JsonOptions),
+            Encoding.UTF8
         );
     }
 
@@ -1774,10 +1779,8 @@ internal static class Program
                 settings.ZoomFactor = ClampZoomFactor(zoomFactor);
                 File.WriteAllText(
                     GetWindowSettingsPath(),
-                    JsonSerializer.Serialize(
-                        settings,
-                        new JsonSerializerOptions { WriteIndented = true }
-                    )
+                    JsonSerializer.Serialize(settings, PrettyUtf8JsonOptions),
+                    Encoding.UTF8
                 );
             }
             catch
@@ -1801,10 +1804,8 @@ internal static class Program
             Directory.CreateDirectory(GetAssetsFolder(_appFolder));
             File.WriteAllText(
                 GetWindowSettingsPath(),
-                JsonSerializer.Serialize(
-                    settings,
-                    new JsonSerializerOptions { WriteIndented = true }
-                )
+                JsonSerializer.Serialize(settings, PrettyUtf8JsonOptions),
+                Encoding.UTF8
             );
         }
 

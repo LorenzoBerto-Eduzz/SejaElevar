@@ -55,6 +55,8 @@ For Aprendizes, each row becomes one record with:
 
 The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
 
+The local provider writes JSON files as readable UTF-8. PT-BR characters such as `ç`, `ã`, `é`, and `í` should appear normally in `dados/sistema/data-index.json`; if PowerShell displays mojibake, verify the file with a UTF-8-aware editor before assuming the stored data is corrupt.
+
 Only Aprendizes is currently indexed. Future tabs such as Empresas, Turmas, Disciplinas, and Documentos should add their own entities instead of mixing data into the Aprendizes entity.
 
 `Recuperar Dados` uses one reversible backup slot. Pressing it swaps the tracked active and backup workbooks instead of copying or deleting either one. The state active immediately before recovery therefore becomes the recovery target for reversing that action. Recovery stays enabled after a recovery while the two tracked workbooks differ.
@@ -125,7 +127,7 @@ The current adapter is the local provider started by `SejaElevar.exe`. Later ada
 
 Treat development tuning controls and release/user configuration as different systems.
 
-During development, the app may expose temporary controls such as alignment sliders, spacing sliders, color pickers, or icon offsets so the user and AI can quickly tune the interface. Those values are not automatically part of the final product. When the user approves a tuning result, future AI should bake the chosen values into source defaults and remove or hide dev-only controls before a release build.
+During development, the app may expose temporary controls such as alignment sliders, spacing sliders, color pickers, or icon offsets so the user and AI can quickly tune the interface. Those values are not automatically part of the final product. When the user approves a tuning result, future AI should bake the chosen values into source defaults and remove or hide dev-only controls before a release build. Current visual sliders are hidden after baking the latest popup/table/menu values; do not reintroduce them unless the user explicitly asks for another tuning pass.
 
 The release app should expose only user-facing configuration that makes sense for workers or the institution, such as:
 
