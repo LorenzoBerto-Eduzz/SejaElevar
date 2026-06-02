@@ -35,7 +35,7 @@ export const publishLauncher = async () => {
       '--self-contained',
       'true',
       '-p:PublishSingleFile=true',
-      '-p:IncludeAllContentForSelfExtract=true',
+      '-p:IncludeAllContentForSelfExtract=false',
       '-p:DebugType=None',
       '-p:DebugSymbols=false',
       '-v',

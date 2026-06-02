@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
-import { AprendizesPage } from './features/aprendizes/AprendizesPage';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
 import { appTabs } from './shared/navigation/tabs';
 import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
+
+const AprendizesPage = lazy(() =>
+  import('./features/aprendizes/AprendizesPage').then((module) => ({
+    default: module.AprendizesPage,
+  })),
+);
 
 const isLocalAppAddress = () => {
   if (typeof window === 'undefined') {
@@ -113,7 +118,16 @@ export function App() {
     return () => {
       window.removeEventListener('pagehide', notifyLocalProviderClosed);
       window.removeEventListener('beforeunload', notifyLocalProviderClosed);
-      notifyLocalProviderClosed();
+
+      isActive = false;
+
+      if (statusRetry !== undefined) {
+        window.clearTimeout(statusRetry);
+      }
+
+      if (heartbeat !== undefined) {
+        window.clearInterval(heartbeat);
+      }
     };
   }, []);
 
@@ -125,22 +139,19 @@ export function App() {
     let isActive = true;
     let firstFrame = 0;
     let secondFrame = 0;
-    let readyTimer = 0;
 
     firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(() => {
-        readyTimer = window.setTimeout(() => {
-          if (!isActive) {
-            return;
-          }
+        if (!isActive) {
+          return;
+        }
 
-          void fetch('/api/app/ready', {
-            method: 'POST',
-            cache: 'no-store',
-          }).catch(() => {
-            // Browser preview can run without the local launcher reveal bridge.
-          });
-        }, 80);
+        void fetch('/api/app/ready', {
+          method: 'POST',
+          cache: 'no-store',
+        }).catch(() => {
+          // Browser preview can run without the local launcher reveal bridge.
+        });
       });
     });
 
@@ -148,7 +159,6 @@ export function App() {
       isActive = false;
       window.cancelAnimationFrame(firstFrame);
       window.cancelAnimationFrame(secondFrame);
-      window.clearTimeout(readyTimer);
     };
   }, [isInitialPageReady, isProviderReady]);
 
@@ -164,7 +174,9 @@ export function App() {
       onTabChange={setActiveTab}
     >
       <div hidden={activeTab !== 'aprendizes'}>
-        <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
+        <Suspense fallback={null}>
+          <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
+        </Suspense>
       </div>
       {activeTab !== 'aprendizes' && (
         <FeaturePlaceholderPage

@@ -833,7 +833,7 @@ svg {
 }
 
 .table-toolbar .toolbar-section-start {
-  margin-left: 25px;
+  margin-left: 0;
 }
 
 .square-action {
@@ -1061,6 +1061,11 @@ svg {
   scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
 }
 
+.data-table-body-scroll:focus,
+.data-table-body-scroll:focus-visible {
+  outline: none;
+}
+
 .sidebar-nav::-webkit-scrollbar,
 .settings-fields::-webkit-scrollbar,
 .data-table-body-scroll::-webkit-scrollbar {
@@ -1263,15 +1268,6 @@ svg {
   pointer-events: none;
 }
 
-.delete-row-hint {
-  position: fixed;
-  color: var(--brand-delete-hint);
-}
-
-.delete-row-hint kbd {
-  color: var(--brand-delete-hint);
-}
-
 .register-row-hint kbd {
   display: inline-grid;
   place-items: center;
@@ -1374,11 +1370,6 @@ svg {
 }
 
 .data-table tbody tr:hover td.pinned-column {
-  background-color: var(--brand-hover, var(--brand-tertiary));
-}
-
-.data-table tbody tr.delete-row-selected td,
-.data-table tbody tr.delete-row-selected td.pinned-column {
   background-color: var(--brand-hover, var(--brand-tertiary));
 }
 
@@ -1670,6 +1661,28 @@ svg {
   font-weight: 850;
 }
 
+.row-details-delete-button {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  height: 50px;
+  min-height: 50px;
+  max-height: 50px;
+  padding: 0;
+}
+
+.row-details-delete-button svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
 .row-details-close-button {
   position: absolute;
   top: 14px;
@@ -1697,6 +1710,38 @@ svg {
 
 .row-details-close-button:hover,
 .row-details-close-button:focus-visible {
+  color: var(--brand-active-icon);
+  background: var(--brand-primary);
+  outline: none;
+}
+
+.cell-context-menu {
+  position: fixed;
+  z-index: 45;
+  min-width: 148px;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--brand-page-background);
+  box-shadow: 0 14px 30px rgba(16, 42, 64, 0.18);
+}
+
+.cell-context-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--brand-text);
+  background: transparent;
+  font: 700 0.82rem Aptos, "Segoe UI Variable", "Segoe UI", sans-serif;
+  text-align: left;
+}
+
+.cell-context-menu button:hover,
+.cell-context-menu button:focus-visible {
   color: var(--brand-active-icon);
   background: var(--brand-primary);
   outline: none;

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  type FormEvent,
   useRef,
   useState,
   type CSSProperties,
@@ -7,7 +8,6 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
-import { read, utils, write } from 'xlsx';
 import {
   APRENDIZES_ENTITY_ID,
   buildAprendizesDataIndexEntity,
@@ -51,6 +51,16 @@ const ROW_DETAILS_PANEL_WIDTH = ROW_DETAILS_PANEL_HEIGHT * 1.4;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
+
+type XlsxModule = typeof import('xlsx');
+type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
+
+let xlsxModulePromise: Promise<XlsxModule> | null = null;
+
+const loadXlsx = () => {
+  xlsxModulePromise ??= import('xlsx');
+  return xlsxModulePromise;
+};
 
 const readPixelCustomProperty = (
   element: Element,
@@ -121,10 +131,18 @@ type RowDeleteUndoEntry = {
   rowValues: string[];
 };
 
+type RegistrationDraftEditUndoEntry = {
+  kind: 'registration-draft-edit';
+  columnName: string;
+  previousValue: string;
+  nextValue: string;
+};
+
 type TableUndoEntry =
   | CellEditUndoEntry
   | RowInsertUndoEntry
-  | RowDeleteUndoEntry;
+  | RowDeleteUndoEntry
+  | RegistrationDraftEditUndoEntry;
 
 type ActiveCellEdit = {
   rowIndex: number;
@@ -345,7 +363,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   );
   const [isEditMode, setIsEditMode] = useState(false);
   const [isRegistrationMode, setIsRegistrationMode] = useState(false);
-  const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [areBodyEditInputsReady, setAreBodyEditInputsReady] = useState(false);
   const sortState = viewSettings.sortState;
   const [draggedColumn, setDraggedColumn] = useState('');
@@ -358,24 +375,27 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
   const [hasRegistrationDraftValue, setHasRegistrationDraftValue] =
     useState(false);
+  const [registrationDraftVersion, setRegistrationDraftVersion] = useState(0);
   const [registrationDraftResetKey, setRegistrationDraftResetKey] = useState(0);
   const [isRegistrationFocused, setIsRegistrationFocused] = useState(false);
+  const [isRegistrationRowSelected, setIsRegistrationRowSelected] =
+    useState(false);
   const [sessionRegisteredRowIndexes, setSessionRegisteredRowIndexes] =
     useState<number[]>([]);
   const [highlightedRegisteredRowIndex, setHighlightedRegisteredRowIndex] =
     useState<number | null>(null);
-  const [selectedDeleteRow, setSelectedDeleteRow] = useState<{
-    rowIndex: number;
-    visualIndex: number;
-  } | null>(null);
   const [selectedDetailsRow, setSelectedDetailsRow] = useState<{
     rowIndex: number;
     visualIndex: number;
   } | null>(null);
+  const [cellContextMenu, setCellContextMenu] = useState<{
+    left: number;
+    top: number;
+    value: string;
+  } | null>(null);
   const rowDetailsPanelStyleRef = useRef<CSSProperties>({});
   const [rowDetailsPanelStyle, setRowDetailsPanelStyle] =
     useState<CSSProperties>({});
-  const [tableScrollTop, setTableScrollTop] = useState(0);
   const applyRowDetailsPanelStyle = (nextStyle: CSSProperties) => {
     const currentStyle = rowDetailsPanelStyleRef.current;
     const isSameStyle =
@@ -414,15 +434,14 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     setRecoveryInfo(null);
     registrationDraftRef.current = {};
     setHasRegistrationDraftValue(false);
+    setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setIsRegistrationFocused(false);
+    setIsRegistrationRowSelected(false);
     setIsEditMode(false);
     setIsRegistrationMode(false);
-    setIsDeleteMode(false);
-    setSelectedDeleteRow(null);
     setSelectedDetailsRow(null);
     applyRowDetailsPanelStyle({});
-    setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
   };
@@ -458,15 +477,14 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
     registrationDraftRef.current = {};
     setHasRegistrationDraftValue(false);
+    setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setIsRegistrationFocused(false);
+    setIsRegistrationRowSelected(false);
     setIsEditMode(false);
     setIsRegistrationMode(false);
-    setIsDeleteMode(false);
-    setSelectedDeleteRow(null);
     setSelectedDetailsRow(null);
     applyRowDetailsPanelStyle({});
-    setTableScrollTop(0);
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
     saveViewSettings({
@@ -751,6 +769,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       throw new Error('invalid-file-type');
     }
 
+    const { read, utils } = await loadXlsx();
     const workbook = read(await file.arrayBuffer(), {
       cellDates: true,
     });
@@ -887,9 +906,14 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       registrationDraftRef.current = {};
       registrationDraftUndoStackRef.current = [];
       activeRegistrationEditRef.current = null;
+      cellUndoStackRef.current = cellUndoStackRef.current.filter(
+        (entry) => entry.kind !== 'registration-draft-edit',
+      );
       setHasRegistrationDraftValue(false);
+      setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
       setRegistrationDraftResetKey((currentKey) => currentKey + 1);
       setIsRegistrationFocused(false);
+      setIsRegistrationRowSelected(false);
       wasRegistrationModeRef.current = false;
     }
   }, [isRegistrationMode]);
@@ -907,26 +931,12 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   }, [isEditMode]);
 
   useEffect(() => {
-    if (
-      !isEditMode &&
-      !isRegistrationMode &&
-      !isDeleteMode &&
-      !selectedDetailsRow
-    ) {
+    if (!importedSheet) {
       return;
     }
 
     const handleUndoShortcut = (event: globalThis.KeyboardEvent) => {
-      if (
-        !(event.ctrlKey || event.metaKey) ||
-        event.shiftKey ||
-        event.key.toLowerCase() !== 'z'
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      undoLastCellEditAndSave();
+      runUndoShortcut(event);
     };
 
     window.addEventListener('keydown', handleUndoShortcut, {
@@ -937,71 +947,38 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       window.removeEventListener('keydown', handleUndoShortcut, {
         capture: true,
       });
-  }, [isEditMode, isRegistrationMode, isDeleteMode, selectedDetailsRow]);
+  }, [importedSheet, isEditMode, isRegistrationMode, selectedDetailsRow]);
 
   useEffect(() => {
-    if (!isDeleteMode || selectedDeleteRow === null) {
-      return;
-    }
-
-    const handleDeleteShortcut = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Delete' && event.key !== 'Del') {
-        return;
-      }
-
-      const target =
-        event.target instanceof HTMLElement ? event.target : null;
-
-      if (
-        target?.closest(
-          'input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]',
-        )
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      deleteRowAndSave(selectedDeleteRow.rowIndex);
-    };
-
-    window.addEventListener('keydown', handleDeleteShortcut, {
-      capture: true,
-    });
-
-    return () =>
-      window.removeEventListener('keydown', handleDeleteShortcut, {
-        capture: true,
-      });
-  }, [isDeleteMode, selectedDeleteRow]);
-
-  useEffect(() => {
-    if (!isDeleteMode || selectedDeleteRow === null) {
-      return;
-    }
-
-    const clearDeleteSelection = (event: globalThis.PointerEvent) => {
-      const target =
-        event.target instanceof HTMLElement ? event.target : null;
-
-      if (target?.closest('.data-table-body tbody tr')) {
-        return;
-      }
-
-      setSelectedDeleteRow(null);
-    };
-
-    window.addEventListener('pointerdown', clearDeleteSelection);
-
-    return () =>
-      window.removeEventListener('pointerdown', clearDeleteSelection);
-  }, [isDeleteMode, selectedDeleteRow]);
-
-  useEffect(() => {
-    if (isEditMode || isRegistrationMode || isDeleteMode) {
+    if (isEditMode) {
       setSelectedDetailsRow(null);
+      setIsRegistrationRowSelected(false);
       applyRowDetailsPanelStyle({});
     }
-  }, [isEditMode, isRegistrationMode, isDeleteMode]);
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!cellContextMenu) {
+      return;
+    }
+
+    const closeContextMenu = () => setCellContextMenu(null);
+    const closeContextMenuOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeContextMenu();
+      }
+    };
+
+    window.addEventListener('pointerdown', closeContextMenu);
+    window.addEventListener('keydown', closeContextMenuOnEscape);
+    window.addEventListener('scroll', closeContextMenu, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', closeContextMenu);
+      window.removeEventListener('keydown', closeContextMenuOnEscape);
+      window.removeEventListener('scroll', closeContextMenu, true);
+    };
+  }, [cellContextMenu]);
 
   useEffect(
     () => () => {
@@ -1305,9 +1282,12 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     };
   };
   const orderedColumnsKey = orderedColumns.join('\u001f');
+  const shouldShowRowDetailsPanel = Boolean(
+    importedSheet && (selectedDetailsRow || isRegistrationRowSelected),
+  );
 
   useEffect(() => {
-    if (!selectedDetailsRow || !importedSheet) {
+    if (!shouldShowRowDetailsPanel || !importedSheet) {
       applyRowDetailsPanelStyle({});
       return;
     }
@@ -1439,7 +1419,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       window.removeEventListener('resize', handleWindowResize);
     };
   }, [
-    selectedDetailsRow,
+    shouldShowRowDetailsPanel,
     importedSheet,
     orderedColumnsKey,
     viewSettings.columnWidths,
@@ -1484,8 +1464,9 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   };
 
   const preserveAgeFormulas = (
-    previousWorksheet: ReturnType<typeof utils.aoa_to_sheet> | undefined,
-    nextWorksheet: ReturnType<typeof utils.aoa_to_sheet>,
+    utils: XlsxModule['utils'],
+    previousWorksheet: XlsxWorksheet | undefined,
+    nextWorksheet: XlsxWorksheet,
     sheet: ImportedSheet,
   ) => {
     if (!previousWorksheet) {
@@ -1523,6 +1504,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
 
     try {
+      const { read, utils, write } = await loadXlsx();
       const sourceResponse = await fetch('/api/aprendizes/file', {
         cache: 'no-store',
       });
@@ -1541,7 +1523,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
         sheet.columns,
         ...sheet.rows,
       ]);
-      preserveAgeFormulas(previousWorksheet, nextWorksheet, sheet);
+      preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheet);
       workbook.Sheets[safeSheetName] = nextWorksheet;
 
       if (!workbook.SheetNames.includes(safeSheetName)) {
@@ -1669,6 +1651,16 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     activeCellEditRef.current = null;
 
     if (previousValue === value) {
+      if (initialValue !== value) {
+        pushCellUndoEntry({
+          rowIndex,
+          columnName,
+          previousValue: initialValue,
+          nextValue: value,
+        });
+        return currentSheet;
+      }
+
       return null;
     }
 
@@ -1715,7 +1707,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       rowIndex,
       rowValues: deletedRow,
     });
-    setSelectedDeleteRow(null);
+    setSelectedDetailsRow(null);
+    applyRowDetailsPanelStyle({});
     setSessionRegisteredRowIndexes((currentIndexes) =>
       currentIndexes
         .filter((currentRowIndex) => currentRowIndex !== rowIndex)
@@ -1781,6 +1774,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       [columnName]: value,
     };
 
+    const orderedColumnIndex = orderedColumns.indexOf(columnName);
+    const tableInput =
+      orderedColumnIndex >= 0
+        ? cellInputRefs.current[`register-${orderedColumnIndex}`]
+        : null;
+    const detailsInput = rowDetailsInputRefs.current[`register-${columnName}`];
+
+    if (tableInput && tableInput.value !== value) {
+      tableInput.value = value;
+    }
+
+    if (detailsInput && detailsInput.value !== value) {
+      detailsInput.value = value;
+    }
+
     const nextHasValue = hasAnyRegistrationDraftValue(
       registrationDraftRef.current,
     );
@@ -1788,10 +1796,16 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     setHasRegistrationDraftValue((currentHasValue) =>
       currentHasValue === nextHasValue ? currentHasValue : nextHasValue,
     );
+    setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
   };
 
   const getRegistrationDraftInput = (columnName: string) => {
     const orderedColumnIndex = orderedColumns.indexOf(columnName);
+    const detailsInput = rowDetailsInputRefs.current[`register-${columnName}`];
+
+    if (detailsInput) {
+      return detailsInput;
+    }
 
     return orderedColumnIndex >= 0
       ? cellInputRefs.current[`register-${orderedColumnIndex}`]
@@ -1810,10 +1824,10 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       return;
     }
 
-    registrationDraftUndoStackRef.current = [
-      ...registrationDraftUndoStackRef.current,
-      entry,
-    ].slice(-CELL_UNDO_LIMIT);
+    pushTableUndoEntry({
+      kind: 'registration-draft-edit',
+      ...entry,
+    });
   };
 
   const finalizeActiveRegistrationDraftEdit = () => {
@@ -1962,7 +1976,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     activeRegistrationEditRef.current = null;
     registrationDraftRef.current = {};
     registrationDraftUndoStackRef.current = [];
+    cellUndoStackRef.current = cellUndoStackRef.current.filter(
+      (entry) => entry.kind !== 'registration-draft-edit',
+    );
     setHasRegistrationDraftValue(false);
+    setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
     setSessionRegisteredRowIndexes(nextRegisteredRowIndexes);
     setHighlightedRegisteredRowIndex(nextRowIndex);
@@ -1983,77 +2001,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     storeImportedSheet(nextSheet);
     window.requestAnimationFrame(() => {
       scrollToRegisteredRow(nextSheet, nextRowIndex, nextRegisteredRowIndexes);
-      focusFirstRegistrationCell();
+      if (isRegistrationRowSelected) {
+        focusFirstRegistrationDetailsField();
+      } else {
+        focusFirstRegistrationCell();
+      }
     });
     await writeSheetToSourceFile(nextSheet);
   };
 
-  const undoActiveDraftEdit = () => {
-    const activeRegistrationEdit = activeRegistrationEditRef.current;
-
-    if (activeRegistrationEdit) {
-      const orderedColumnIndex = orderedColumns.indexOf(
-        activeRegistrationEdit.columnName,
-      );
-      const activeInput =
-        orderedColumnIndex >= 0
-          ? cellInputRefs.current[`register-${orderedColumnIndex}`]
-          : null;
-      const currentValue =
-        activeInput?.value ??
-        registrationDraftRef.current[activeRegistrationEdit.columnName] ??
-        '';
-
-      if (currentValue !== activeRegistrationEdit.initialValue) {
-        if (activeInput) {
-          activeInput.value = activeRegistrationEdit.initialValue;
-          activeInput.focus();
-          activeInput.select();
-        }
-
-        setRegistrationDraftColumnValue(
-          activeRegistrationEdit.columnName,
-          activeRegistrationEdit.initialValue,
-        );
-
-        return true;
-      }
-    }
-
-    const registrationDraftUndoEntry =
-      registrationDraftUndoStackRef.current.at(-1);
-
-    if (registrationDraftUndoEntry) {
-      registrationDraftUndoStackRef.current =
-        registrationDraftUndoStackRef.current.slice(0, -1);
-
-      const activeInput = getRegistrationDraftInput(
-        registrationDraftUndoEntry.columnName,
-      );
-
-      if (activeInput) {
-        activeInput.value = registrationDraftUndoEntry.previousValue;
-        activeInput.focus();
-        activeInput.select();
-      }
-
-      setRegistrationDraftColumnValue(
-        registrationDraftUndoEntry.columnName,
-        registrationDraftUndoEntry.previousValue,
-      );
-      activeRegistrationEditRef.current = {
-        columnName: registrationDraftUndoEntry.columnName,
-        initialValue: registrationDraftUndoEntry.previousValue,
-      };
-
-      return true;
-    }
-
+  const commitActiveCellEditForUndo = () => {
     const activeEdit = activeCellEditRef.current;
     const currentSheet = latestSheetRef.current;
 
     if (!activeEdit || !currentSheet) {
-      return false;
+      return;
     }
 
     const activeInput = getCellEditInput(
@@ -2067,39 +2029,61 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     );
     const currentValue = activeInput?.value ?? savedValue ?? '';
 
-    if (savedValue !== null && currentValue !== activeEdit.initialValue) {
-      if (activeInput) {
-        activeInput.value = activeEdit.initialValue;
-        activeInput.focus();
-        activeInput.select();
-      }
+    if (savedValue !== null) {
+      commitCellValue(activeEdit.rowIndex, activeEdit.columnName, currentValue);
+    }
+  };
 
-      return true;
+  const finalizeActiveEditsForUndo = () => {
+    if (activeRegistrationEditRef.current) {
+      finalizeActiveRegistrationDraftEdit();
     }
 
-    if (activeInput && savedValue !== null && activeInput.value !== savedValue) {
-      activeInput.value = activeEdit.initialValue;
+    commitActiveCellEditForUndo();
+  };
+
+  const undoRegistrationDraftEdit = (
+    undoEntry: RegistrationDraftEditUndoEntry,
+  ) => {
+    const activeInput = getRegistrationDraftInput(undoEntry.columnName);
+
+    if (activeInput) {
+      activeInput.value = undoEntry.previousValue;
       activeInput.focus();
       activeInput.select();
-      return true;
     }
 
-    return false;
+    setRegistrationDraftColumnValue(
+      undoEntry.columnName,
+      undoEntry.previousValue,
+    );
+    activeRegistrationEditRef.current = {
+      columnName: undoEntry.columnName,
+      initialValue: undoEntry.previousValue,
+    };
   };
 
   const undoLastCellEdit = () => {
-    if (undoActiveDraftEdit()) {
-      return true;
-    }
-
+    finalizeActiveEditsForUndo();
     protectUndoCommit();
     activeCellEditRef.current = null;
-    activeRegistrationEditRef.current = null;
 
     const currentSheet = latestSheetRef.current;
     const undoEntry = cellUndoStackRef.current.at(-1);
 
-    if (!currentSheet || !undoEntry) {
+    if (!undoEntry) {
+      return false;
+    }
+
+    if (undoEntry.kind === 'registration-draft-edit') {
+      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+      undoRegistrationDraftEdit(undoEntry);
+      return true;
+    }
+
+    activeRegistrationEditRef.current = null;
+
+    if (!currentSheet) {
       return false;
     }
 
@@ -2169,6 +2153,23 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
           : currentRowIndex,
       );
       storeImportedSheet(nextSheet);
+      window.requestAnimationFrame(() => {
+        scrollToRegisteredRow(
+          nextSheet,
+          undoEntry.rowIndex,
+          sessionRegisteredRowIndexes,
+        );
+        const visualIndex = getVisualRowIndex(
+          nextSheet,
+          undoEntry.rowIndex,
+          sessionRegisteredRowIndexes,
+        );
+
+        setSelectedDetailsRow({
+          rowIndex: undoEntry.rowIndex,
+          visualIndex: Math.max(visualIndex, 0),
+        });
+      });
       return nextSheet;
     }
 
@@ -2224,6 +2225,41 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     return Boolean(nextSheet);
   };
 
+  const isUndoShortcut = ({
+    ctrlKey,
+    key,
+    metaKey,
+    shiftKey,
+  }: Pick<KeyboardEvent<HTMLInputElement>, 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>) =>
+    (ctrlKey || metaKey) && !shiftKey && key.toLowerCase() === 'z';
+
+  const runUndoShortcut = (
+    event:
+      | globalThis.KeyboardEvent
+      | KeyboardEvent<HTMLInputElement>
+      | KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (!isUndoShortcut(event)) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    undoLastCellEditAndSave();
+    return true;
+  };
+
+  const handleInputHistoryUndo = (event: FormEvent<HTMLInputElement>) => {
+    const nativeEvent = event.nativeEvent as InputEvent;
+
+    if (nativeEvent.inputType !== 'historyUndo') {
+      return;
+    }
+
+    event.preventDefault();
+    undoLastCellEditAndSave();
+  };
+
   const focusCell = (rowIndex: number, columnIndex: number) => {
     const columnName = orderedColumns[columnIndex];
     const rowDetailsInput = columnName
@@ -2251,6 +2287,33 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     input?.select();
   };
 
+  const getFirstRegistrationDetailsColumn = () =>
+    orderedColumns.find(
+      (column) =>
+        column !== AGE_COLUMN && column.trim().toLowerCase() === 'nome',
+    ) ?? orderedColumns.find((column) => column !== AGE_COLUMN);
+
+  const focusRegistrationDetailsField = (columnName: string) => {
+    const input = rowDetailsInputRefs.current[`register-${columnName}`];
+
+    input?.focus();
+    input?.select();
+  };
+
+  const focusFirstRegistrationDetailsField = () => {
+    const firstEditableColumn = getFirstRegistrationDetailsColumn();
+
+    if (!firstEditableColumn) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() =>
+        focusRegistrationDetailsField(firstEditableColumn),
+      );
+    });
+  };
+
   const focusFirstRegistrationCell = () => {
     const firstEditableColumnIndex = orderedColumns.findIndex(
       (column) => column !== AGE_COLUMN,
@@ -2265,6 +2328,70 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     );
   };
 
+  const selectVisualRow = (visualIndex: number) => {
+    const nextRow = displayedRows[visualIndex];
+
+    if (!nextRow) {
+      return;
+    }
+
+    setSelectedDetailsRow({
+      rowIndex: nextRow.rowIndex,
+      visualIndex,
+    });
+    setIsRegistrationRowSelected(false);
+
+    const tableBody = tableBodyScrollRef.current;
+
+    if (!tableBody) {
+      return;
+    }
+
+    const rowHeight = getCurrentTableRowHeight();
+    const rowTop = visualIndex * rowHeight;
+    const rowBottom = rowTop + rowHeight;
+
+    if (rowTop < tableBody.scrollTop) {
+      tableBody.scrollTop = rowTop;
+      return;
+    }
+
+    if (rowBottom > tableBody.scrollTop + tableBody.clientHeight) {
+      tableBody.scrollTop = rowBottom - tableBody.clientHeight;
+    }
+  };
+
+  const handleTableBodyKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      isEditMode ||
+      !['ArrowUp', 'ArrowDown'].includes(event.key)
+    ) {
+      return;
+    }
+
+    const target = event.target instanceof HTMLElement ? event.target : null;
+
+    if (
+      target?.closest(
+        'input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]',
+      )
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const currentVisualIndex =
+      selectedDetailsRow?.visualIndex ??
+      (event.key === 'ArrowDown' ? -1 : displayedRows.length);
+    const nextVisualIndex =
+      event.key === 'ArrowDown'
+        ? Math.min(displayedRows.length - 1, currentVisualIndex + 1)
+        : Math.max(0, currentVisualIndex - 1);
+
+    selectVisualRow(nextVisualIndex);
+  };
+
   useEffect(() => {
     if (!isRegistrationMode || !importedSheet) {
       return;
@@ -2275,8 +2402,46 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
 
     wasRegistrationModeRef.current = true;
-    focusFirstRegistrationCell();
+    focusFirstRegistrationDetailsField();
   }, [isRegistrationMode, Boolean(importedSheet)]);
+
+  const copyTextToClipboard = async (value: string) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return;
+      } catch {
+        // Some local browser contexts expose Clipboard API but still deny writes.
+      }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.append(textarea);
+    textarea.focus();
+    textarea.select();
+
+    try {
+      document.execCommand('copy');
+    } finally {
+      textarea.remove();
+    }
+  };
+
+  const copyContextCellValue = async () => {
+    if (!cellContextMenu) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(cellContextMenu.value);
+    } finally {
+      setCellContextMenu(null);
+    }
+  };
 
   const handleCellNavigation = (
     event: KeyboardEvent<HTMLInputElement>,
@@ -2320,48 +2485,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const tableClassName = [
     'data-table',
     isEditMode ? 'editing' : '',
-    isDeleteMode ? 'delete-mode' : '',
   ]
     .filter(Boolean)
     .join(' ');
   const hasWorkingSheet = Boolean(importedSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
-  const toggleEditMode = () => {
-    setIsEditMode((current) => {
-      const nextMode = !current;
-
-      if (nextMode) {
-        setIsRegistrationMode(false);
-        setIsDeleteMode(false);
-        setSelectedDeleteRow(null);
-      }
-
-      return nextMode;
-    });
-  };
   const toggleRegistrationMode = () => {
     setIsRegistrationMode((current) => {
       const nextMode = !current;
 
       if (nextMode) {
         setIsEditMode(false);
-        setIsDeleteMode(false);
-        setSelectedDeleteRow(null);
-      }
-
-      return nextMode;
-    });
-  };
-  const toggleDeleteMode = () => {
-    setIsDeleteMode((current) => {
-      const nextMode = !current;
-
-      if (nextMode) {
-        setIsEditMode(false);
-        setIsRegistrationMode(false);
         setSelectedDetailsRow(null);
+        setIsRegistrationRowSelected(true);
       } else {
-        setSelectedDeleteRow(null);
+        setIsRegistrationRowSelected(false);
       }
 
       return nextMode;
@@ -2518,6 +2656,69 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     rowDetailsPanelStyle.top !== undefined &&
     rowDetailsPanelStyle.width !== undefined &&
     rowDetailsPanelStyle.height !== undefined;
+  const isRegistrationDetailsMode = Boolean(
+    isRegistrationMode && isRegistrationRowSelected && importedSheet,
+  );
+  const rowDetailsName = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(selectedDetailsNameColumn)
+    : selectedDetailsName;
+  const rowDetailsSex = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(SEX_COLUMN)
+    : selectedDetailsSex;
+  const rowDetailsBirthdate = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(BIRTHDATE_COLUMN)
+    : selectedDetailsBirthdate;
+  const rowDetailsAge = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(AGE_COLUMN)
+    : selectedDetailsAge;
+  const rowDetailsEmail = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(EMAIL_COLUMN)
+    : selectedDetailsEmail;
+  const rowDetailsContact = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(CONTACT_COLUMN)
+    : selectedDetailsContact;
+  const rowDetailsRg = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(RG_COLUMN)
+    : selectedDetailsRg;
+  const rowDetailsCpf = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(CPF_COLUMN)
+    : selectedDetailsCpf;
+  const rowDetailsResponsible = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(RESPONSIBLE_COLUMN)
+    : selectedDetailsResponsible;
+  const rowDetailsResponsibleEmail = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(RESPONSIBLE_EMAIL_COLUMN)
+    : selectedDetailsResponsibleEmail;
+  const rowDetailsResponsibleContact = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(RESPONSIBLE_CONTACT_COLUMN)
+    : selectedDetailsResponsibleContact;
+  const rowDetailsAddress = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(ADDRESS_COLUMN)
+    : selectedDetailsAddress;
+  const rowDetailsCompany = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(COMPANY_COLUMN)
+    : selectedDetailsCompany;
+  const rowDetailsInstitution = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(INSTITUTION_COLUMN)
+    : selectedDetailsInstitution;
+  const rowDetailsLearningArc = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(LEARNING_ARC_COLUMN)
+    : selectedDetailsLearningArc;
+  const rowDetailsRole = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(ROLE_COLUMN)
+    : selectedDetailsRole;
+  const rowDetailsAdmissionDate = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(ADMISSION_DATE_COLUMN)
+    : selectedDetailsAdmissionDate;
+  const rowDetailsEndDate = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(END_DATE_COLUMN)
+    : selectedDetailsEndDate;
+  const rowDetailsClass = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(CLASS_COLUMN)
+    : selectedDetailsClass;
+  const rowDetailsPeriod = isRegistrationDetailsMode
+    ? getRegistrationDraftDisplayValue(PERIOD_COLUMN)
+    : selectedDetailsPeriod;
   const renderRowDetailsField = ({
     className = '',
     columnName,
@@ -2531,13 +2732,16 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     readOnly?: boolean;
     value: string;
   }) => {
-    if (!selectedDetailsRow) {
+    if (!selectedDetailsRow && !isRegistrationDetailsMode) {
       return null;
     }
 
     const fieldClassName = ['row-details-field', className]
       .filter(Boolean)
       .join(' ');
+    const inputKey = isRegistrationDetailsMode
+      ? `register-details-${registrationDraftResetKey}-${columnName}`
+      : `${selectedDetailsRow?.rowIndex}-${columnName}`;
 
     return (
       <div className={fieldClassName}>
@@ -2552,26 +2756,90 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
         >
           {readOnly ? (
             value
+          ) : isRegistrationDetailsMode ? (
+            <input
+              key={inputKey}
+              ref={(element) => {
+                rowDetailsInputRefs.current[`register-${columnName}`] = element;
+              }}
+              className="row-details-field-value-input"
+              aria-label={`${label} cadastrar aprendiz`}
+              data-registration-input="true"
+              spellCheck={false}
+              value={value}
+              onFocus={(event) => {
+                beginRegistrationDraftEdit(columnName, event.currentTarget.value);
+                setIsRegistrationFocused(true);
+              }}
+              onChange={(event) =>
+                updateRegistrationDraft(columnName, event.target.value)
+              }
+              onBeforeInput={handleInputHistoryUndo}
+              onKeyDown={(event) => {
+                if (runUndoShortcut(event)) {
+                  return;
+                }
+
+                if (event.key !== 'Enter') {
+                  return;
+                }
+
+                event.preventDefault();
+                finalizeActiveRegistrationDraftEdit();
+                void commitRegistrationDraft();
+              }}
+              onBlur={() => {
+                window.requestAnimationFrame(() => {
+                  const activeElement = document.activeElement;
+                  const nextIsRegistrationFocused =
+                    activeElement instanceof HTMLElement &&
+                    activeElement.dataset.registrationInput === 'true';
+
+                  setIsRegistrationFocused(nextIsRegistrationFocused);
+
+                  if (!nextIsRegistrationFocused) {
+                    finalizeActiveRegistrationDraftEdit();
+                  }
+                });
+              }}
+            />
           ) : (
             <input
-              key={`${selectedDetailsRow.rowIndex}-${columnName}-${value}`}
+              key={inputKey}
               ref={(element) => {
-                rowDetailsInputRefs.current[
-                  `${selectedDetailsRow.rowIndex}-${columnName}`
-                ] = element;
+                if (selectedDetailsRow) {
+                  rowDetailsInputRefs.current[
+                    `${selectedDetailsRow.rowIndex}-${columnName}`
+                  ] = element;
+                }
               }}
               className="row-details-field-value-input"
               aria-label={`${label} do aprendiz`}
               spellCheck={false}
-              defaultValue={value}
+              value={value}
               onFocus={() =>
+                selectedDetailsRow &&
                 beginCellEdit(selectedDetailsRow.rowIndex, columnName, value)
               }
-              onChange={() =>
-                beginCellEdit(selectedDetailsRow.rowIndex, columnName, value)
-              }
+              onChange={(event) => {
+                if (!selectedDetailsRow) {
+                  return;
+                }
+
+                beginCellEdit(selectedDetailsRow.rowIndex, columnName, value);
+                updateCell(
+                  selectedDetailsRow.rowIndex,
+                  columnName,
+                  event.currentTarget.value,
+                );
+              }}
+              onBeforeInput={handleInputHistoryUndo}
               onKeyDown={(event) => {
-                if (event.key !== 'Enter') {
+                if (runUndoShortcut(event)) {
+                  return;
+                }
+
+                if (event.key !== 'Enter' || !selectedDetailsRow) {
                   return;
                 }
 
@@ -2587,7 +2855,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                 }
               }}
               onBlur={(event) => {
-                if (isApplyingUndoRef.current) {
+                if (isApplyingUndoRef.current || !selectedDetailsRow) {
                   return;
                 }
 
@@ -2622,32 +2890,17 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       <col className="table-scrollbar-spacer-column" />
     </colgroup>
   );
-  const getDeleteHintPosition = () => {
-    const tableBodyRect = tableBodyScrollRef.current?.getBoundingClientRect();
-
-    if (!tableBodyRect || selectedDeleteRow === null) {
-      return { left: 0, top: 0 };
-    }
-
-    const calculatedTop =
-      tableBodyRect.top +
-      selectedDeleteRow.visualIndex * getCurrentTableRowHeight() -
-      tableScrollTop +
-      getCurrentTableRowHeight() +
-      6;
-    const viewportBottom = window.innerHeight - 44;
-
-    return {
-      left: tableBodyRect.left + 10,
-      top: Math.min(calculatedTop, viewportBottom),
-    };
-  };
-  const deleteHintPosition = getDeleteHintPosition();
   const renderRegistrationRow = () => (
     <table className={`${tableClassName} data-table-register`}>
       {renderHeaderColumnGroup()}
       <tbody>
-        <tr className="register-row">
+        <tr
+          className="register-row"
+          onClick={() => {
+            setSelectedDetailsRow(null);
+            setIsRegistrationRowSelected(true);
+          }}
+        >
           {orderedColumns.map((column, orderedColumnIndex) => {
             const value = getRegistrationDraftDisplayValue(column);
 
@@ -2704,7 +2957,12 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                     onChange={(event) =>
                       updateRegistrationDraft(column, event.target.value)
                     }
+                    onBeforeInput={handleInputHistoryUndo}
                     onKeyDown={(event) => {
+                      if (runUndoShortcut(event)) {
+                        return;
+                      }
+
                       if (event.key === 'Enter') {
                         event.preventDefault();
                         void commitRegistrationDraft();
@@ -2790,23 +3048,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
             <div className="table-toolbar-track">
             <button
               className={
-                hasWorkingSheet && isEditMode
-                  ? 'square-action active'
-                  : hasWorkingSheet
-                    ? 'square-action'
-                    : 'square-action disabled'
-              }
-              type="button"
-              aria-label="Editar visualização da tabela"
-              aria-pressed={hasWorkingSheet ? isEditMode : false}
-              title="Editar tabela"
-              disabled={!hasWorkingSheet}
-              onClick={toggleEditMode}
-            >
-              <PencilIcon />
-            </button>
-            <button
-              className={
                 hasWorkingSheet && isRegistrationMode
                   ? 'square-action active'
                   : hasWorkingSheet
@@ -2820,24 +3061,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               disabled={!hasWorkingSheet}
               onClick={toggleRegistrationMode}
             >
-              <UserStarIcon />
-            </button>
-            <button
-              className={
-                hasWorkingSheet && isDeleteMode
-                  ? 'square-action active'
-                  : hasWorkingSheet
-                    ? 'square-action'
-                  : 'square-action disabled'
-              }
-              type="button"
-              aria-label="Deletar cadastro"
-              aria-pressed={hasWorkingSheet ? isDeleteMode : false}
-              title="Deletar Cadastro"
-              disabled={!hasWorkingSheet}
-              onClick={toggleDeleteMode}
-            >
-              <UserXIcon />
+              <SquarePlusIcon />
             </button>
             <button
               className={
@@ -2965,26 +3189,14 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                 Aperte <kbd>Enter</kbd> para cadastrar
               </div>
             )}
-            {isDeleteMode && selectedDeleteRow !== null && (
-              <div
-                className="register-row-hint delete-row-hint"
-                style={{
-                  left: `${deleteHintPosition.left}px`,
-                  top: `${deleteHintPosition.top}px`,
-                }}
-                aria-live="polite"
-              >
-                Aperte <kbd>Delete</kbd> para descadastrar
-              </div>
-            )}
             <div
               className="data-table-body-scroll"
               ref={tableBodyScrollRef}
               role="region"
               tabIndex={0}
-              onScroll={(event) => {
+              onKeyDown={handleTableBodyKeyDown}
+              onScroll={() => {
                 syncHeaderScroll();
-                setTableScrollTop(event.currentTarget.scrollTop);
               }}
             >
               <table className={`${tableClassName} data-table-body`}>
@@ -2998,9 +3210,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                         rowIndex === highlightedRegisteredRowIndex
                           ? 'registered-row-highlight'
                           : '',
-                        selectedDeleteRow?.rowIndex === rowIndex
-                          ? 'delete-row-selected'
-                          : '',
                         selectedDetailsRow?.rowIndex === rowIndex
                           ? 'row-details-selected'
                           : '',
@@ -3009,15 +3218,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                         .join(' ')
                     }
                     onClick={() => {
-                      if (isDeleteMode) {
-                        setTableScrollTop(
-                          tableBodyScrollRef.current?.scrollTop ?? 0,
-                        );
-                        setSelectedDeleteRow({ rowIndex, visualIndex });
-                        return;
-                      }
-
-                      if (!isEditMode && !isRegistrationMode) {
+                      if (!isEditMode) {
+                        setIsRegistrationRowSelected(false);
                         setSelectedDetailsRow({ rowIndex, visualIndex });
                       }
                     }}
@@ -3041,6 +3243,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                             .filter(Boolean)
                             .join(' ')}
                           style={getColumnWidthStyle(column)}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setCellContextMenu({
+                              left: Math.max(
+                                8,
+                                Math.min(event.clientX, window.innerWidth - 156),
+                              ),
+                              top: Math.max(
+                                8,
+                                Math.min(event.clientY, window.innerHeight - 44),
+                              ),
+                              value: displayValue,
+                            });
+                          }}
                         >
                           {areBodyEditInputsReady && column !== AGE_COLUMN ? (
                             <input
@@ -3068,7 +3285,12 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                               onChange={() =>
                                 beginCellEdit(rowIndex, column, value)
                               }
+                              onBeforeInput={handleInputHistoryUndo}
                               onKeyDown={(event) => {
+                                if (runUndoShortcut(event)) {
+                                  return;
+                                }
+
                                 handleCellNavigation(
                                   event,
                                   rowIndex,
@@ -3117,7 +3339,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               </tbody>
               </table>
             </div>
-            {selectedDetailsRow && !isEditMode && !isRegistrationMode && !isDeleteMode && (
+            {shouldShowRowDetailsPanel && !isEditMode && (
               <aside
                 className="row-details-panel"
                 style={{
@@ -3126,7 +3348,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                     : 'hidden',
                   ...rowDetailsPanelStyle,
                 }}
-                aria-label="Detalhes do aprendiz"
+                aria-label={
+                  isRegistrationDetailsMode
+                    ? 'Cadastrar aprendiz'
+                    : 'Detalhes do aprendiz'
+                }
               >
                 <div className="row-details-content">
                     <section
@@ -3138,26 +3364,26 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-name',
                           columnName: selectedDetailsNameColumn,
                           label: 'Nome',
-                          value: selectedDetailsName,
+                          value: rowDetailsName,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-sex',
                           columnName: SEX_COLUMN,
                           label: 'Sexo',
-                          value: selectedDetailsSex,
+                          value: rowDetailsSex,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-birthdate',
                           columnName: BIRTHDATE_COLUMN,
                           label: 'Data Nascimento',
-                          value: selectedDetailsBirthdate,
+                          value: rowDetailsBirthdate,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-age',
                           columnName: AGE_COLUMN,
                           label: 'Idade',
                           readOnly: true,
-                          value: selectedDetailsAge,
+                          value: rowDetailsAge,
                         })}
                       </div>
                       <div className="row-details-field-layer row-details-secondary-layer">
@@ -3165,25 +3391,25 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-email',
                           columnName: EMAIL_COLUMN,
                           label: 'E-mail',
-                          value: selectedDetailsEmail,
+                          value: rowDetailsEmail,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-contact',
                           columnName: CONTACT_COLUMN,
                           label: 'Contato',
-                          value: selectedDetailsContact,
+                          value: rowDetailsContact,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-cpf',
                           columnName: CPF_COLUMN,
                           label: 'CPF',
-                          value: selectedDetailsCpf,
+                          value: rowDetailsCpf,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-rg',
                           columnName: RG_COLUMN,
                           label: 'RG',
-                          value: selectedDetailsRg,
+                          value: rowDetailsRg,
                         })}
                       </div>
                       <div className="row-details-field-layer row-details-tertiary-layer">
@@ -3191,19 +3417,19 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-responsible-name',
                           columnName: RESPONSIBLE_COLUMN,
                           label: 'Nome Responsável',
-                          value: selectedDetailsResponsible,
+                          value: rowDetailsResponsible,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-responsible-email',
                           columnName: RESPONSIBLE_EMAIL_COLUMN,
                           label: 'Email Responsável',
-                          value: selectedDetailsResponsibleEmail,
+                          value: rowDetailsResponsibleEmail,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-responsible-contact',
                           columnName: RESPONSIBLE_CONTACT_COLUMN,
                           label: 'Contato Responsável',
-                          value: selectedDetailsResponsibleContact,
+                          value: rowDetailsResponsibleContact,
                         })}
                       </div>
                       <div className="row-details-field-layer row-details-address-layer">
@@ -3211,7 +3437,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-address',
                           columnName: ADDRESS_COLUMN,
                           label: 'Endereço',
-                          value: selectedDetailsAddress,
+                          value: rowDetailsAddress,
                         })}
                       </div>
                       <div className="row-details-field-layer row-details-company-layer">
@@ -3219,13 +3445,13 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-company',
                           columnName: COMPANY_COLUMN,
                           label: 'Empresa',
-                          value: selectedDetailsCompany,
+                          value: rowDetailsCompany,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-institution',
                           columnName: INSTITUTION_COLUMN,
                           label: 'Instituição Ensino',
-                          value: selectedDetailsInstitution,
+                          value: rowDetailsInstitution,
                         })}
                       </div>
                       <div className="row-details-field-layer row-details-learning-layer">
@@ -3233,25 +3459,25 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-learning-arc',
                           columnName: LEARNING_ARC_COLUMN,
                           label: 'Arco Aprendizagem',
-                          value: selectedDetailsLearningArc,
+                          value: rowDetailsLearningArc,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-role',
                           columnName: ROLE_COLUMN,
                           label: 'Função',
-                          value: selectedDetailsRole,
+                          value: rowDetailsRole,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-admission-date',
                           columnName: ADMISSION_DATE_COLUMN,
                           label: 'Data Admissão',
-                          value: selectedDetailsAdmissionDate,
+                          value: rowDetailsAdmissionDate,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-end-date',
                           columnName: END_DATE_COLUMN,
                           label: 'Data Término',
-                          value: selectedDetailsEndDate,
+                          value: rowDetailsEndDate,
                         })}
                       </div>
                       <div className="row-details-field-layer row-details-class-layer">
@@ -3259,13 +3485,13 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className: 'row-details-field-class',
                           columnName: CLASS_COLUMN,
                           label: 'Turma',
-                          value: selectedDetailsClass,
+                          value: rowDetailsClass,
                         })}
                         {renderRowDetailsField({
                           className: 'row-details-field-period',
                           columnName: PERIOD_COLUMN,
                           label: 'Período',
-                          value: selectedDetailsPeriod,
+                          value: rowDetailsPeriod,
                         })}
                       </div>
                     </section>
@@ -3273,13 +3499,17 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                       className="row-details-actions"
                       aria-label="Ações do aprendiz"
                     >
-                      <button
-                        className="row-details-action-button"
-                        type="button"
-                        aria-disabled="true"
-                      >
-                        Ação
-                      </button>
+                      {!isRegistrationDetailsMode && selectedDetailsRow && (
+                        <button
+                          className="row-details-action-button row-details-delete-button"
+                          type="button"
+                          aria-label="Descadastrar aprendiz"
+                          title="Descadastrar"
+                          onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
+                        >
+                          <UserXIcon />
+                        </button>
+                      )}
                     </footer>
                 </div>
                 <button
@@ -3287,13 +3517,37 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                   type="button"
                   aria-label="Fechar detalhes"
                   onClick={() => {
-                    setSelectedDetailsRow(null);
+                    if (isRegistrationDetailsMode) {
+                      setIsRegistrationRowSelected(false);
+                    } else {
+                      setSelectedDetailsRow(null);
+                    }
                     applyRowDetailsPanelStyle({});
                   }}
                 >
                   <CloseIcon />
                 </button>
               </aside>
+            )}
+            {cellContextMenu && (
+              <div
+                className="cell-context-menu"
+                style={{
+                  left: cellContextMenu.left,
+                  top: cellContextMenu.top,
+                }}
+                role="menu"
+                onPointerDown={(event) => event.stopPropagation()}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void copyContextCellValue()}
+                >
+                  Copiar valor
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -3371,15 +3625,6 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
   }
 }
 
-function PencilIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 20h4l10.5 -10.5a2.8 2.8 0 0 0 -4 -4L4 16v4Z" />
-      <path d="M13.5 6.5l4 4" />
-    </svg>
-  );
-}
-
 function ImportIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3424,12 +3669,12 @@ function UserXIcon() {
   );
 }
 
-function UserStarIcon() {
+function SquarePlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
-      <path d="M6 21v-2a4 4 0 0 1 4 -4h2.5" />
-      <path d="M18 14l1.18 2.38l2.62 .38l-1.9 1.84l.45 2.6l-2.35 -1.23l-2.35 1.23l.45 -2.6l-1.9 -1.84l2.62 -.38l1.18 -2.38Z" />
+      <path d="M9 12h6" />
+      <path d="M12 9v6" />
+      <path d="M4 4m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z" />
     </svg>
   );
 }

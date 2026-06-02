@@ -133,7 +133,7 @@ internal static class Program
     {
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(180) };
+            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(40) };
             var response = await client.GetAsync($"http://127.0.0.1:{PreferredPort}/api/app/status");
 
             if (!response.IsSuccessStatusCode)
@@ -1596,6 +1596,7 @@ internal static class Program
             MinimumSize = new Size(744, 520);
             Size = new Size(1280, 820);
             WindowState = FormWindowState.Maximized;
+            Opacity = 0;
             BackColor = _startupBackgroundColor;
             _webView.DefaultBackgroundColor = _startupBackgroundColor;
             _startupCover = new Panel
@@ -1884,8 +1885,10 @@ internal static class Program
                 }
 
                 Log("WebView revealing after app startup");
-                _startupCover.Visible = false;
+                _webView.Visible = true;
                 _webView.BringToFront();
+                _startupCover.Visible = false;
+                Opacity = 1;
                 Activate();
             });
         }
