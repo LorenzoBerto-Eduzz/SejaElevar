@@ -2,6 +2,7 @@ import type { AppBrand } from '../brand/appBrand';
 
 export const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
 export const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
+export const APP_SETTINGS_VERSION = 3;
 
 export type ThemeSettings = AppBrand['theme'] & {
   panel: string;
@@ -89,12 +90,14 @@ export type LayoutSettings = {
 };
 
 export type AppSettings = {
+  version: number;
   theme: ThemeSettings;
   darkTheme: DarkThemeSettings;
   layout: LayoutSettings;
 };
 
 export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
+  version: APP_SETTINGS_VERSION,
   theme: {
     ...brand.theme,
     primary: '#2069df',
@@ -157,29 +160,29 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     tableTopOffset: 0,
     tableHeightOffset: 3,
     rowDetailsPanelWidth: 796,
-    rowDetailsPanelHeight: 591,
+    rowDetailsPanelHeight: 579,
     rowDetailsFieldHorizontalOffset: -2,
     rowDetailsLayerGap: 16,
     rowDetailsNameWidth: 336,
     rowDetailsSexWidth: 35,
-    rowDetailsBirthdateWidth: 147,
+    rowDetailsBirthdateWidth: 119,
     rowDetailsAgeWidth: 42,
-    rowDetailsEmailWidth: 273,
-    rowDetailsContactWidth: 168,
-    rowDetailsRgWidth: 105,
-    rowDetailsCpfWidth: 133,
-    rowDetailsResponsibleNameWidth: 252,
-    rowDetailsResponsibleEmailWidth: 280,
-    rowDetailsResponsibleContactWidth: 168,
-    rowDetailsAddressWidth: 728,
-    rowDetailsCompanyWidth: 252,
-    rowDetailsInstitutionWidth: 336,
-    rowDetailsLearningArcWidth: 224,
-    rowDetailsRoleWidth: 168,
-    rowDetailsAdmissionDateWidth: 126,
-    rowDetailsEndDateWidth: 126,
-    rowDetailsClassWidth: 196,
-    rowDetailsPeriodWidth: 126,
+    rowDetailsEmailWidth: 308,
+    rowDetailsContactWidth: 154,
+    rowDetailsRgWidth: 98,
+    rowDetailsCpfWidth: 119,
+    rowDetailsResponsibleNameWidth: 287,
+    rowDetailsResponsibleEmailWidth: 266,
+    rowDetailsResponsibleContactWidth: 154,
+    rowDetailsAddressWidth: 763,
+    rowDetailsCompanyWidth: 364,
+    rowDetailsInstitutionWidth: 371,
+    rowDetailsLearningArcWidth: 217,
+    rowDetailsRoleWidth: 224,
+    rowDetailsAdmissionDateWidth: 119,
+    rowDetailsEndDateWidth: 119,
+    rowDetailsClassWidth: 182,
+    rowDetailsPeriodWidth: 112,
     rowDetailsCloseIconHorizontalOffset: -1.7,
     settingsCloseIconHorizontalOffset: -2,
   },
@@ -202,6 +205,8 @@ export const readSavedAppSettings = (brand: AppBrand) => {
   try {
     if (savedSettings) {
       const parsedSettings = JSON.parse(savedSettings) as Partial<AppSettings>;
+      const hasCurrentLayoutVersion =
+        parsedSettings.version === APP_SETTINGS_VERSION;
       const savedLayout = { ...parsedSettings.layout };
 
       if (
@@ -212,18 +217,22 @@ export const readSavedAppSettings = (brand: AppBrand) => {
       }
 
       return {
+        version: APP_SETTINGS_VERSION,
         theme: { ...defaultSettings.theme, ...parsedSettings.theme },
         darkTheme: {
           ...defaultSettings.darkTheme,
           ...parsedSettings.darkTheme,
         },
-        layout: { ...defaultSettings.layout, ...savedLayout },
+        layout: hasCurrentLayoutVersion
+          ? { ...defaultSettings.layout, ...savedLayout }
+          : defaultSettings.layout,
       };
     }
 
     if (savedTheme) {
       return {
         ...defaultSettings,
+        version: APP_SETTINGS_VERSION,
         theme: { ...defaultSettings.theme, ...JSON.parse(savedTheme) },
       };
     }

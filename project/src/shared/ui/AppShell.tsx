@@ -128,10 +128,15 @@ export function AppShell({
   });
 
   const saveSettings = (nextSettings: AppSettings) => {
-    setSettings(nextSettings);
+    const settingsToSave = {
+      ...nextSettings,
+      version: defaultSettings.version,
+    };
+
+    setSettings(settingsToSave);
     window.localStorage.setItem(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify(nextSettings),
+      JSON.stringify(settingsToSave),
     );
   };
 

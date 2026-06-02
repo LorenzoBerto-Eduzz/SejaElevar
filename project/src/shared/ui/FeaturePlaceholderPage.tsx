@@ -13,8 +13,10 @@ export function FeaturePlaceholderPage({ title }: FeaturePlaceholderPageProps) {
         <div>
           <h1 id={titleId}>{title}</h1>
         </div>
-        <div className="table-toolbar" aria-label="AÃ§Ãµes da pÃ¡gina">
-          <ThemeToggleButton />
+        <div className="table-toolbar" aria-label="Ações da página">
+          <div className="table-toolbar-track">
+            <ThemeToggleButton />
+          </div>
         </div>
       </div>
 
