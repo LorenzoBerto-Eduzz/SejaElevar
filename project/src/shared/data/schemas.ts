@@ -17,8 +17,18 @@ export const APRENDIZES_REQUIRED_COLUMNS = [
   'Arco de Aprendizagem',
   'Função',
   'Turma',
-  'Período',
   'Empresa',
+] as const;
+
+export const TURMAS_REQUIRED_COLUMNS = [
+  'Turma',
+  'Dia',
+  'Período',
+  'Instrutor',
+  'Sala',
+  'Disciplina',
+  'No. de Aprendizes',
+  'Aprendizes',
 ] as const;
 
 export const normalizeFieldLabel = (value: string) =>

@@ -15,6 +15,7 @@ import {
 } from '../../shared/data/dataIndex';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  normalizeFieldLabel,
   normalizeColumnsForSchema,
 } from '../../shared/data/schemas';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
@@ -44,7 +45,7 @@ const ROLE_COLUMN = 'Função';
 const ADMISSION_DATE_COLUMN = 'Data de Admissão';
 const END_DATE_COLUMN = 'Data do Término';
 const CLASS_COLUMN = 'Turma';
-const PERIOD_COLUMN = 'Período';
+const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
 const ROW_DETAILS_PANEL_WIDTH = ROW_DETAILS_PANEL_HEIGHT * 1.4;
@@ -275,8 +276,8 @@ const withDerivedAprendizValues = (sheet: ImportedSheet) => {
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
 
-const formatMissingColumnsMessage = (missingColumns: string[]) =>
-  `A planilha não possui as colunas necessárias: ${missingColumns.join(', ')}.`;
+const invalidImportedFileMessage =
+  'Arquivo importado não possui os valores necessários';
 
 const measureTextWidth = (text: string, font: string) => {
   if (typeof document === 'undefined') {
@@ -353,6 +354,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const tableBodyScrollRef = useRef<HTMLDivElement>(null);
   const tableFrameRef = useRef<HTMLDivElement>(null);
   const registerHighlightTimerRef = useRef<number | null>(null);
+  const invalidImportToastTimerRef = useRef<number | null>(null);
   const wasRegistrationModeRef = useRef(false);
   const registrationDraftRef = useRef<Record<string, string>>({});
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
@@ -367,6 +369,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const sortState = viewSettings.sortState;
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
+  const [invalidImportToast, setInvalidImportToast] = useState('');
   const [workspaceStatus, setWorkspaceStatus] = useState('');
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -422,6 +425,18 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const storeImportedSheet = (sheet: ImportedSheet) => {
     latestSheetRef.current = sheet;
     setImportedSheet(sheet);
+  };
+  const showInvalidImportToast = () => {
+    setInvalidImportToast(invalidImportedFileMessage);
+
+    if (invalidImportToastTimerRef.current !== null) {
+      window.clearTimeout(invalidImportToastTimerRef.current);
+    }
+
+    invalidImportToastTimerRef.current = window.setTimeout(() => {
+      setInvalidImportToast('');
+      invalidImportToastTimerRef.current = null;
+    }, 3000);
   };
 
   const clearWorkingSheet = () => {
@@ -622,7 +637,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       setImportError('');
     } catch (error) {
       if (error instanceof MissingRequiredColumnsError) {
-        setImportError(formatMissingColumnsMessage(error.missingColumns));
+        showInvalidImportToast();
+        setImportError('');
         return;
       }
 
@@ -745,7 +761,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       void persistAprendizesDataIndex(null);
 
       if (error instanceof MissingRequiredColumnsError) {
-        setImportError(formatMissingColumnsMessage(error.missingColumns));
+        showInvalidImportToast();
+        setImportError('');
         return false;
       }
 
@@ -807,17 +824,23 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     const rawColumns = headerRow
       .slice(0, lastColumnIndex + 1)
       .map((cell, index) => normalizeCell(cell) || `Coluna ${index + 1}`);
-    const { missingColumns, normalizedColumns: columns } =
+    const { missingColumns, normalizedColumns } =
       normalizeColumnsForSchema(rawColumns, APRENDIZES_REQUIRED_COLUMNS);
 
     if (missingColumns.length > 0) {
       throw new MissingRequiredColumnsError(missingColumns);
     }
 
+    const keptColumnIndexes = normalizedColumns
+      .map((column, columnIndex) => ({ column, columnIndex }))
+      .filter(
+        ({ column }) => !REMOVED_APRENDIZES_COLUMNS.has(normalizeFieldLabel(column)),
+      );
+    const columns = keptColumnIndexes.map(({ column }) => column);
     const rows = sheetRows
       .slice(headerIndex + 1)
       .map((row) =>
-        columns.map((_, columnIndex) => normalizeCell(row[columnIndex])),
+        keptColumnIndexes.map(({ columnIndex }) => normalizeCell(row[columnIndex])),
       )
       .filter((row) => row.some((cell) => cell !== ''));
 
@@ -893,6 +916,15 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
     onInitialReady?.();
   }, [hasCheckedWorkspace, onInitialReady]);
+
+  useEffect(
+    () => () => {
+      if (invalidImportToastTimerRef.current !== null) {
+        window.clearTimeout(invalidImportToastTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!isEditMode) {
@@ -2646,10 +2678,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     importedSheet && selectedDetailsRowValues
       ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, CLASS_COLUMN)
       : '';
-  const selectedDetailsPeriod =
-    importedSheet && selectedDetailsRowValues
-      ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, PERIOD_COLUMN)
-      : '';
   const isRowDetailsPanelPositioned =
     rowDetailsPanelStyle.display !== 'none' &&
     rowDetailsPanelStyle.left !== undefined &&
@@ -2716,9 +2744,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const rowDetailsClass = isRegistrationDetailsMode
     ? getRegistrationDraftDisplayValue(CLASS_COLUMN)
     : selectedDetailsClass;
-  const rowDetailsPeriod = isRegistrationDetailsMode
-    ? getRegistrationDraftDisplayValue(PERIOD_COLUMN)
-    : selectedDetailsPeriod;
   const renderRowDetailsField = ({
     className = '',
     columnName,
@@ -3487,12 +3512,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           label: 'Turma',
                           value: rowDetailsClass,
                         })}
-                        {renderRowDetailsField({
-                          className: 'row-details-field-period',
-                          columnName: PERIOD_COLUMN,
-                          label: 'Período',
-                          value: rowDetailsPeriod,
-                        })}
                       </div>
                     </section>
                     <footer
@@ -3563,6 +3582,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
           event.currentTarget.value = '';
         }}
       />
+      {invalidImportToast && (
+        <div className="app-warning-toast" role="status" aria-live="polite">
+          {invalidImportToast}
+        </div>
+      )}
       </div>
 
       {isRecoveryDialogOpen && (

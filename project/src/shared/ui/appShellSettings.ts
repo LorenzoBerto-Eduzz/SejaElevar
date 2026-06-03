@@ -2,7 +2,7 @@ import type { AppBrand } from '../brand/appBrand';
 
 export const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
 export const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
-export const APP_SETTINGS_VERSION = 3;
+export const APP_SETTINGS_VERSION = 4;
 
 export type ThemeSettings = AppBrand['theme'] & {
   panel: string;
@@ -84,7 +84,6 @@ export type LayoutSettings = {
   rowDetailsAdmissionDateWidth: number;
   rowDetailsEndDateWidth: number;
   rowDetailsClassWidth: number;
-  rowDetailsPeriodWidth: number;
   rowDetailsCloseIconHorizontalOffset: number;
   settingsCloseIconHorizontalOffset: number;
 };
@@ -181,8 +180,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     rowDetailsRoleWidth: 224,
     rowDetailsAdmissionDateWidth: 119,
     rowDetailsEndDateWidth: 119,
-    rowDetailsClassWidth: 182,
-    rowDetailsPeriodWidth: 112,
+    rowDetailsClassWidth: 217,
     rowDetailsCloseIconHorizontalOffset: -1.7,
     settingsCloseIconHorizontalOffset: -2,
   },

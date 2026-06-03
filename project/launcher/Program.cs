@@ -294,6 +294,13 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "GET" && request.Path == "/api/turmas/file")
+            {
+                MarkHeartbeat();
+                await ServeTurmasWorkbookAsync(stream, appFolder);
+                return;
+            }
+
             if (request.Method == "POST" && request.Path == "/api/aprendizes/export")
             {
                 MarkHeartbeat();
@@ -353,6 +360,13 @@ internal static class Program
                     await SaveEditedWorkbookAsync(stream, request, appFolder);
                 }
 
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/turmas/import")
+            {
+                MarkHeartbeat();
+                await ImportTurmasWorkbookAsync(stream, request, appFolder);
                 return;
             }
 
@@ -807,6 +821,82 @@ internal static class Program
         );
     }
 
+    private static async Task ServeTurmasWorkbookAsync(NetworkStream stream, string appFolder)
+    {
+        var meta = LoadSimpleWorkbookMeta(GetTurmasMetaPath(appFolder));
+        var workbookPath = ResolveWorkbookPath(appFolder, meta.OnUseFile);
+
+        if (workbookPath is null || !File.Exists(workbookPath))
+        {
+            await WriteJsonAsync(stream, 404, new { error = "Planilha nao importada." });
+            return;
+        }
+
+        var fileName = Path.GetFileName(workbookPath);
+        var bytes = await File.ReadAllBytesAsync(workbookPath);
+        await WriteResponseAsync(
+            stream,
+            200,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            bytes,
+            new Dictionary<string, string>
+            {
+                ["cache-control"] = "no-store",
+                ["content-disposition"] = $"inline; filename=\"{fileName}\"",
+                ["x-file-name"] = Uri.EscapeDataString(fileName)
+            }
+        );
+    }
+
+    private static async Task ImportTurmasWorkbookAsync(
+        NetworkStream stream,
+        HttpRequest request,
+        string appFolder
+    )
+    {
+        if (request.Body.Length == 0)
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Arquivo vazio." });
+            return;
+        }
+
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
+        var currentMeta = LoadSimpleWorkbookMeta(GetTurmasMetaPath(appFolder));
+        var currentPath = ResolveWorkbookPath(appFolder, currentMeta.OnUseFile);
+        var importedFileName = GetUniqueTimestampedWorkbookName(dadosFolder, "Turmas");
+        var targetPath = Path.Combine(dadosFolder, importedFileName);
+
+        await File.WriteAllBytesAsync(targetPath, request.Body);
+
+        if (
+            currentPath is not null &&
+            !string.Equals(currentPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(currentPath)
+        )
+        {
+            File.Delete(currentPath);
+        }
+
+        var nextMeta = new SimpleWorkbookMeta
+        {
+            OnUseFile = importedFileName
+        };
+
+        SaveSimpleWorkbookMeta(GetTurmasMetaPath(appFolder), nextMeta);
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                fileName = nextMeta.OnUseFile,
+                onUseFile = nextMeta.OnUseFile
+            }
+        );
+    }
+
     private static async Task SaveEditedWorkbookAsync(
         NetworkStream stream,
         HttpRequest request,
@@ -1072,6 +1162,11 @@ internal static class Program
     private static string GetWorkbookControlPath(string appFolder)
     {
         return Path.Combine(GetDadosFolder(appFolder), "controle.json");
+    }
+
+    private static string GetTurmasMetaPath(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), "turmas.json");
     }
 
     private static string GetDataSystemFolder(string appFolder)
@@ -1371,7 +1466,7 @@ internal static class Program
         }
 
         return Directory
-            .GetFiles(dadosFolder, "*.xlsx", SearchOption.TopDirectoryOnly)
+            .GetFiles(dadosFolder, "Aprendizes*.xlsx", SearchOption.TopDirectoryOnly)
             .Select(path => new FileInfo(path))
             .Where(file => !file.Name.StartsWith("~$", StringComparison.Ordinal))
             .OrderByDescending(file => file.LastWriteTimeUtc);
@@ -1384,7 +1479,12 @@ internal static class Program
 
     private static string GetUniqueTimestampedWorkbookName(string folder)
     {
-        var baseName = $"Aprendizes_{DateTime.Now:HHmmssddMMyy}";
+        return GetUniqueTimestampedWorkbookName(folder, "Aprendizes");
+    }
+
+    private static string GetUniqueTimestampedWorkbookName(string folder, string entityName)
+    {
+        var baseName = $"{entityName}_{DateTime.Now:HHmmssddMMyy}";
         var candidate = $"{baseName}.xlsx";
         var suffix = 2;
 
@@ -1395,6 +1495,45 @@ internal static class Program
         }
 
         return candidate;
+    }
+
+    private static SimpleWorkbookMeta LoadSimpleWorkbookMeta(string metadataPath)
+    {
+        SimpleWorkbookMeta? meta = null;
+
+        try
+        {
+            if (File.Exists(metadataPath))
+            {
+                meta = JsonSerializer.Deserialize<SimpleWorkbookMeta>(
+                    File.ReadAllText(metadataPath)
+                );
+            }
+        }
+        catch
+        {
+            meta = null;
+        }
+
+        meta ??= new SimpleWorkbookMeta();
+        meta.OnUseFile = NormalizeTrackedWorkbookFileName(meta.OnUseFile);
+        return meta;
+    }
+
+    private static void SaveSimpleWorkbookMeta(string metadataPath, SimpleWorkbookMeta meta)
+    {
+        var metadataFolder = Path.GetDirectoryName(metadataPath);
+
+        if (!string.IsNullOrWhiteSpace(metadataFolder))
+        {
+            Directory.CreateDirectory(metadataFolder);
+        }
+
+        File.WriteAllText(
+            metadataPath,
+            JsonSerializer.Serialize(meta, PrettyUtf8JsonOptions),
+            Encoding.UTF8
+        );
     }
 
     private static string? NormalizeBackupReason(string? reason)
@@ -1554,6 +1693,11 @@ internal static class Program
         public bool? RecoveryEnabled { get; set; }
         public bool? HasEditingHistory { get; set; }
         public bool? CaptureBackupOnNextSave { get; set; }
+    }
+
+    private sealed class SimpleWorkbookMeta
+    {
+        public string? OnUseFile { get; set; }
     }
 
     private sealed class RuntimeWindowSettings

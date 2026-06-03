@@ -10,6 +10,11 @@ const AprendizesPage = lazy(() =>
     default: module.AprendizesPage,
   })),
 );
+const TurmasPage = lazy(() =>
+  import('./features/turmas/TurmasPage').then((module) => ({
+    default: module.TurmasPage,
+  })),
+);
 
 const isLocalAppAddress = () => {
   if (typeof window === 'undefined') {
@@ -178,7 +183,12 @@ export function App() {
           <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
         </Suspense>
       </div>
-      {activeTab !== 'aprendizes' && (
+      <div hidden={activeTab !== 'turmas'}>
+        <Suspense fallback={null}>
+          <TurmasPage />
+        </Suspense>
+      </div>
+      {activeTab !== 'aprendizes' && activeTab !== 'turmas' && (
         <FeaturePlaceholderPage
           title={appTabs.find((tab) => tab.id === activeTab)?.label ?? ''}
         />

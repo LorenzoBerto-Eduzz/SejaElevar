@@ -1,9 +1,11 @@
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from './schemas';
 
 export const APRENDIZES_ENTITY_ID = 'aprendizes';
+export const TURMAS_ENTITY_ID = 'turmas';
 
 export type SheetTable = {
   fileName: string;
@@ -49,6 +51,7 @@ const createSearchText = (values: string[]) =>
 
 const getRecordLabel = (fields: Record<string, string>, rowIndex: number) =>
   fields.Nome ||
+  fields.Turma ||
   Object.values(fields).find((value) => value.trim() !== '') ||
   `Registro ${rowIndex + 1}`;
 
@@ -124,4 +127,12 @@ export const buildAprendizesDataIndexEntity = (sheet: SheetTable) =>
     'Aprendizes',
     sheet,
     APRENDIZES_REQUIRED_COLUMNS,
+  );
+
+export const buildTurmasDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    TURMAS_ENTITY_ID,
+    'Turmas',
+    sheet,
+    TURMAS_REQUIRED_COLUMNS,
   );

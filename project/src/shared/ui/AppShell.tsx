@@ -419,7 +419,6 @@ export function AppShell({
           '--row-details-admission-date-width': `${settings.layout.rowDetailsAdmissionDateWidth}px`,
           '--row-details-end-date-width': `${settings.layout.rowDetailsEndDateWidth}px`,
           '--row-details-class-width': `${settings.layout.rowDetailsClassWidth}px`,
-          '--row-details-period-width': `${settings.layout.rowDetailsPeriodWidth}px`,
           '--row-details-close-icon-horizontal-offset': `${settings.layout.rowDetailsCloseIconHorizontalOffset}px`,
           '--settings-close-icon-horizontal-offset': `${settings.layout.settingsCloseIconHorizontalOffset}px`,
         } as CSSProperties
@@ -1146,16 +1145,6 @@ export function AppShell({
                   value={settings.layout.rowDetailsClassWidth}
                   onChange={(value) => updateLayout('rowDetailsClassWidth', value)}
                   onReset={() => resetLayout('rowDetailsClassWidth')}
-                  className="dev-visible-slider-field"
-                />
-                <SliderField
-                  label="Popup Período"
-                  min={7}
-                  max={560}
-                  step={7}
-                  value={settings.layout.rowDetailsPeriodWidth}
-                  onChange={(value) => updateLayout('rowDetailsPeriodWidth', value)}
-                  onReset={() => resetLayout('rowDetailsPeriodWidth')}
                   className="dev-visible-slider-field"
                 />
               </>

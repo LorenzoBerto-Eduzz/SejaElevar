@@ -24,6 +24,16 @@ Current Aprendizes behavior:
 - `dados/` should normally contain the current on-use workbook, one backup workbook when available, `controle.json`, and `.gitkeep`.
 - Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. The current undo stack limit is 1000 cell edits.
 
+Current Turmas behavior:
+
+- Turmas is an early/provisional table flow, not yet a full edit/recover/export tool.
+- Import validates required Turmas column labels from `project/src/shared/data/schemas.ts`: `Turma`, `Dia`, `Período`, `Instrutor`, `Sala`, `Disciplina`, `No. de Aprendizes`, and `Aprendizes`. Blank cells are valid and extra columns are preserved.
+- The provider copies the selected workbook directly into `dados/` as `Turmas_hhmmssddmmyy.xlsx` and tracks the active Turmas workbook in `dados/turmas.json`.
+- The provisional Turmas table uses the same table frame/header/body scroll structure as Aprendizes.
+- The source workbook is not rewritten during Turmas import. If `No. de Aprendizes` is a Google Sheets formula, the formula remains in the copied `.xlsx`.
+- In the app display and generated data index, `No. de Aprendizes` is derived from the comma-separated `Aprendizes` cell by splitting on commas, trimming names, and ignoring blanks/trailing empty entries.
+- Importing a workbook whose headers do not match the active tool schema shows a bottom-right red toast for 3 seconds: `Arquivo importado não possui os valores necessários`.
+
 ## Generated Data Index
 
 The `.xlsx` files remain the source of truth. The app also maintains a generated internal index for search, document generation, and future cross-tool variable lookup.
@@ -44,7 +54,7 @@ Current frontend helpers live in `project/src/shared/data/`:
 - `schemas.ts`: known required column labels and label normalization.
 - `dataIndex.ts`: converts sheet rows into normalized records.
 
-For Aprendizes, each row becomes one record with:
+For Aprendizes and Turmas, each row becomes one record with:
 
 - `id`: generated as `aprendizes:rowNumber`.
 - `label`: `Nome` when available, otherwise the first nonblank value or `Registro n`.
@@ -53,11 +63,46 @@ For Aprendizes, each row becomes one record with:
 - `searchText`: normalized searchable text built from entity, label, column names, and row values.
 - `source`: source filename, sheet name, and row index.
 
-The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
+The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The Turmas index is rebuilt after active sheet load/import, including the app-derived `No. de Aprendizes` value. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
 
 The local provider writes JSON files as readable UTF-8. PT-BR characters such as `ç`, `ã`, `é`, and `í` should appear normally in `dados/sistema/data-index.json`; if PowerShell displays mojibake, verify the file with a UTF-8-aware editor before assuming the stored data is corrupt.
 
-Only Aprendizes is currently indexed. Future tabs such as Empresas, Turmas, Disciplinas, and Documentos should add their own entities instead of mixing data into the Aprendizes entity.
+Aprendizes and Turmas are currently indexed as separate entities. Future tabs such as Empresas, Disciplinas, and Documentos should add their own entities instead of mixing data into existing entities.
+
+## Linked Records And Dropdown Fields
+
+Future fields that assign one app item to another should be treated as linked/reference fields in the app, even when the source `.xlsx` stores simple human-readable text.
+
+Examples:
+
+- `Empresa` on an Aprendiz should eventually be a dropdown sourced from registered `Empresas`.
+- `Turma` on an Aprendiz should eventually be a dropdown sourced from registered `Turmas`.
+- `Instrutor`, `Sala`, and `Disciplina` on a Turma should eventually be dropdowns sourced from registered `Funcionários`, `Salas`, and `Disciplinas`.
+
+The spreadsheet cells can continue storing the canonical display name, not hidden IDs, so exported files remain easy to read and paste back into Google Sheets. Internally, the app should match imported text by normalizing case, extra spacing, punctuation, and accentuation. For example, an imported value like `Sao Jose` should be able to match the registered option `São José`, after which the app displays/saves/exports the canonical registered spelling.
+
+If an imported cell value does not match any registered dropdown option, the app should preserve the value but mark that cell/field as unresolved or unregistered until the user selects an existing option or registers a new one. The exact warning style can be decided later, but it should be visible enough that workers know the imported sheet contains a value the app cannot link.
+
+This applies both to single-value dropdown fields and to future list fields. When a list field such as `Turmas.Aprendizes` is imported from manually edited sheet text, names should be split by comma + space, matched against registered Aprendizes with the same normalized comparison, canonicalized to the registered student name when matched, and flagged with a warning such as `Não é um aprendiz cadastrado` when unmatched. Repeated names in the same list should be ignored after the first occurrence.
+
+The app should use the generated data index to make these links available to tools such as global search, document generation, and future pages that show related records.
+
+## Planned Turmas Data Shape
+
+The current planned Turmas values are:
+
+- `Turma`: the turma name. This is the canonical option shown in the Aprendizes `Turma` dropdown.
+- `Dia`: selected from day options.
+- `Período`: selected from period options available for the chosen day.
+- `Instrutor`: linked to registered Funcionários.
+- `Sala`: linked to registered Salas.
+- `Disciplina`: linked to registered Disciplinas.
+- `No. de Aprendizes`: preferably derived by the app from linked Aprendizes, not manually typed.
+- `Aprendizes`: preferably derived/listed by the app from Aprendizes assigned to the Turma, exported as names separated by comma + space.
+
+For app data consistency, the recommended source of truth for "which apprentices are in a turma" is the `Turma` field on each Aprendiz. The Turmas page can display or export the list/count of Aprendizes under each Turma, but the relationship should normally be maintained by assigning each Aprendiz to a Turma rather than manually duplicating a long name list inside the Turmas source sheet. If an imported Turmas sheet already contains an `Aprendizes` list, the app can use it for display/validation during import, but it should treat conflicts with `Aprendizes.Turma` carefully instead of silently making both sides inconsistent.
+
+Day/period behavior direction: `Dia` is a dropdown of weekdays or defined day labels. `Período` is a dropdown filtered by the selected `Dia`. Period options do not currently need their own main app tab; they can be configured in a future settings/subtool area, with an affordance to add a new period from the dropdown flow.
 
 `Recuperar Dados` uses one reversible backup slot. Pressing it swaps the tracked active and backup workbooks instead of copying or deleting either one. The state active immediately before recovery therefore becomes the recovery target for reversing that action. Recovery stays enabled after a recovery while the two tracked workbooks differ.
 

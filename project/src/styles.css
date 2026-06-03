@@ -752,6 +752,54 @@ svg {
   color: #b3261e;
 }
 
+.app-warning-toast {
+  --warning-toast-red: #e11919;
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 1000;
+  overflow: hidden;
+  width: max-content;
+  max-width: calc(100vw - 44px);
+  border: 1px solid var(--warning-toast-red);
+  border-radius: 8px;
+  padding: 14px 20px 17px;
+  color: var(--warning-toast-red);
+  background: var(--brand-panel, #fff);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 18%);
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.app-warning-toast::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--warning-toast-red);
+  transform-origin: right center;
+  animation: warning-toast-timer 3000ms linear forwards;
+}
+
+.dark-mode .app-warning-toast {
+  --warning-toast-red: #ad2a2a;
+}
+
+@keyframes warning-toast-timer {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
+
 .primary-action {
   display: inline-flex;
   align-items: center;
@@ -1575,12 +1623,6 @@ svg {
   width: var(--row-details-class-width, 196px);
   min-width: var(--row-details-class-width, 196px);
   max-width: var(--row-details-class-width, 196px);
-}
-
-.row-details-field-period {
-  width: var(--row-details-period-width, 126px);
-  min-width: var(--row-details-period-width, 126px);
-  max-width: var(--row-details-period-width, 126px);
 }
 
 .row-details-field-label {
