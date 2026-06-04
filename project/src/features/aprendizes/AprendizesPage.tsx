@@ -156,12 +156,6 @@ type ActiveRegistrationEdit = {
   initialValue: string;
 };
 
-type RegistrationDraftUndoEntry = {
-  columnName: string;
-  previousValue: string;
-  nextValue: string;
-};
-
 type RecoveryReason =
   | 'before_import'
   | 'before_edit'
@@ -277,7 +271,7 @@ const withDerivedAprendizValues = (sheet: ImportedSheet) => {
 let textMeasureContext: CanvasRenderingContext2D | null = null;
 
 const invalidImportedFileMessage =
-  'Arquivo importado não possui os valores necessários';
+  'Arquivo escolhido não possui os valores necessários';
 
 const measureTextWidth = (text: string, font: string) => {
   if (typeof document === 'undefined') {
@@ -345,7 +339,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     {},
   );
   const cellUndoStackRef = useRef<TableUndoEntry[]>([]);
-  const registrationDraftUndoStackRef = useRef<RegistrationDraftUndoEntry[]>([]);
   const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
   const activeRegistrationEditRef = useRef<ActiveRegistrationEdit | null>(null);
   const isApplyingUndoRef = useRef(false);
@@ -356,6 +349,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const registerHighlightTimerRef = useRef<number | null>(null);
   const invalidImportToastTimerRef = useRef<number | null>(null);
   const wasRegistrationModeRef = useRef(false);
+  const didSignalInitialReadyRef = useRef(false);
   const registrationDraftRef = useRef<Record<string, string>>({});
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
@@ -380,9 +374,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     useState(false);
   const [registrationDraftVersion, setRegistrationDraftVersion] = useState(0);
   const [registrationDraftResetKey, setRegistrationDraftResetKey] = useState(0);
-  const [isRegistrationFocused, setIsRegistrationFocused] = useState(false);
-  const [isRegistrationRowSelected, setIsRegistrationRowSelected] =
-    useState(false);
   const [sessionRegisteredRowIndexes, setSessionRegisteredRowIndexes] =
     useState<number[]>([]);
   const [highlightedRegisteredRowIndex, setHighlightedRegisteredRowIndex] =
@@ -441,7 +432,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
   const clearWorkingSheet = () => {
     cellUndoStackRef.current = [];
-    registrationDraftUndoStackRef.current = [];
     activeCellEditRef.current = null;
     activeRegistrationEditRef.current = null;
     latestSheetRef.current = null;
@@ -451,8 +441,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     setHasRegistrationDraftValue(false);
     setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
-    setIsRegistrationFocused(false);
-    setIsRegistrationRowSelected(false);
     setIsEditMode(false);
     setIsRegistrationMode(false);
     setSelectedDetailsRow(null);
@@ -466,7 +454,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     options: { resetColumnWidths?: boolean } = {},
   ) => {
     cellUndoStackRef.current = [];
-    registrationDraftUndoStackRef.current = [];
     activeCellEditRef.current = null;
     activeRegistrationEditRef.current = null;
     storeImportedSheet(sheet);
@@ -494,8 +481,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     setHasRegistrationDraftValue(false);
     setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
     setRegistrationDraftResetKey((currentKey) => currentKey + 1);
-    setIsRegistrationFocused(false);
-    setIsRegistrationRowSelected(false);
     setIsEditMode(false);
     setIsRegistrationMode(false);
     setSelectedDetailsRow(null);
@@ -859,24 +844,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
     const loadSavedWorkbook = async () => {
       try {
-        const statusResponse = await fetch('/api/app/status', {
-          cache: 'no-store',
-        });
-
-        if (!isMounted) {
-          return;
-        }
-
-        const status = statusResponse.ok ? await statusResponse.json() : null;
-
-        if (!status?.localProvider) {
-          isLocalProviderActiveRef.current = false;
-          clearWorkingSheet();
-          setWorkspaceStatus('');
-          setHasCheckedWorkspace(true);
-          return;
-        }
-
         isLocalProviderActiveRef.current = true;
         const hasWorkbook = await fetchProviderFile({
           resetColumnWidths: false,
@@ -910,10 +877,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   }, []);
 
   useEffect(() => {
-    if (!hasCheckedWorkspace) {
+    if (!hasCheckedWorkspace || didSignalInitialReadyRef.current) {
       return;
     }
 
+    didSignalInitialReadyRef.current = true;
     onInitialReady?.();
   }, [hasCheckedWorkspace, onInitialReady]);
 
@@ -936,7 +904,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   useEffect(() => {
     if (!isRegistrationMode) {
       registrationDraftRef.current = {};
-      registrationDraftUndoStackRef.current = [];
       activeRegistrationEditRef.current = null;
       cellUndoStackRef.current = cellUndoStackRef.current.filter(
         (entry) => entry.kind !== 'registration-draft-edit',
@@ -944,8 +911,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       setHasRegistrationDraftValue(false);
       setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
       setRegistrationDraftResetKey((currentKey) => currentKey + 1);
-      setIsRegistrationFocused(false);
-      setIsRegistrationRowSelected(false);
       wasRegistrationModeRef.current = false;
     }
   }, [isRegistrationMode]);
@@ -984,7 +949,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   useEffect(() => {
     if (isEditMode) {
       setSelectedDetailsRow(null);
-      setIsRegistrationRowSelected(false);
+      setIsRegistrationMode(false);
       applyRowDetailsPanelStyle({});
     }
   }, [isEditMode]);
@@ -1110,10 +1075,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       return left.rowIndex - right.rowIndex;
     });
   }
-
-  const showRegistrationHint = Boolean(
-    hasRegistrationDraftValue && isRegistrationFocused,
-  );
 
   const getRegistrationDraftDisplayValue = (column: string) => {
     if (!importedSheet) {
@@ -1315,7 +1276,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   };
   const orderedColumnsKey = orderedColumns.join('\u001f');
   const shouldShowRowDetailsPanel = Boolean(
-    importedSheet && (selectedDetailsRow || isRegistrationRowSelected),
+    importedSheet && (selectedDetailsRow || isRegistrationMode),
   );
 
   useEffect(() => {
@@ -1806,16 +1767,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       [columnName]: value,
     };
 
-    const orderedColumnIndex = orderedColumns.indexOf(columnName);
-    const tableInput =
-      orderedColumnIndex >= 0
-        ? cellInputRefs.current[`register-${orderedColumnIndex}`]
-        : null;
     const detailsInput = rowDetailsInputRefs.current[`register-${columnName}`];
-
-    if (tableInput && tableInput.value !== value) {
-      tableInput.value = value;
-    }
 
     if (detailsInput && detailsInput.value !== value) {
       detailsInput.value = value;
@@ -1832,16 +1784,13 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   };
 
   const getRegistrationDraftInput = (columnName: string) => {
-    const orderedColumnIndex = orderedColumns.indexOf(columnName);
     const detailsInput = rowDetailsInputRefs.current[`register-${columnName}`];
 
     if (detailsInput) {
       return detailsInput;
     }
 
-    return orderedColumnIndex >= 0
-      ? cellInputRefs.current[`register-${orderedColumnIndex}`]
-      : null;
+    return null;
   };
 
   const getRegistrationDraftCurrentValue = (columnName: string) =>
@@ -1850,7 +1799,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     '';
 
   const pushRegistrationDraftUndoEntry = (
-    entry: RegistrationDraftUndoEntry,
+    entry: Omit<RegistrationDraftEditUndoEntry, 'kind'>,
   ) => {
     if (entry.previousValue === entry.nextValue) {
       return;
@@ -2007,7 +1956,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     activeCellEditRef.current = null;
     activeRegistrationEditRef.current = null;
     registrationDraftRef.current = {};
-    registrationDraftUndoStackRef.current = [];
     cellUndoStackRef.current = cellUndoStackRef.current.filter(
       (entry) => entry.kind !== 'registration-draft-edit',
     );
@@ -2033,11 +1981,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     storeImportedSheet(nextSheet);
     window.requestAnimationFrame(() => {
       scrollToRegisteredRow(nextSheet, nextRowIndex, nextRegisteredRowIndexes);
-      if (isRegistrationRowSelected) {
-        focusFirstRegistrationDetailsField();
-      } else {
-        focusFirstRegistrationCell();
-      }
+      focusFirstRegistrationDetailsField();
     });
     await writeSheetToSourceFile(nextSheet);
   };
@@ -2156,9 +2100,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       });
       storeImportedSheet(nextSheet);
       window.requestAnimationFrame(() => {
-        if (isRegistrationMode) {
-          focusFirstRegistrationCell();
-        }
+        focusFirstRegistrationDetailsField();
       });
       return nextSheet;
     }
@@ -2311,14 +2253,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     input?.select();
   };
 
-  const focusRegistrationCell = (columnIndex: number) => {
-    const key = `register-${columnIndex}`;
-    const input = cellInputRefs.current[key];
-
-    input?.focus();
-    input?.select();
-  };
-
   const getFirstRegistrationDetailsColumn = () =>
     orderedColumns.find(
       (column) =>
@@ -2346,20 +2280,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     });
   };
 
-  const focusFirstRegistrationCell = () => {
-    const firstEditableColumnIndex = orderedColumns.findIndex(
-      (column) => column !== AGE_COLUMN,
-    );
-
-    if (firstEditableColumnIndex < 0) {
-      return;
-    }
-
-    window.requestAnimationFrame(() =>
-      focusRegistrationCell(firstEditableColumnIndex),
-    );
-  };
-
   const selectVisualRow = (visualIndex: number) => {
     const nextRow = displayedRows[visualIndex];
 
@@ -2371,7 +2291,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       rowIndex: nextRow.rowIndex,
       visualIndex,
     });
-    setIsRegistrationRowSelected(false);
+    setIsRegistrationMode(false);
 
     const tableBody = tableBodyScrollRef.current;
 
@@ -2523,15 +2443,17 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const hasWorkingSheet = Boolean(importedSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const toggleRegistrationMode = () => {
+    const shouldSwapSelectedDetails = Boolean(selectedDetailsRow);
+
     setIsRegistrationMode((current) => {
-      const nextMode = !current;
+      const nextMode = shouldSwapSelectedDetails ? true : !current;
 
       if (nextMode) {
         setIsEditMode(false);
         setSelectedDetailsRow(null);
-        setIsRegistrationRowSelected(true);
-      } else {
-        setIsRegistrationRowSelected(false);
+        if (!shouldSwapSelectedDetails) {
+          applyRowDetailsPanelStyle({});
+        }
       }
 
       return nextMode;
@@ -2685,7 +2607,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     rowDetailsPanelStyle.width !== undefined &&
     rowDetailsPanelStyle.height !== undefined;
   const isRegistrationDetailsMode = Boolean(
-    isRegistrationMode && isRegistrationRowSelected && importedSheet,
+    isRegistrationMode && importedSheet,
   );
   const rowDetailsName = isRegistrationDetailsMode
     ? getRegistrationDraftDisplayValue(selectedDetailsNameColumn)
@@ -2794,7 +2716,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               value={value}
               onFocus={(event) => {
                 beginRegistrationDraftEdit(columnName, event.currentTarget.value);
-                setIsRegistrationFocused(true);
               }}
               onChange={(event) =>
                 updateRegistrationDraft(columnName, event.target.value)
@@ -2816,13 +2737,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               onBlur={() => {
                 window.requestAnimationFrame(() => {
                   const activeElement = document.activeElement;
-                  const nextIsRegistrationFocused =
+                  const isStillInRegistrationInput =
                     activeElement instanceof HTMLElement &&
                     activeElement.dataset.registrationInput === 'true';
 
-                  setIsRegistrationFocused(nextIsRegistrationFocused);
-
-                  if (!nextIsRegistrationFocused) {
+                  if (!isStillInRegistrationInput) {
                     finalizeActiveRegistrationDraftEdit();
                   }
                 });
@@ -2914,133 +2833,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       ))}
       <col className="table-scrollbar-spacer-column" />
     </colgroup>
-  );
-  const renderRegistrationRow = () => (
-    <table className={`${tableClassName} data-table-register`}>
-      {renderHeaderColumnGroup()}
-      <tbody>
-        <tr
-          className="register-row"
-          onClick={() => {
-            setSelectedDetailsRow(null);
-            setIsRegistrationRowSelected(true);
-          }}
-        >
-          {orderedColumns.map((column, orderedColumnIndex) => {
-            const value = getRegistrationDraftDisplayValue(column);
-
-            return (
-              <td
-                key={`register-${column}`}
-                className={[
-                  'register-cell',
-                  orderedColumnIndex === 0 ? 'pinned-column' : '',
-                  column === AGE_COLUMN ? 'derived-cell' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={getColumnWidthStyle(column)}
-              >
-                {column !== AGE_COLUMN ? (
-                  <input
-                    key={`${registrationDraftResetKey}-${column}`}
-                    ref={(element) => {
-                      cellInputRefs.current[`register-${orderedColumnIndex}`] =
-                        element;
-                    }}
-                    aria-label={`${column} cadastrar aprendiz`}
-                    data-registration-input="true"
-                    spellCheck={false}
-                    size={Math.max(value.length, 1)}
-                    style={
-                      {
-                        '--edit-input-width': `${Math.max(
-                          value.length + 2,
-                          1,
-                        )}ch`,
-                      } as CSSProperties
-                    }
-                    defaultValue={value}
-                    onFocus={(event) => {
-                      beginRegistrationDraftEdit(column, event.currentTarget.value);
-                      setIsRegistrationFocused(true);
-                    }}
-                    onBlur={() => {
-                      window.requestAnimationFrame(() => {
-                        const activeElement = document.activeElement;
-                        const nextIsRegistrationFocused =
-                          activeElement instanceof HTMLElement &&
-                          activeElement.dataset.registrationInput === 'true';
-
-                        setIsRegistrationFocused(nextIsRegistrationFocused);
-
-                        if (!nextIsRegistrationFocused) {
-                          finalizeActiveRegistrationDraftEdit();
-                        }
-                      });
-                    }}
-                    onChange={(event) =>
-                      updateRegistrationDraft(column, event.target.value)
-                    }
-                    onBeforeInput={handleInputHistoryUndo}
-                    onKeyDown={(event) => {
-                      if (runUndoShortcut(event)) {
-                        return;
-                      }
-
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        void commitRegistrationDraft();
-                        return;
-                      }
-
-                      if (
-                        ![
-                          'ArrowDown',
-                          'ArrowLeft',
-                          'ArrowRight',
-                        ].includes(event.key)
-                      ) {
-                        return;
-                      }
-
-                      event.preventDefault();
-
-                      if (event.key === 'ArrowDown') {
-                        const nextRow = displayedRows[0];
-
-                        if (nextRow) {
-                          window.requestAnimationFrame(() =>
-                            focusCell(nextRow.rowIndex, orderedColumnIndex),
-                          );
-                        }
-
-                        return;
-                      }
-
-                      const nextColumnIndex =
-                        event.key === 'ArrowLeft'
-                          ? Math.max(0, orderedColumnIndex - 1)
-                          : Math.min(
-                              orderedColumns.length - 1,
-                              orderedColumnIndex + 1,
-                            );
-
-                      window.requestAnimationFrame(() =>
-                        focusRegistrationCell(nextColumnIndex),
-                      );
-                    }}
-                  />
-                ) : (
-                  value
-                )}
-              </td>
-            );
-          })}
-          <td className="table-scrollbar-spacer" aria-hidden="true" />
-        </tr>
-      </tbody>
-    </table>
   );
   const getHeaderCellClassName = (
     column: string,
@@ -3207,13 +2999,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                 </tr>
               </thead>
               </table>
-              {isRegistrationMode && renderRegistrationRow()}
             </div>
-            {isRegistrationMode && showRegistrationHint && (
-              <div className="register-row-hint" aria-live="polite">
-                Aperte <kbd>Enter</kbd> para cadastrar
-              </div>
-            )}
             <div
               className="data-table-body-scroll"
               ref={tableBodyScrollRef}
@@ -3244,7 +3030,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                     }
                     onClick={() => {
                       if (!isEditMode) {
-                        setIsRegistrationRowSelected(false);
+                        setIsRegistrationMode(false);
                         setSelectedDetailsRow({ rowIndex, visualIndex });
                       }
                     }}
@@ -3518,7 +3304,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                       className="row-details-actions"
                       aria-label="Ações do aprendiz"
                     >
-                      {!isRegistrationDetailsMode && selectedDetailsRow && (
+                      {isRegistrationDetailsMode ? (
+                        <button
+                          className="row-details-action-button row-details-delete-button"
+                          type="button"
+                          aria-label="Cadastrar aluno"
+                          title="Cadastrar Aluno"
+                          disabled={!hasRegistrationDraftValue}
+                          onClick={() => {
+                            finalizeActiveRegistrationDraftEdit();
+                            void commitRegistrationDraft();
+                          }}
+                        >
+                          <UserPlusIcon />
+                        </button>
+                      ) : selectedDetailsRow ? (
                         <button
                           className="row-details-action-button row-details-delete-button"
                           type="button"
@@ -3528,7 +3328,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                         >
                           <UserXIcon />
                         </button>
-                      )}
+                      ) : null}
                     </footer>
                 </div>
                 <button
@@ -3537,7 +3337,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                   aria-label="Fechar detalhes"
                   onClick={() => {
                     if (isRegistrationDetailsMode) {
-                      setIsRegistrationRowSelected(false);
+                      setIsRegistrationMode(false);
                     } else {
                       setSelectedDetailsRow(null);
                     }
@@ -3689,6 +3489,17 @@ function UserXIcon() {
       <path d="M6 21v-2a4 4 0 0 1 4 -4h3.5" />
       <path d="M15.7 15.9l5.1 5.1" />
       <path d="M20.8 15.9l-5.1 5.1" />
+    </svg>
+  );
+}
+
+function UserPlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
+      <path d="M6 21v-2a4 4 0 0 1 4 -4h4" />
+      <path d="M16 19h6" />
+      <path d="M19 16v6" />
     </svg>
   );
 }

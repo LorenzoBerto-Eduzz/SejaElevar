@@ -1,20 +1,11 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { AprendizesPage } from './features/aprendizes/AprendizesPage';
+import { TurmasPage } from './features/turmas/TurmasPage';
 import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
 import { appTabs } from './shared/navigation/tabs';
 import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
-
-const AprendizesPage = lazy(() =>
-  import('./features/aprendizes/AprendizesPage').then((module) => ({
-    default: module.AprendizesPage,
-  })),
-);
-const TurmasPage = lazy(() =>
-  import('./features/turmas/TurmasPage').then((module) => ({
-    default: module.TurmasPage,
-  })),
-);
 
 const isLocalAppAddress = () => {
   if (typeof window === 'undefined') {
@@ -142,28 +133,24 @@ export function App() {
     }
 
     let isActive = true;
-    let firstFrame = 0;
-    let secondFrame = 0;
+    let frameId = 0;
 
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        if (!isActive) {
-          return;
-        }
+    frameId = window.requestAnimationFrame(() => {
+      if (!isActive) {
+        return;
+      }
 
-        void fetch('/api/app/ready', {
-          method: 'POST',
-          cache: 'no-store',
-        }).catch(() => {
-          // Browser preview can run without the local launcher reveal bridge.
-        });
+      void fetch('/api/app/ready', {
+        method: 'POST',
+        cache: 'no-store',
+      }).catch(() => {
+        // Browser preview can run without the local launcher reveal bridge.
       });
     });
 
     return () => {
       isActive = false;
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
+      window.cancelAnimationFrame(frameId);
     };
   }, [isInitialPageReady, isProviderReady]);
 
@@ -179,14 +166,10 @@ export function App() {
       onTabChange={setActiveTab}
     >
       <div hidden={activeTab !== 'aprendizes'}>
-        <Suspense fallback={null}>
-          <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
-        </Suspense>
+        <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
       </div>
       <div hidden={activeTab !== 'turmas'}>
-        <Suspense fallback={null}>
-          <TurmasPage />
-        </Suspense>
+        <TurmasPage />
       </div>
       {activeTab !== 'aprendizes' && activeTab !== 'turmas' && (
         <FeaturePlaceholderPage

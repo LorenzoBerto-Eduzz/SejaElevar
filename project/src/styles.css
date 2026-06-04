@@ -240,7 +240,7 @@ svg {
 .sidebar-link.active {
   color: var(--brand-active-text);
   background: var(--brand-primary);
-  box-shadow: 0 8px 18px rgba(31, 95, 139, 0.18);
+  box-shadow: none;
 }
 
 .sidebar-link.active svg {
@@ -1270,69 +1270,6 @@ svg {
   background-color: var(--brand-panel, #fff);
 }
 
-.data-table-register tbody tr.register-row td {
-  position: relative;
-  z-index: 7;
-  border-top: 1px solid var(--brand-primary);
-  border-right: 1px solid var(--cell-line-color);
-  border-bottom: 1px solid var(--brand-primary);
-  background-color: var(--brand-panel, #fff);
-}
-
-.data-table-register tbody tr.register-row td:first-child {
-  border-left: 1px solid var(--brand-primary);
-  overflow: visible;
-}
-
-.data-table-register tbody tr.register-row td:last-child {
-  border-right: 1px solid var(--brand-primary);
-}
-
-.data-table-register tbody tr.register-row td:not(:last-child)::after {
-  content: none;
-}
-
-.data-table-register tbody tr.register-row td.pinned-column {
-  position: sticky;
-  left: 0;
-  z-index: 9;
-  background-color: var(--brand-panel, #fff);
-}
-
-.register-row-hint {
-  position: absolute;
-  top: calc(var(--table-header-height, 48px) + var(--table-row-height, 32px) + 6px);
-  left: 10px;
-  z-index: 12;
-  border: 1px solid var(--brand-line);
-  border-radius: 8px;
-  padding: 5px 10px;
-  color: var(--brand-primary);
-  background: var(--brand-tertiary);
-  box-shadow: 0 12px 28px rgba(27, 36, 48, 0.16);
-  font-size: 0.86rem;
-  font-weight: 800;
-  line-height: 1;
-  pointer-events: none;
-}
-
-.register-row-hint kbd {
-  display: inline-grid;
-  place-items: center;
-  min-width: 34px;
-  min-height: 20px;
-  margin: 0 4px;
-  border: 1px solid var(--brand-header-text);
-  border-radius: 5px;
-  padding: 0 7px 1px;
-  color: var(--brand-header-text);
-  background: #000;
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--brand-header-text) 18%, transparent);
-  font: inherit;
-  font-size: 0.8em;
-  font-weight: 700;
-}
-
 .column-heading-label {
   position: relative;
   z-index: 3;
@@ -1708,6 +1645,16 @@ svg {
   color: var(--brand-active-icon);
   background: var(--brand-primary);
   outline: none;
+}
+
+.row-details-action-button:disabled,
+.row-details-action-button:disabled:hover {
+  opacity: 0.3;
+  color: var(--brand-primary);
+  background: var(--brand-panel);
+  cursor: default;
+  outline: none;
+  box-shadow: none;
 }
 
 .row-details-delete-button {
