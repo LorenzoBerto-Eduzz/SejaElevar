@@ -1,4 +1,4 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -424,6 +424,20 @@ internal static class Program
                     );
                 }
 
+                return;
+            }
+
+            if (request.Method == "PUT" && request.Path == "/api/turmas/values")
+            {
+                MarkHeartbeat();
+                await PatchWorkbookValuesAsync(
+                    stream,
+                    request,
+                    appFolder,
+                    "Turmas",
+                    GetTurmasWorkbookControlPath(appFolder),
+                    false
+                );
                 return;
             }
 
@@ -1028,6 +1042,137 @@ internal static class Program
         {
             OnUseFile = targetFileName,
             BackupFile = shouldPreserveOnUseAsBackup && onUsePath is not null
+                ? Path.GetFileName(onUsePath)
+                : control.BackupFile,
+            BackupReason = shouldCaptureSessionStart
+                ? BackupReasonBeforeEdit
+                : control.BackupReason == BackupReasonRestored
+                ? BackupReasonAfterRecovery
+                : control.BackupReason ?? BackupReasonImportOriginal,
+            RecoveryEnabled = true,
+            HasEditingHistory = true,
+            CaptureBackupOnNextSave = false
+        };
+
+        SaveWorkbookControl(appFolder, nextControl, controlPath);
+
+        if (deleteLegacyMetadata)
+        {
+            DeleteLegacyMetadata(appFolder);
+        }
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                fileName = targetFileName,
+                onUseFile = nextControl.OnUseFile,
+                backupFile = nextControl.BackupFile
+            }
+        );
+    }
+
+    private static async Task PatchWorkbookValuesAsync(
+        NetworkStream stream,
+        HttpRequest request,
+        string appFolder,
+        string entityName,
+        string? controlPath = null,
+        bool deleteLegacyMetadata = true
+    )
+    {
+        if (request.Body.Length == 0)
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Valores vazios." });
+            return;
+        }
+
+        WorkbookValuePatchRequest? patchRequest;
+
+        try
+        {
+            patchRequest = JsonSerializer.Deserialize<WorkbookValuePatchRequest>(
+                request.Body
+            );
+        }
+        catch
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Valores invalidos." });
+            return;
+        }
+
+        if (
+            patchRequest?.Columns is null ||
+            patchRequest.Rows is null ||
+            patchRequest.Columns.Count == 0
+        )
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Valores invalidos." });
+            return;
+        }
+
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
+        var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+
+        if (onUsePath is null || !File.Exists(onUsePath))
+        {
+            await WriteJsonAsync(stream, 404, new { error = "Planilha nao importada." });
+            return;
+        }
+
+        var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+        var shouldCaptureMissingBackup = backupPath is null;
+        var shouldCaptureSessionStart = control.CaptureBackupOnNextSave == true;
+        var shouldPreserveOnUseAsBackup = shouldCaptureMissingBackup ||
+            shouldCaptureSessionStart;
+        var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
+        var targetPath = Path.Combine(dadosFolder, targetFileName);
+
+        if (
+            shouldCaptureSessionStart &&
+            backupPath is not null &&
+            !string.Equals(backupPath, onUsePath, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(backupPath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(backupPath)
+        )
+        {
+            File.Delete(backupPath);
+        }
+
+        try
+        {
+            File.Copy(onUsePath, targetPath, true);
+            WorkbookValuePatcher.Patch(targetPath, patchRequest);
+        }
+        catch
+        {
+            if (File.Exists(targetPath))
+            {
+                File.Delete(targetPath);
+            }
+
+            await WriteJsonAsync(stream, 500, new { error = "Nao foi possivel gravar a planilha." });
+            return;
+        }
+
+        if (
+            !shouldPreserveOnUseAsBackup &&
+            !string.Equals(onUsePath, targetPath, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(onUsePath, backupPath, StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(onUsePath)
+        )
+        {
+            File.Delete(onUsePath);
+        }
+
+        var nextControl = new WorkbookControl
+        {
+            OnUseFile = targetFileName,
+            BackupFile = shouldPreserveOnUseAsBackup
                 ? Path.GetFileName(onUsePath)
                 : control.BackupFile,
             BackupReason = shouldCaptureSessionStart

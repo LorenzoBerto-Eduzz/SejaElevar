@@ -26,6 +26,8 @@ Current Aprendizes behavior:
 
 Current Turmas behavior:
 
+- Linked Turmas edits now touch both sides of the relationship. Assigning an Aprendiz to a Turma updates the Aprendizes active workbook, syncs derived `Aprendizes` and `No. de Aprendizes` values into the active Turmas workbook, rebuilds the generated Aprendizes/Turmas data-index entities, and notifies mounted pages. Turmas recovery restores the Turmas backup and then resyncs affected Aprendizes assignment values/indexes from the recovered Turmas data.
+- Turmas value writes go through `/api/turmas/values` and `project/launcher/WorkbookValuePatcher.cs`, an isolated provider helper that patches workbook XML values in place. This keeps `.xlsx` internals out of `Program.cs` and makes future workbook-storage changes easier to replace. The current patcher is best-effort for preserving workbook structure; exact Google Sheets visual styling round-trips are not guaranteed.
 - Turmas is now an active linked-record flow, not just a placeholder table.
 - Import validates required Turmas column labels from `project/src/shared/data/schemas.ts`: `Turma`, `Dia`, `Período`, `Instrutor`, `Sala`, `Disciplina`, `No. de Aprendizes`, and `Aprendizes`. Blank cells are valid and extra columns are preserved.
 - The provider copies the selected workbook directly into `dados/` as `Turmas_hhmmssddmmyy.xlsx` and tracks the active Turmas workbook in `dados/turmas-controle.json`. Older local `dados/turmas.json` metadata can be migrated into the current control file shape.

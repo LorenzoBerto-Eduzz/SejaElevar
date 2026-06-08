@@ -22,6 +22,11 @@ import {
   normalizeColumnsForSchema,
 } from '../../shared/data/schemas';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
+import {
+  handleGlobalUndoShortcut,
+  pushGlobalUndoEntry,
+  registerGlobalUndoController,
+} from '../../shared/undo/globalUndo';
 
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
 const LEGACY_APRENDIZES_STORAGE_KEY = 'sejaelevar.aprendizes.sheet.v1';
@@ -1130,25 +1135,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   }, [isEditMode]);
 
   useEffect(() => {
-    if (!importedSheet) {
-      return;
-    }
-
-    const handleUndoShortcut = (event: globalThis.KeyboardEvent) => {
-      runUndoShortcut(event);
-    };
-
-    window.addEventListener('keydown', handleUndoShortcut, {
-      capture: true,
-    });
-
-    return () =>
-      window.removeEventListener('keydown', handleUndoShortcut, {
-        capture: true,
-      });
-  }, [importedSheet, isEditMode, isRegistrationMode, selectedDetailsRow]);
-
-  useEffect(() => {
     if (isEditMode) {
       setSelectedDetailsRow(null);
       setIsRegistrationMode(false);
@@ -1793,6 +1779,10 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       ...cellUndoStackRef.current,
       entry,
     ].slice(-CELL_UNDO_LIMIT);
+    pushGlobalUndoEntry({
+      originTab: 'aprendizes',
+      ...entry,
+    });
   };
 
   const pushCellUndoEntry = (entry: Omit<CellEditUndoEntry, 'kind'>) => {
@@ -2419,14 +2409,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       | KeyboardEvent<HTMLInputElement>
       | KeyboardEvent<HTMLDivElement>,
   ) => {
-    if (!isUndoShortcut(event)) {
-      return false;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    undoLastCellEditAndSave();
-    return true;
+    return handleGlobalUndoShortcut(event);
   };
 
   const handleInputHistoryUndo = (event: FormEvent<HTMLInputElement>) => {
@@ -2437,8 +2420,25 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
 
     event.preventDefault();
-    undoLastCellEditAndSave();
+    void handleGlobalUndoShortcut({
+      ctrlKey: true,
+      defaultPrevented: false,
+      key: 'z',
+      metaKey: false,
+      preventDefault: () => {},
+      shiftKey: false,
+      stopPropagation: () => {},
+    } as KeyboardEvent<HTMLInputElement>);
   };
+
+  useEffect(
+    () =>
+      registerGlobalUndoController('aprendizes', {
+        beforeUndo: finalizeActiveEditsForUndo,
+        undo: () => undoLastCellEditAndSave(),
+      }),
+    [importedSheet, isRegistrationMode, selectedDetailsRow],
+  );
 
   const focusCell = (rowIndex: number, columnIndex: number) => {
     const columnName = orderedColumns[columnIndex];

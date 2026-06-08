@@ -6,6 +6,10 @@ import type { AppTab } from './shared/navigation/tabs';
 import { appTabs } from './shared/navigation/tabs';
 import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
+import {
+  configureGlobalUndoNavigation,
+  handleGlobalUndoShortcut,
+} from './shared/undo/globalUndo';
 
 const isLocalAppAddress = () => {
   if (typeof window === 'undefined') {
@@ -153,6 +157,24 @@ export function App() {
       window.cancelAnimationFrame(frameId);
     };
   }, [isInitialPageReady, isProviderReady]);
+
+  useEffect(() => {
+    configureGlobalUndoNavigation(() => activeTab, setActiveTab);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      handleGlobalUndoShortcut(event);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, {
+      capture: true,
+    });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, {
+        capture: true,
+      });
+    };
+  }, [activeTab]);
 
   if (!isProviderReady) {
     return null;

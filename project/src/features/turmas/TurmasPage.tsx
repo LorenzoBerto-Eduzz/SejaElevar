@@ -27,6 +27,11 @@ import {
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
+import {
+  handleGlobalUndoShortcut,
+  pushGlobalUndoEntry,
+  registerGlobalUndoController,
+} from '../../shared/undo/globalUndo';
 
 type XlsxModule = typeof import('xlsx');
 type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
@@ -109,6 +114,10 @@ type ActiveStudentEdit = {
   rowIndex: number;
   columnName: string;
   initialValue: string;
+};
+
+type SaveAprendizesOptions = {
+  syncTurmas?: boolean;
 };
 
 type RecoveryReason =
@@ -296,6 +305,14 @@ const getCanonicalDropdownValue = (value: string, options: string[]) => {
   );
 };
 
+const splitStudentsList = (studentsValue: string) =>
+  getUniqueValues(
+    studentsValue
+      .split(',')
+      .map((studentName) => studentName.trim())
+      .filter(Boolean),
+  );
+
 const countListedStudents = (studentsValue: string) => {
   const normalizedValue = studentsValue.trim();
 
@@ -303,16 +320,48 @@ const countListedStudents = (studentsValue: string) => {
     return '0';
   }
 
-  return String(
-    normalizedValue
-      .split(',')
-      .map((studentName) => studentName.trim())
-      .filter(Boolean).length,
-  );
+  return String(splitStudentsList(normalizedValue).length);
 };
 
-const buildStudentsSummary = (students: string[]) =>
-  students.length > 0 ? students.join(', ') : '';
+const sortStudentNames = (students: string[]) =>
+  getUniqueValues(students).sort((leftName, rightName) =>
+    leftName.localeCompare(rightName, 'pt-BR', {
+      sensitivity: 'base',
+    }),
+  );
+
+const buildStudentsSummary = (students: string[]) => {
+  const sortedStudents = sortStudentNames(students);
+
+  return sortedStudents.length > 0 ? sortedStudents.join(', ') : '';
+};
+
+const hasSameSheetData = (leftSheet: SheetTable, rightSheet: SheetTable) => {
+  if (leftSheet.columns.length !== rightSheet.columns.length) {
+    return false;
+  }
+
+  if (
+    leftSheet.columns.some((column, columnIndex) => {
+      return column !== rightSheet.columns[columnIndex];
+    })
+  ) {
+    return false;
+  }
+
+  if (leftSheet.rows.length !== rightSheet.rows.length) {
+    return false;
+  }
+
+  return leftSheet.rows.every((row, rowIndex) => {
+    const rightRow = rightSheet.rows[rowIndex] ?? [];
+
+    return (
+      row.length === rightRow.length &&
+      row.every((cell, columnIndex) => cell === (rightRow[columnIndex] ?? ''))
+    );
+  });
+};
 
 const normalizeWorkbookColumns = (
   rawColumns: string[],
@@ -639,7 +688,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     [turmasSheet],
   );
   const turmaColumnIndex = getColumnIndex(aprendizesSheet, TURMA_COLUMN);
-  const studentNameColumnIndex = getColumnIndex(aprendizesSheet, NAME_COLUMN);
   const selectedStudentRow =
     selectedStudentRowIndex !== null
       ? aprendizesSheet?.rows[selectedStudentRowIndex] ?? null
@@ -647,30 +695,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const shouldShowStudentDetailsPanel = Boolean(
     aprendizesSheet && selectedStudentRow,
   );
-  const studentsByClass = useMemo(() => {
-    const nextStudentsByClass = new Map<string, string[]>();
-
-    if (!aprendizesSheet || turmaColumnIndex < 0 || studentNameColumnIndex < 0) {
-      return nextStudentsByClass;
-    }
-
-    aprendizesSheet.rows.forEach((row) => {
-      const rawTurmaName = row[turmaColumnIndex] || '';
-      const turmaName =
-        getCanonicalDropdownValue(rawTurmaName, turmaNames) ?? rawTurmaName;
-      const studentName = row[studentNameColumnIndex] || '';
-
-      if (!turmaName || !studentName) {
-        return;
-      }
-
-      const turmaStudents = nextStudentsByClass.get(turmaName) ?? [];
-      turmaStudents.push(studentName);
-      nextStudentsByClass.set(turmaName, turmaStudents);
-    });
-
-    return nextStudentsByClass;
-  }, [aprendizesSheet, turmaColumnIndex, studentNameColumnIndex, turmaNames]);
+  const studentsByClass = useMemo(
+    () =>
+      aprendizesSheet
+        ? buildStudentsByClass(aprendizesSheet, turmaNames)
+        : new Map<string, string[]>(),
+    [aprendizesSheet, turmaNames],
+  );
 
   const getAutoAprendizColumnWidth = (column: string) => {
     if (!aprendizesSheet) {
@@ -726,6 +757,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const pushTableUndoEntry = (entry: TableUndoEntry) => {
     undoStackRef.current = [...undoStackRef.current, entry].slice(-1000);
+    pushGlobalUndoEntry({
+      originTab: 'turmas',
+      ...entry,
+    });
   };
 
   const beginStudentEdit = (
@@ -1030,11 +1065,35 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   };
 
   const exportWorkingFile = async () => {
-    if (!hasWorkingSheet) {
+    if (!hasWorkingSheet || !turmasSheet) {
       return;
     }
 
     try {
+      if (aprendizesSheet) {
+        const nextStudentsByClass = buildStudentsByClass(
+          aprendizesSheet,
+          turmaNames,
+        );
+        const nextTurmasSheet = withDerivedTurmasValues(
+          turmasSheet,
+          nextStudentsByClass,
+        );
+
+        if (!hasSameSheetData(nextTurmasSheet, turmasSheet)) {
+          const savedTurmasSheet = await writeTurmasSheetToSourceFile(
+            nextTurmasSheet,
+            nextStudentsByClass,
+          );
+
+          if (!savedTurmasSheet) {
+            throw new Error('sync-before-export-failed');
+          }
+        } else {
+          await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
+        }
+      }
+
       const response = await fetch('/api/turmas/export', {
         method: 'POST',
       });
@@ -1066,7 +1125,12 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       }
 
       await response.json();
-      await loadProviderFile(aprendizesSheet);
+      const recoveredTurmasSheet = await loadProviderFile(aprendizesSheet);
+
+      if (recoveredTurmasSheet) {
+        await syncAprendizesFromRecoveredTurmas(recoveredTurmasSheet);
+      }
+
       await fetchRecoveryInfo();
       setIsRecoveryDialogOpen(false);
       setImportError('');
@@ -1168,7 +1232,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       if (response.status === 404) {
         clearWorkingSheet();
         await persistTurmasDataIndex(null);
-        return;
+        return null;
       }
 
       if (!response.ok) {
@@ -1188,21 +1252,25 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         ...parsedSheet,
         fileName,
       };
+      const nextTurmaNames = getUniqueValues(
+        nextSheet.rows.map((row) => getCellValue(nextSheet, row, TURMA_COLUMN)),
+      );
       const nextStudentsByClass = currentAprendizesSheet
-        ? buildStudentsByClass(currentAprendizesSheet)
+        ? buildStudentsByClass(currentAprendizesSheet, nextTurmaNames)
         : undefined;
 
       setTurmasSheet(nextSheet);
       setImportError('');
       await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
       await fetchRecoveryInfo();
+      return nextSheet;
     } catch (error) {
       clearWorkingSheet();
 
       if (error instanceof MissingRequiredColumnsError) {
         showInvalidImportToast();
         setImportError('');
-        return;
+        return null;
       }
 
       setImportError('Não foi possível ler a planilha de turmas.');
@@ -1442,26 +1510,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     [],
   );
 
-  useEffect(() => {
-    if (!aprendizesSheet) {
-      return;
-    }
-
-    const handleUndoShortcut = (event: globalThis.KeyboardEvent) => {
-      runUndoShortcut(event);
-    };
-
-    window.addEventListener('keydown', handleUndoShortcut, {
-      capture: true,
-    });
-
-    return () => {
-      window.removeEventListener('keydown', handleUndoShortcut, {
-        capture: true,
-      });
-    };
-  }, [aprendizesSheet, selectedStudentRowIndex]);
-
   const importWorkingFile = async (file: File | undefined) => {
     if (!file) {
       return;
@@ -1490,10 +1538,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         ...parsedSheet,
         fileName: storedFileName,
       };
+      const nextTurmaNames = getUniqueValues(
+        nextSheet.rows.map((row) => getCellValue(nextSheet, row, TURMA_COLUMN)),
+      );
+      const nextStudentsByClass = aprendizesSheet
+        ? buildStudentsByClass(aprendizesSheet, nextTurmaNames)
+        : undefined;
 
       setTurmasSheet(nextSheet);
       setImportError('');
-      await persistTurmasDataIndex(nextSheet, studentsByClass);
+      await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
       await fetchRecoveryInfo();
     } catch (error) {
       if (error instanceof MissingRequiredColumnsError) {
@@ -1541,41 +1595,223 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     setAddStudentSearch('');
   };
 
+  const preserveColumnFormulas = (
+    utils: XlsxModule['utils'],
+    previousWorksheet: XlsxWorksheet | undefined,
+    nextWorksheet: XlsxWorksheet,
+    sheet: SheetTable,
+    columnNames: string[],
+  ) => {
+    if (!previousWorksheet) {
+      return;
+    }
+
+    const columnIndexes = columnNames
+      .map((columnName) => getColumnIndex(sheet, columnName))
+      .filter((columnIndex) => columnIndex >= 0);
+
+    if (columnIndexes.length === 0) {
+      return;
+    }
+
+    for (let rowIndex = 0; rowIndex < sheet.rows.length; rowIndex += 1) {
+      columnIndexes.forEach((columnIndex) => {
+        const cellAddress = utils.encode_cell({
+          c: columnIndex,
+          r: rowIndex + 1,
+        });
+        const previousCell = previousWorksheet[cellAddress];
+
+        if (!previousCell?.f) {
+          return;
+        }
+
+        nextWorksheet[cellAddress] = {
+          ...nextWorksheet[cellAddress],
+          ...previousCell,
+        };
+      });
+    }
+  };
+
   const preserveAgeFormulas = (
     utils: XlsxModule['utils'],
     previousWorksheet: XlsxWorksheet | undefined,
     nextWorksheet: XlsxWorksheet,
     sheet: SheetTable,
   ) => {
-    if (!previousWorksheet) {
-      return;
-    }
+    preserveColumnFormulas(utils, previousWorksheet, nextWorksheet, sheet, [
+      AGE_COLUMN,
+    ]);
+  };
 
-    const ageColumnIndex = getColumnIndex(sheet, AGE_COLUMN);
-
-    if (ageColumnIndex < 0) {
-      return;
-    }
-
-    for (let rowIndex = 0; rowIndex < sheet.rows.length; rowIndex += 1) {
-      const cellAddress = utils.encode_cell({
-        c: ageColumnIndex,
-        r: rowIndex + 1,
+  const writeTurmasSheetToSourceFile = async (
+    sheet: SheetTable,
+    nextStudentsByClass?: Map<string, string[]>,
+  ) => {
+    try {
+      const saveResponse = await fetch('/api/turmas/values', {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sheetName: sheet.sheetName,
+          columns: sheet.columns,
+          rows: sheet.rows,
+          formulaColumns: [STUDENTS_COUNT_COLUMN],
+        }),
       });
-      const previousCell = previousWorksheet[cellAddress];
 
-      if (!previousCell?.f) {
-        continue;
+      if (!saveResponse.ok) {
+        throw new Error('save-failed');
       }
 
-      nextWorksheet[cellAddress] = {
-        ...nextWorksheet[cellAddress],
-        ...previousCell,
+      const result = (await saveResponse.json()) as { fileName?: string };
+      const savedSheet = {
+        ...sheet,
+        fileName: result.fileName || sheet.fileName,
       };
+
+      setTurmasSheet(savedSheet);
+      await persistTurmasDataIndex(savedSheet, nextStudentsByClass);
+      await fetchRecoveryInfo();
+      setImportError('');
+      return savedSheet;
+    } catch {
+      setImportError(
+        'A alteração ficou na tela, mas não foi possível gravar em dados.',
+      );
+      return null;
     }
   };
 
-  const writeAprendizesSheetToSourceFile = async (sheet: SheetTable) => {
+  const syncTurmasWorkbookFromAprendizes = async (sheet: SheetTable) => {
+    if (!turmasSheet) {
+      return;
+    }
+
+    const nextStudentsByClass = buildStudentsByClass(sheet, turmaNames);
+    const nextTurmasSheet = withDerivedTurmasValues(
+      turmasSheet,
+      nextStudentsByClass,
+    );
+
+    if (hasSameSheetData(nextTurmasSheet, turmasSheet)) {
+      await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
+      return;
+    }
+
+    await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+  };
+
+  const syncAprendizesFromRecoveredTurmas = async (
+    recoveredTurmasSheet: SheetTable,
+  ) => {
+    if (!aprendizesSheet) {
+      await persistTurmasDataIndex(recoveredTurmasSheet);
+      return;
+    }
+
+    const nameColumnIndex = getColumnIndex(aprendizesSheet, NAME_COLUMN);
+    const currentTurmaColumnIndex = getColumnIndex(aprendizesSheet, TURMA_COLUMN);
+
+    if (nameColumnIndex < 0 || currentTurmaColumnIndex < 0) {
+      await persistTurmasDataIndex(recoveredTurmasSheet);
+      return;
+    }
+
+    const recoveredTurmaNames = getUniqueValues(
+      recoveredTurmasSheet.rows.map((row) =>
+        getCellValue(recoveredTurmasSheet, row, TURMA_COLUMN),
+      ),
+    );
+    const recoveredTurmaKeys = new Set(
+      recoveredTurmaNames.map((turmaName) => normalizeDropdownKey(turmaName)),
+    );
+    const studentAssignmentByName = new Map<string, string>();
+
+    recoveredTurmasSheet.rows.forEach((row) => {
+      const turmaName = getCellValue(recoveredTurmasSheet, row, TURMA_COLUMN);
+      const studentsValue = getCellValue(
+        recoveredTurmasSheet,
+        row,
+        STUDENTS_LIST_COLUMN,
+      );
+
+      if (!turmaName || !studentsValue) {
+        return;
+      }
+
+      splitStudentsList(studentsValue).forEach((studentName) => {
+        const studentKey = normalizeDropdownKey(studentName);
+
+        if (!studentKey || studentAssignmentByName.has(studentKey)) {
+          return;
+        }
+
+        studentAssignmentByName.set(studentKey, turmaName);
+      });
+    });
+
+    let didChange = false;
+    const nextRows = aprendizesSheet.rows.map((row) => {
+      const studentName = row[nameColumnIndex] || '';
+      const studentKey = normalizeDropdownKey(studentName);
+      const recoveredTurmaName = studentAssignmentByName.get(studentKey);
+      const currentTurmaName = row[currentTurmaColumnIndex] || '';
+      const currentCanonicalTurmaName =
+        getCanonicalDropdownValue(currentTurmaName, recoveredTurmaNames) ??
+        currentTurmaName;
+      const shouldClearRecoveredTurma =
+        currentTurmaName !== '' &&
+        recoveredTurmaKeys.has(normalizeDropdownKey(currentCanonicalTurmaName));
+      const nextTurmaName =
+        recoveredTurmaName ??
+        (shouldClearRecoveredTurma ? '' : currentTurmaName);
+
+      if (nextTurmaName === currentTurmaName) {
+        return row;
+      }
+
+      didChange = true;
+      const nextRow = [...row];
+      nextRow[currentTurmaColumnIndex] = nextTurmaName;
+      return nextRow;
+    });
+    const nextAprendizesSheet = didChange
+      ? {
+          ...aprendizesSheet,
+          rows: nextRows,
+        }
+      : aprendizesSheet;
+    const recoveredStudentsByClass = buildStudentsByClass(
+      nextAprendizesSheet,
+      recoveredTurmaNames,
+    );
+
+    if (didChange) {
+      const savedAprendizesSheet = await writeAprendizesSheetToSourceFile(
+        nextAprendizesSheet,
+        { syncTurmas: false },
+      );
+
+      await persistTurmasDataIndex(
+        recoveredTurmasSheet,
+        savedAprendizesSheet
+          ? buildStudentsByClass(savedAprendizesSheet, recoveredTurmaNames)
+          : recoveredStudentsByClass,
+      );
+      return;
+    }
+
+    await persistTurmasDataIndex(recoveredTurmasSheet, recoveredStudentsByClass);
+  };
+
+  const writeAprendizesSheetToSourceFile = async (
+    sheet: SheetTable,
+    options: SaveAprendizesOptions = {},
+  ) => {
     try {
       const { read, utils, write } = await loadXlsx();
       const sourceResponse = await fetch('/api/aprendizes/file', {
@@ -1623,8 +1859,12 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
       setAprendizesSheet(savedSheet);
       await persistAprendizesDataIndex(savedSheet);
+      if (options.syncTurmas !== false) {
+        await syncTurmasWorkbookFromAprendizes(savedSheet);
+      }
       window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
       setImportError('');
+      return savedSheet;
     } catch {
       setImportError(
         'A alteração ficou na tela, mas não foi possível gravar em dados.',
@@ -1686,6 +1926,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       return;
     }
 
+    const previousValue =
+      aprendizesSheet.rows[studentRowIndex]?.[turmaColumnIndex] ?? '';
+
+    if (previousValue === turmaName) {
+      return;
+    }
+
     const nextRows = aprendizesSheet.rows.map((row, rowIndex) => {
       if (rowIndex !== studentRowIndex) {
         return row;
@@ -1700,6 +1947,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       rows: nextRows,
     };
 
+    pushTableUndoEntry({
+      kind: 'cell-edit',
+      rowIndex: studentRowIndex,
+      columnName: TURMA_COLUMN,
+      previousValue,
+      nextValue: turmaName,
+    });
     setAprendizesSheet(nextSheet);
     void writeAprendizesSheetToSourceFile(nextSheet);
   };
@@ -1786,14 +2040,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
   };
 
-  const isUndoShortcut = ({
-    ctrlKey,
-    key,
-    metaKey,
-    shiftKey,
-  }: Pick<KeyboardEvent, 'ctrlKey' | 'key' | 'metaKey' | 'shiftKey'>) =>
-    (ctrlKey || metaKey) && !shiftKey && key.toLowerCase() === 'z';
-
   const runUndoShortcut = (
     event: Pick<
       KeyboardEvent,
@@ -1803,19 +2049,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       | 'metaKey'
       | 'preventDefault'
       | 'shiftKey'
+      | 'stopPropagation'
     >,
   ) => {
-    if (event.defaultPrevented) {
-      return false;
-    }
-
-    if (!isUndoShortcut(event)) {
-      return false;
-    }
-
-    event.preventDefault();
-    undoLastActionAndSave();
-    return true;
+    return handleGlobalUndoShortcut(event);
   };
 
   const handleInputHistoryUndo = (event: FormEvent<HTMLInputElement>) => {
@@ -1826,8 +2063,28 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
 
     event.preventDefault();
-    undoLastActionAndSave();
+    void handleGlobalUndoShortcut({
+      ctrlKey: true,
+      defaultPrevented: false,
+      key: 'z',
+      metaKey: false,
+      preventDefault: () => {},
+      shiftKey: false,
+      stopPropagation: () => {},
+    });
   };
+
+  useEffect(
+    () =>
+      registerGlobalUndoController('turmas', {
+        beforeUndo: commitActiveStudentEditForUndo,
+        undo: () => {
+          undoLastActionAndSave();
+          return true;
+        },
+      }),
+    [aprendizesSheet, selectedStudentRowIndex],
+  );
 
   const hasWorkingSheet = Boolean(turmasSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
@@ -2362,7 +2619,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   );
 }
 
-const buildStudentsByClass = (sheet: SheetTable) => {
+const buildStudentsByClass = (sheet: SheetTable, turmaNames: string[] = []) => {
   const turmaColumnIndex = getColumnIndex(sheet, TURMA_COLUMN);
   const studentNameColumnIndex = getColumnIndex(sheet, NAME_COLUMN);
   const nextStudentsByClass = new Map<string, string[]>();
@@ -2372,7 +2629,9 @@ const buildStudentsByClass = (sheet: SheetTable) => {
   }
 
   sheet.rows.forEach((row) => {
-    const turmaName = row[turmaColumnIndex] || '';
+    const rawTurmaName = row[turmaColumnIndex] || '';
+    const turmaName =
+      getCanonicalDropdownValue(rawTurmaName, turmaNames) ?? rawTurmaName;
     const studentName = row[studentNameColumnIndex] || '';
 
     if (!turmaName || !studentName) {
