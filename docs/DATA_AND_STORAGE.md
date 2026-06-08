@@ -16,22 +16,22 @@ Current Aprendizes behavior:
 - Importing asks only for the source `.xlsx` file.
 - The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
 - Import validates required Aprendizes column labels from `project/src/shared/data/schemas.ts`. Blank cells are valid and extra columns are preserved as custom variables, but missing required labels block import.
-- The app then uses `dados/controle.json` to track the active workbook, one protected backup, its reason, and whether the current working data chain was edited in an earlier app session. Importing or recovering starts a new working data chain. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
+- The app then uses `dados/controle.json` to track the active Aprendizes workbook. Recoverable app-state checkpoints are tracked globally in `dados/controle-global.json` plus `dados/checkpoints/<checkpoint-id>/`. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
 - When a saved edit changes data, the provider writes a fresh timestamped `Aprendizes_hhmmssddmmyy.xlsx` active file so the filename reflects the most recent update. The replaced active file is deleted unless it is the protected backup.
-- Importing when no previous active workbook exists records the imported workbook as both active and protected original. Recovery stays disabled until an edit makes the active state differ from that original.
-- Importing a new workbook while another workbook is active makes the prior active file the protected backup, deletes the older tracked backup if needed, and makes the imported workbook active. Recovery is immediately available for the state before import.
-- The first editing session after an import or recovery preserves its explicit backup. Once the same working chain has been edited in an earlier app session, the first edit in a later session replaces the backup with the state immediately before edits in the current session; later edits in that same session keep it.
-- `dados/` should normally contain the current on-use workbook, one backup workbook when available, `controle.json`, and `.gitkeep`.
-- Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. The current undo stack limit is 1000 cell edits.
+- Importing when no previous app data exists records the imported state as a disabled original checkpoint. Recovery stays disabled until an edit makes the active state differ from that original.
+- Importing any workbook while app data already exists captures the previous whole-app data state as the global checkpoint and makes recovery immediately available for the state before import.
+- The first editing session after an import or recovery preserves its explicit checkpoint. Once the same app data chain has been edited in an earlier app session, the first edit in a later session replaces the checkpoint with the whole-app state immediately before edits in the current session; later edits in that same session keep it.
+- `dados/` should normally contain current timestamped on-use workbooks, per-workbook control files, `controle-global.json`, `checkpoints/`, `sistema/`, and `.gitkeep`.
+- Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. Imports are global undo boundaries: pressing `Ctrl+Z` immediately after an import recovers the previous global checkpoint and restores the previous undo stack; once the user edits after the import or imports again, the old pre-import detailed undo history is discarded.
 
 Current Turmas behavior:
 
-- Linked Turmas edits now touch both sides of the relationship. Assigning an Aprendiz to a Turma updates the Aprendizes active workbook, syncs derived `Aprendizes` and `No. de Aprendizes` values into the active Turmas workbook, rebuilds the generated Aprendizes/Turmas data-index entities, and notifies mounted pages. Turmas recovery restores the Turmas backup and then resyncs affected Aprendizes assignment values/indexes from the recovered Turmas data.
+- Linked Turmas edits now touch both sides of the relationship. Assigning an Aprendiz to a Turma updates the Aprendizes active workbook, syncs derived `Aprendizes` and `No. de Aprendizes` values into the active Turmas workbook, rebuilds the generated Aprendizes/Turmas data-index entities, and notifies mounted pages. Recovery is now global, so Turmas uses the same whole-app checkpoint as Aprendizes instead of an independent per-file recovery meaning.
 - Turmas value writes go through `/api/turmas/values` and `project/launcher/WorkbookValuePatcher.cs`, an isolated provider helper that patches workbook XML values in place. This keeps `.xlsx` internals out of `Program.cs` and makes future workbook-storage changes easier to replace. The current patcher is best-effort for preserving workbook structure; exact Google Sheets visual styling round-trips are not guaranteed.
 - Turmas is now an active linked-record flow, not just a placeholder table.
 - Import validates required Turmas column labels from `project/src/shared/data/schemas.ts`: `Turma`, `Dia`, `Período`, `Instrutor`, `Sala`, `Disciplina`, `No. de Aprendizes`, and `Aprendizes`. Blank cells are valid and extra columns are preserved.
 - The provider copies the selected workbook directly into `dados/` as `Turmas_hhmmssddmmyy.xlsx` and tracks the active Turmas workbook in `dados/turmas-controle.json`. Older local `dados/turmas.json` metadata can be migrated into the current control file shape.
-- Turmas supports import, export, backup inspection, and recovery through Turmas-specific provider endpoints. Recovery uses the same one-slot reversible backup model as Aprendizes, but with independent Turmas control metadata.
+- Turmas supports import, export, and provider-side value writes through Turmas-specific provider endpoints. Recovery UI uses the global `/api/recovery` endpoint and whole-app checkpoint metadata.
 - The Turmas page displays imported Turmas as expandable groups. Each group can show the Aprendizes currently assigned to that Turma, using `Aprendizes.Turma` as the preferred relationship source.
 - `+ Adicionar Aprendiz` opens a searchable picker of available Aprendizes and writes the selected Turma value back into the Aprendizes workbook, then refreshes the Aprendizes generated data index and notifies mounted pages through the shared `sejaelevar:aprendizes-data-changed` event.
 - The Turmas student details popup can edit Aprendizes fields from inside the Turmas page. Its `Turma` field uses canonical dropdown matching against active Turmas names, and `Descadastrar Aprendiz` removes the selected Aprendiz row through the normal save/index path.
@@ -109,18 +109,24 @@ For app data consistency, the recommended source of truth for "which apprentices
 
 Day/period behavior direction: `Dia` is a dropdown of weekdays or defined day labels. `Período` is a dropdown filtered by the selected `Dia`. Period options do not currently need their own main app tab; they can be configured in a future settings/subtool area, with an affordance to add a new period from the dropdown flow.
 
-`Recuperar Dados` uses one reversible backup slot. Pressing it swaps the tracked active and backup workbooks instead of copying or deleting either one. The state active immediately before recovery therefore becomes the recovery target for reversing that action. Recovery stays enabled after a recovery while the two tracked workbooks differ.
+## Global Recovery Checkpoints
+
+`Recuperar Dados` is a whole-app checkpoint, not a per-tab or per-file backup. The provider stores current checkpoint metadata in `dados/controle-global.json` and checkpoint workbooks under `dados/checkpoints/<checkpoint-id>/`.
+
+A checkpoint currently contains copies of the active Aprendizes and Turmas workbooks when those workbooks exist. Future data tabs should join this checkpoint through the provider workbook-source list instead of creating independent recovery meanings.
+
+Pressing `Recuperar Dados` restores the checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible.
 
 Current normal popup messages are:
 
-- First imported workbook after its first edit: `Recupere os dados originais da planilha importada.`
-- Existing active workbook replaced by a new import: `Recupere os dados anteriores à última importação.`
-- Immediately after a recovery swap: `Recupere os dados para como estavam antes da última recuperação.`
+- First imported app-data state after its first edit: `Recupere os dados para como estavam quando foram importados pela primeira vez.`
+- Existing app data replaced by a new import: `Recupere os dados para como estavam antes da última importação.`
+- Immediately after a recovery: `Recupere os dados para como estavam antes da última recuperação.`
 - A later editing session has just captured the state before its current edits: `Recupere os dados para como estavam antes de edições nesta sessão.`
 - That editing-session checkpoint is viewed after reopening without a newer edit: `Recupere os dados para como estavam antes da última sessão com edições.`
-- No workbook exists, or an initial import has not yet been edited: the toolbar button stays disabled.
+- No app data exists, or an initial import has not yet been edited: the toolbar button stays disabled.
 
-Older local development metadata may retain a legacy recovery message until a new import or recovery enters the current flow.
+Importing a workbook is also a global undo boundary. `Ctrl+Z` immediately after import restores the previous checkpoint and previous undo stack; once the user edits after the import or imports again, the old pre-import detailed undo history is discarded.
 
 The first app should focus on useful operations rather than fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from selected data and templates.
 

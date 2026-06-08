@@ -20,6 +20,7 @@ internal static class Program
     private const string BackupReasonBeforeRecovery = "before_recovery";
     private const string BackupReasonAfterRecovery = "after_recovery";
     private const string BackupReasonRestored = "restored";
+    private const string GlobalCheckpointFolderName = "checkpoints";
     private const double DefaultZoomFactor = 1.1;
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
@@ -61,6 +62,7 @@ internal static class Program
         MigrateLegacyPlanilhasFolder(appFolder);
         StartWorkbookSession(appFolder);
         StartTurmasWorkbookSession(appFolder);
+        StartGlobalDataSession(appFolder);
         try
         {
             var (listener, port) = BindListener();
@@ -323,6 +325,20 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "GET" && request.Path == "/api/recovery")
+            {
+                MarkHeartbeat();
+                await ServeGlobalRecoveryInfoAsync(stream, appFolder);
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/recovery")
+            {
+                MarkHeartbeat();
+                await RecoverGlobalCheckpointAsync(stream, appFolder);
+                return;
+            }
+
             const string dataIndexEntityPath = "/api/data-index/entities/";
             if (
                 request.Method == "PUT" &&
@@ -342,38 +358,28 @@ internal static class Program
             if (request.Method == "GET" && request.Path == "/api/aprendizes/backup")
             {
                 MarkHeartbeat();
-                await ServeBackupInfoAsync(stream, appFolder);
+                await ServeGlobalRecoveryInfoAsync(stream, appFolder);
                 return;
             }
 
             if (request.Method == "GET" && request.Path == "/api/turmas/backup")
             {
                 MarkHeartbeat();
-                await ServeBackupInfoAsync(
-                    stream,
-                    appFolder,
-                    "Turmas",
-                    GetTurmasWorkbookControlPath(appFolder)
-                );
+                await ServeGlobalRecoveryInfoAsync(stream, appFolder);
                 return;
             }
 
             if (request.Method == "POST" && request.Path == "/api/aprendizes/recover")
             {
                 MarkHeartbeat();
-                await RecoverWorkbookBackupAsync(stream, appFolder);
+                await RecoverGlobalCheckpointAsync(stream, appFolder);
                 return;
             }
 
             if (request.Method == "POST" && request.Path == "/api/turmas/recover")
             {
                 MarkHeartbeat();
-                await RecoverWorkbookBackupAsync(
-                    stream,
-                    appFolder,
-                    GetTurmasWorkbookControlPath(appFolder),
-                    false
-                );
+                await RecoverGlobalCheckpointAsync(stream, appFolder);
                 return;
             }
 
@@ -858,12 +864,21 @@ internal static class Program
         var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
         var previousOnUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
         var previousBackupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+        var hadActiveAppDataBeforeImport = GetActiveWorkbookSnapshots(
+            appFolder,
+            GetWorkbookSources(appFolder)
+        ).Any();
         var importedFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, importedFileName);
 
         if (deleteLegacyMetadata)
         {
             DeleteLegacyMetadata(appFolder);
+        }
+
+        if (hadActiveAppDataBeforeImport)
+        {
+            CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeImport, true);
         }
 
         await File.WriteAllBytesAsync(targetPath, request.Body);
@@ -893,6 +908,15 @@ internal static class Program
         };
 
         SaveWorkbookControl(appFolder, nextControl, controlPath);
+
+        if (!hadActiveAppDataBeforeImport)
+        {
+            CaptureGlobalCheckpoint(appFolder, BackupReasonImportOriginal, false);
+        }
+        else
+        {
+            MarkGlobalCheckpointEdited(appFolder);
+        }
 
         await WriteJsonAsync(
             stream,
@@ -1014,6 +1038,8 @@ internal static class Program
         var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
 
+        CaptureGlobalCheckpointBeforeEdit(appFolder);
+
         if (
             shouldCaptureSessionStart &&
             backupPath is not null &&
@@ -1055,6 +1081,7 @@ internal static class Program
         };
 
         SaveWorkbookControl(appFolder, nextControl, controlPath);
+        MarkGlobalCheckpointEdited(appFolder);
 
         if (deleteLegacyMetadata)
         {
@@ -1132,6 +1159,8 @@ internal static class Program
         var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
 
+        CaptureGlobalCheckpointBeforeEdit(appFolder);
+
         if (
             shouldCaptureSessionStart &&
             backupPath is not null &&
@@ -1186,6 +1215,7 @@ internal static class Program
         };
 
         SaveWorkbookControl(appFolder, nextControl, controlPath);
+        MarkGlobalCheckpointEdited(appFolder);
 
         if (deleteLegacyMetadata)
         {
@@ -1294,6 +1324,171 @@ internal static class Program
                 backupFile = nextControl.BackupFile
             }
         );
+    }
+
+    private static async Task ServeGlobalRecoveryInfoAsync(
+        NetworkStream stream,
+        string appFolder
+    )
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+        var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
+        var createdAt = ParseIsoDateTime(control.CreatedAt);
+        var canRecover = checkpointPath is not null &&
+            Directory.Exists(checkpointPath) &&
+            Directory.EnumerateFiles(checkpointPath, "*.xlsx", SearchOption.TopDirectoryOnly).Any() &&
+            control.RecoveryEnabled == true;
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                available = checkpointPath is not null && Directory.Exists(checkpointPath),
+                canRecover,
+                fileName = (string?)null,
+                label = "Dados",
+                updatedAt = control.CreatedAt,
+                formattedUpdatedAt = createdAt is null
+                    ? null
+                    : FormatBackupDateTime(createdAt.Value),
+                reason = NormalizeBackupReason(control.Reason)
+            }
+        );
+    }
+
+    private static async Task RecoverGlobalCheckpointAsync(
+        NetworkStream stream,
+        string appFolder
+    )
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+        var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
+
+        if (
+            checkpointPath is null ||
+            !Directory.Exists(checkpointPath) ||
+            control.RecoveryEnabled != true
+        )
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Nenhum backup disponivel." });
+            return;
+        }
+
+        var sources = GetWorkbookSources(appFolder);
+        var activeSnapshots = GetActiveWorkbookSnapshots(appFolder, sources).ToList();
+        var reverseCheckpointId = CreateCheckpointId();
+        var reverseCheckpointPath = Path.Combine(
+            GetGlobalCheckpointsFolder(appFolder),
+            reverseCheckpointId
+        );
+
+        try
+        {
+            if (activeSnapshots.Count > 0)
+            {
+                Directory.CreateDirectory(reverseCheckpointPath);
+
+                foreach (var snapshot in activeSnapshots)
+                {
+                    File.Copy(
+                        snapshot.Path,
+                        Path.Combine(reverseCheckpointPath, snapshot.CheckpointFileName),
+                        true
+                    );
+                }
+
+                WriteCheckpointManifest(
+                    reverseCheckpointPath,
+                    BackupReasonBeforeRecovery,
+                    activeSnapshots
+                );
+            }
+
+            foreach (var source in sources)
+            {
+                var checkpointFile = Path.Combine(
+                    checkpointPath,
+                    source.CheckpointFileName
+                );
+
+                if (!File.Exists(checkpointFile))
+                {
+                    continue;
+                }
+
+                var currentControl = LoadWorkbookControl(
+                    appFolder,
+                    source.ControlPath,
+                    source.InferKnownWorkbooks
+                );
+                var currentPath = ResolveWorkbookPath(appFolder, currentControl.OnUseFile);
+                var restoredFileName = GetUniqueTimestampedWorkbookName(
+                    GetDadosFolder(appFolder),
+                    source.EntityName
+                );
+                var restoredPath = Path.Combine(GetDadosFolder(appFolder), restoredFileName);
+
+                File.Copy(checkpointFile, restoredPath, true);
+
+                if (
+                    currentPath is not null &&
+                    File.Exists(currentPath) &&
+                    !activeSnapshots.Any(snapshot =>
+                        string.Equals(snapshot.Path, currentPath, StringComparison.OrdinalIgnoreCase)
+                    )
+                )
+                {
+                    File.Delete(currentPath);
+                }
+
+                SaveWorkbookControl(
+                    appFolder,
+                    new WorkbookControl
+                    {
+                        OnUseFile = restoredFileName,
+                        BackupFile = null,
+                        BackupReason = null,
+                        RecoveryEnabled = false,
+                        HasEditingHistory = false,
+                        CaptureBackupOnNextSave = false
+                    },
+                    source.ControlPath
+                );
+            }
+
+            if (!string.Equals(checkpointPath, reverseCheckpointPath, StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.Delete(checkpointPath, true);
+            }
+
+            SaveGlobalCheckpointControl(
+                appFolder,
+                new GlobalCheckpointControl
+                {
+                    CheckpointId = activeSnapshots.Count > 0 ? reverseCheckpointId : null,
+                    Reason = activeSnapshots.Count > 0 ? BackupReasonBeforeRecovery : null,
+                    CreatedAt = activeSnapshots.Count > 0 ? DateTime.Now.ToString("O") : null,
+                    RecoveryEnabled = activeSnapshots.Count > 0,
+                    HasEditingHistory = false,
+                    CaptureBackupOnNextSave = false
+                }
+            );
+
+            await WriteJsonAsync(
+                stream,
+                200,
+                new
+                {
+                    ok = true,
+                    checkpointId = activeSnapshots.Count > 0 ? reverseCheckpointId : null
+                }
+            );
+        }
+        catch
+        {
+            await WriteJsonAsync(stream, 500, new { error = "Nao foi possivel recuperar os dados." });
+        }
     }
 
     private static async Task ServeStaticAsync(
@@ -1411,6 +1606,16 @@ internal static class Program
     private static string GetTurmasWorkbookControlPath(string appFolder)
     {
         return Path.Combine(GetDadosFolder(appFolder), "turmas-controle.json");
+    }
+
+    private static string GetGlobalCheckpointControlPath(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), "controle-global.json");
+    }
+
+    private static string GetGlobalCheckpointsFolder(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), GlobalCheckpointFolderName);
     }
 
     private static string GetDataSystemFolder(string appFolder)
@@ -1547,6 +1752,268 @@ internal static class Program
 
         control.CaptureBackupOnNextSave = control.HasEditingHistory == true;
         SaveWorkbookControl(appFolder, control, controlPath);
+    }
+
+    private static void StartGlobalDataSession(string appFolder)
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+
+        if (control.Reason == BackupReasonBeforeEdit)
+        {
+            control.Reason = BackupReasonBeforeSessionEdit;
+        }
+
+        control.CaptureBackupOnNextSave = control.HasEditingHistory == true;
+        SaveGlobalCheckpointControl(appFolder, control);
+    }
+
+    private static void CaptureGlobalCheckpointBeforeEdit(string appFolder)
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+        var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
+        var checkpointMissing = checkpointPath is null || !Directory.Exists(checkpointPath);
+
+        if (checkpointMissing || control.CaptureBackupOnNextSave == true)
+        {
+            CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeEdit, true);
+            return;
+        }
+
+        if (control.RecoveryEnabled != true)
+        {
+            control.RecoveryEnabled = true;
+            SaveGlobalCheckpointControl(appFolder, control);
+        }
+    }
+
+    private static void MarkGlobalCheckpointEdited(string appFolder)
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+
+        if (control.CheckpointId is null)
+        {
+            return;
+        }
+
+        control.RecoveryEnabled = true;
+        control.HasEditingHistory = true;
+        control.CaptureBackupOnNextSave = false;
+        SaveGlobalCheckpointControl(appFolder, control);
+    }
+
+    private static void CaptureGlobalCheckpoint(
+        string appFolder,
+        string reason,
+        bool recoveryEnabled
+    )
+    {
+        var sources = GetWorkbookSources(appFolder);
+        var snapshots = GetActiveWorkbookSnapshots(appFolder, sources).ToList();
+
+        if (snapshots.Count == 0)
+        {
+            return;
+        }
+
+        var previousControl = LoadGlobalCheckpointControl(appFolder);
+        var previousCheckpointPath = ResolveGlobalCheckpointPath(
+            appFolder,
+            previousControl.CheckpointId
+        );
+        var checkpointId = CreateCheckpointId();
+        var checkpointPath = Path.Combine(GetGlobalCheckpointsFolder(appFolder), checkpointId);
+
+        Directory.CreateDirectory(checkpointPath);
+
+        foreach (var snapshot in snapshots)
+        {
+            File.Copy(
+                snapshot.Path,
+                Path.Combine(checkpointPath, snapshot.CheckpointFileName),
+                true
+            );
+        }
+
+        WriteCheckpointManifest(checkpointPath, reason, snapshots);
+
+        if (
+            previousCheckpointPath is not null &&
+            Directory.Exists(previousCheckpointPath) &&
+            !string.Equals(previousCheckpointPath, checkpointPath, StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            Directory.Delete(previousCheckpointPath, true);
+        }
+
+        SaveGlobalCheckpointControl(
+            appFolder,
+            new GlobalCheckpointControl
+            {
+                CheckpointId = checkpointId,
+                Reason = reason,
+                CreatedAt = DateTime.Now.ToString("O"),
+                RecoveryEnabled = recoveryEnabled,
+                HasEditingHistory = recoveryEnabled,
+                CaptureBackupOnNextSave = false
+            }
+        );
+    }
+
+    private static IEnumerable<WorkbookSnapshot> GetActiveWorkbookSnapshots(
+        string appFolder,
+        IEnumerable<WorkbookSource> sources
+    )
+    {
+        foreach (var source in sources)
+        {
+            var control = LoadWorkbookControl(
+                appFolder,
+                source.ControlPath,
+                source.InferKnownWorkbooks
+            );
+            var workbookPath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+
+            if (workbookPath is null || !File.Exists(workbookPath))
+            {
+                continue;
+            }
+
+            yield return new WorkbookSnapshot(
+                source.EntityId,
+                source.EntityName,
+                source.CheckpointFileName,
+                Path.GetFileName(workbookPath),
+                workbookPath
+            );
+        }
+    }
+
+    private static WorkbookSource[] GetWorkbookSources(string appFolder)
+    {
+        return
+        [
+            new WorkbookSource(
+                "aprendizes",
+                "Aprendizes",
+                "Aprendizes.xlsx",
+                GetWorkbookControlPath(appFolder),
+                true
+            ),
+            new WorkbookSource(
+                "turmas",
+                "Turmas",
+                "Turmas.xlsx",
+                GetTurmasWorkbookControlPath(appFolder),
+                false
+            )
+        ];
+    }
+
+    private static void WriteCheckpointManifest(
+        string checkpointPath,
+        string reason,
+        IEnumerable<WorkbookSnapshot> snapshots
+    )
+    {
+        var manifest = new
+        {
+            schemaVersion = 1,
+            reason,
+            createdAt = DateTime.Now.ToString("O"),
+            files = snapshots.Select(snapshot => new
+            {
+                entityId = snapshot.EntityId,
+                entityName = snapshot.EntityName,
+                checkpointFileName = snapshot.CheckpointFileName,
+                sourceFileName = snapshot.SourceFileName
+            })
+        };
+
+        File.WriteAllText(
+            Path.Combine(checkpointPath, "checkpoint.json"),
+            JsonSerializer.Serialize(manifest, PrettyUtf8JsonOptions),
+            Encoding.UTF8
+        );
+    }
+
+    private static GlobalCheckpointControl LoadGlobalCheckpointControl(string appFolder)
+    {
+        GlobalCheckpointControl? control = null;
+        var controlPath = GetGlobalCheckpointControlPath(appFolder);
+
+        try
+        {
+            if (File.Exists(controlPath))
+            {
+                control = JsonSerializer.Deserialize<GlobalCheckpointControl>(
+                    File.ReadAllText(controlPath)
+                );
+            }
+        }
+        catch
+        {
+            control = null;
+        }
+
+        control ??= new GlobalCheckpointControl();
+        control.Reason = NormalizeBackupReason(control.Reason);
+
+        if (ResolveGlobalCheckpointPath(appFolder, control.CheckpointId) is null)
+        {
+            control.CheckpointId = null;
+            control.Reason = null;
+            control.CreatedAt = null;
+            control.RecoveryEnabled = false;
+            control.HasEditingHistory = false;
+            control.CaptureBackupOnNextSave = false;
+        }
+
+        control.RecoveryEnabled ??= control.CheckpointId is not null;
+        control.HasEditingHistory ??= control.RecoveryEnabled == true;
+        control.CaptureBackupOnNextSave ??= false;
+        SaveGlobalCheckpointControl(appFolder, control);
+        return control;
+    }
+
+    private static void SaveGlobalCheckpointControl(
+        string appFolder,
+        GlobalCheckpointControl control
+    )
+    {
+        var dadosFolder = GetDadosFolder(appFolder);
+        Directory.CreateDirectory(dadosFolder);
+        File.WriteAllText(
+            GetGlobalCheckpointControlPath(appFolder),
+            JsonSerializer.Serialize(control, PrettyUtf8JsonOptions),
+            Encoding.UTF8
+        );
+    }
+
+    private static string? ResolveGlobalCheckpointPath(string appFolder, string? checkpointId)
+    {
+        if (string.IsNullOrWhiteSpace(checkpointId))
+        {
+            return null;
+        }
+
+        var safeCheckpointId = Path.GetFileName(checkpointId);
+
+        if (string.IsNullOrWhiteSpace(safeCheckpointId))
+        {
+            return null;
+        }
+
+        var checkpointPath = Path.Combine(
+            GetGlobalCheckpointsFolder(appFolder),
+            safeCheckpointId
+        );
+
+        return Directory.Exists(checkpointPath) ? checkpointPath : null;
+    }
+
+    private static string CreateCheckpointId()
+    {
+        return DateTime.Now.ToString("yyyyMMddHHmmssfff");
     }
 
     private static void StartTurmasWorkbookSession(string appFolder)
@@ -1844,6 +2311,13 @@ internal static class Program
         return $"{dateTime:HH}h{dateTime:mm}m{dateTime:ss}s {dateTime:dd/MM/yy}";
     }
 
+    private static DateTime? ParseIsoDateTime(string? value)
+    {
+        return DateTime.TryParse(value, out var parsedDateTime)
+            ? parsedDateTime
+            : null;
+    }
+
     private static void MigrateLegacyPlanilhasFolder(string appFolder)
     {
         try
@@ -1981,6 +2455,32 @@ internal static class Program
         public bool? HasEditingHistory { get; set; }
         public bool? CaptureBackupOnNextSave { get; set; }
     }
+
+    private sealed class GlobalCheckpointControl
+    {
+        public string? CheckpointId { get; set; }
+        public string? Reason { get; set; }
+        public string? CreatedAt { get; set; }
+        public bool? RecoveryEnabled { get; set; }
+        public bool? HasEditingHistory { get; set; }
+        public bool? CaptureBackupOnNextSave { get; set; }
+    }
+
+    private sealed record WorkbookSource(
+        string EntityId,
+        string EntityName,
+        string CheckpointFileName,
+        string ControlPath,
+        bool InferKnownWorkbooks
+    );
+
+    private sealed record WorkbookSnapshot(
+        string EntityId,
+        string EntityName,
+        string CheckpointFileName,
+        string SourceFileName,
+        string Path
+    );
 
     private sealed class SimpleWorkbookMeta
     {

@@ -12,6 +12,7 @@ type GlobalUndoController = {
 };
 
 const GLOBAL_UNDO_LIMIT = 1000;
+const GLOBAL_BOUNDARY_UNDO_KINDS = new Set(['global-import', 'global-recovery']);
 
 let undoStack: GlobalUndoEntry[] = [];
 const controllers = new Map<AppTab, GlobalUndoController>();
@@ -45,7 +46,39 @@ export const pushGlobalUndoEntry = (entry: GlobalUndoEntry) => {
     return;
   }
 
+  if (GLOBAL_BOUNDARY_UNDO_KINDS.has(undoStack.at(-1)?.kind ?? '')) {
+    undoStack = [];
+  }
+
   undoStack = [...undoStack, entry].slice(-GLOBAL_UNDO_LIMIT);
+};
+
+export const getGlobalUndoBoundarySnapshot = () => {
+  if (GLOBAL_BOUNDARY_UNDO_KINDS.has(undoStack.at(-1)?.kind ?? '')) {
+    return [];
+  }
+
+  return undoStack.slice();
+};
+
+export const pushGlobalBoundaryUndoEntry = (
+  entry: GlobalUndoEntry,
+  previousUndoStack: GlobalUndoEntry[],
+) => {
+  if (isRunningUndo) {
+    return;
+  }
+
+  undoStack = [
+    {
+      ...entry,
+      previousUndoStack: previousUndoStack.slice(-GLOBAL_UNDO_LIMIT),
+    },
+  ];
+};
+
+export const replaceGlobalUndoStack = (entries: GlobalUndoEntry[]) => {
+  undoStack = entries.slice(-GLOBAL_UNDO_LIMIT);
 };
 
 const isUndoShortcut = ({

@@ -28,9 +28,13 @@ import {
 } from '../../shared/data/schemas';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
 import {
+  getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
+  pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
+  replaceGlobalUndoStack,
   registerGlobalUndoController,
+  type GlobalUndoEntry,
 } from '../../shared/undo/globalUndo';
 
 type XlsxModule = typeof import('xlsx');
@@ -1047,7 +1051,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const fetchRecoveryInfo = async () => {
     try {
-      const response = await fetch('/api/turmas/backup', {
+      const response = await fetch('/api/recovery', {
         cache: 'no-store',
       });
 
@@ -1108,6 +1112,22 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
   };
 
+  const recoverGlobalData = async () => {
+    const response = await fetch('/api/recovery', {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      throw new Error('recover-failed');
+    }
+
+    await response.json();
+    const nextAprendizesSheet = await loadAprendizesProviderFile();
+    await loadProviderFile(nextAprendizesSheet);
+    await fetchRecoveryInfo();
+    setImportError('');
+  };
+
   const recoverBackup = async () => {
     if (!recoveryInfo?.canRecover || isRecoveringBackup) {
       return;
@@ -1116,24 +1136,8 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     setIsRecoveringBackup(true);
 
     try {
-      const response = await fetch('/api/turmas/recover', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error('recover-failed');
-      }
-
-      await response.json();
-      const recoveredTurmasSheet = await loadProviderFile(aprendizesSheet);
-
-      if (recoveredTurmasSheet) {
-        await syncAprendizesFromRecoveredTurmas(recoveredTurmasSheet);
-      }
-
-      await fetchRecoveryInfo();
+      await recoverGlobalData();
       setIsRecoveryDialogOpen(false);
-      setImportError('');
     } catch {
       setImportError('Não foi possível recuperar os dados do backup.');
     } finally {
@@ -1516,6 +1520,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
 
     try {
+      const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const parsedSheet = await readSheetFile(file, TURMAS_REQUIRED_COLUMNS);
       const response = await fetch('/api/turmas/import', {
         method: 'POST',
@@ -1548,7 +1553,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       setTurmasSheet(nextSheet);
       setImportError('');
       await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
-      await fetchRecoveryInfo();
+      const nextRecoveryInfo = await fetchRecoveryInfo();
+      if (nextRecoveryInfo?.canRecover) {
+        pushGlobalBoundaryUndoEntry(
+          {
+            originTab: 'turmas',
+            kind: 'global-import',
+          },
+          previousUndoStack,
+        );
+      }
     } catch (error) {
       if (error instanceof MissingRequiredColumnsError) {
         showInvalidImportToast();
@@ -1703,109 +1717,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
 
     await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
-  };
-
-  const syncAprendizesFromRecoveredTurmas = async (
-    recoveredTurmasSheet: SheetTable,
-  ) => {
-    if (!aprendizesSheet) {
-      await persistTurmasDataIndex(recoveredTurmasSheet);
-      return;
-    }
-
-    const nameColumnIndex = getColumnIndex(aprendizesSheet, NAME_COLUMN);
-    const currentTurmaColumnIndex = getColumnIndex(aprendizesSheet, TURMA_COLUMN);
-
-    if (nameColumnIndex < 0 || currentTurmaColumnIndex < 0) {
-      await persistTurmasDataIndex(recoveredTurmasSheet);
-      return;
-    }
-
-    const recoveredTurmaNames = getUniqueValues(
-      recoveredTurmasSheet.rows.map((row) =>
-        getCellValue(recoveredTurmasSheet, row, TURMA_COLUMN),
-      ),
-    );
-    const recoveredTurmaKeys = new Set(
-      recoveredTurmaNames.map((turmaName) => normalizeDropdownKey(turmaName)),
-    );
-    const studentAssignmentByName = new Map<string, string>();
-
-    recoveredTurmasSheet.rows.forEach((row) => {
-      const turmaName = getCellValue(recoveredTurmasSheet, row, TURMA_COLUMN);
-      const studentsValue = getCellValue(
-        recoveredTurmasSheet,
-        row,
-        STUDENTS_LIST_COLUMN,
-      );
-
-      if (!turmaName || !studentsValue) {
-        return;
-      }
-
-      splitStudentsList(studentsValue).forEach((studentName) => {
-        const studentKey = normalizeDropdownKey(studentName);
-
-        if (!studentKey || studentAssignmentByName.has(studentKey)) {
-          return;
-        }
-
-        studentAssignmentByName.set(studentKey, turmaName);
-      });
-    });
-
-    let didChange = false;
-    const nextRows = aprendizesSheet.rows.map((row) => {
-      const studentName = row[nameColumnIndex] || '';
-      const studentKey = normalizeDropdownKey(studentName);
-      const recoveredTurmaName = studentAssignmentByName.get(studentKey);
-      const currentTurmaName = row[currentTurmaColumnIndex] || '';
-      const currentCanonicalTurmaName =
-        getCanonicalDropdownValue(currentTurmaName, recoveredTurmaNames) ??
-        currentTurmaName;
-      const shouldClearRecoveredTurma =
-        currentTurmaName !== '' &&
-        recoveredTurmaKeys.has(normalizeDropdownKey(currentCanonicalTurmaName));
-      const nextTurmaName =
-        recoveredTurmaName ??
-        (shouldClearRecoveredTurma ? '' : currentTurmaName);
-
-      if (nextTurmaName === currentTurmaName) {
-        return row;
-      }
-
-      didChange = true;
-      const nextRow = [...row];
-      nextRow[currentTurmaColumnIndex] = nextTurmaName;
-      return nextRow;
-    });
-    const nextAprendizesSheet = didChange
-      ? {
-          ...aprendizesSheet,
-          rows: nextRows,
-        }
-      : aprendizesSheet;
-    const recoveredStudentsByClass = buildStudentsByClass(
-      nextAprendizesSheet,
-      recoveredTurmaNames,
-    );
-
-    if (didChange) {
-      const savedAprendizesSheet = await writeAprendizesSheetToSourceFile(
-        nextAprendizesSheet,
-        { syncTurmas: false },
-      );
-
-      await persistTurmasDataIndex(
-        recoveredTurmasSheet,
-        savedAprendizesSheet
-          ? buildStudentsByClass(savedAprendizesSheet, recoveredTurmaNames)
-          : recoveredStudentsByClass,
-      );
-      return;
-    }
-
-    await persistTurmasDataIndex(recoveredTurmasSheet, recoveredStudentsByClass);
   };
 
   const writeAprendizesSheetToSourceFile = async (
@@ -2040,6 +1951,25 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
   };
 
+  const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
+    replaceGlobalUndoStack(
+      Array.isArray(entry.previousUndoStack)
+        ? (entry.previousUndoStack as GlobalUndoEntry[])
+        : [],
+    );
+  };
+
+  const undoGlobalBoundaryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      await recoverGlobalData();
+      restoreUndoStackFromBoundary(entry);
+      return true;
+    } catch {
+      setImportError('NÃ£o foi possÃ­vel desfazer a importaÃ§Ã£o.');
+      return false;
+    }
+  };
+
   const runUndoShortcut = (
     event: Pick<
       KeyboardEvent,
@@ -2078,7 +2008,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     () =>
       registerGlobalUndoController('turmas', {
         beforeUndo: commitActiveStudentEditForUndo,
-        undo: () => {
+        undo: (entry) => {
+          if (entry.kind === 'global-import') {
+            return undoGlobalBoundaryAction(entry);
+          }
+
           undoLastActionAndSave();
           return true;
         },
@@ -2090,10 +2024,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const recoveryButtonLabel =
     recoveryInfo?.formattedUpdatedAt
-      ? `Recuperar ${recoveryInfo.label || 'Turmas'} - ${
+      ? `Recuperar ${recoveryInfo.label || 'Dados'} - ${
           recoveryInfo.formattedUpdatedAt
         }`
-      : `Recuperar ${recoveryInfo?.label || 'Turmas'}`;
+      : `Recuperar ${recoveryInfo?.label || 'Dados'}`;
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
 
   return (
@@ -2741,13 +2675,13 @@ const filterAvailableStudents = (
 function getRecoveryDescription(info: RecoveryInfo | null) {
   switch (info?.reason) {
     case 'before_import':
-      return 'Recupere os dados anteriores à última importação.';
+      return 'Recupere os dados para como estavam antes da última importação.';
     case 'before_edit':
       return 'Recupere os dados para como estavam antes de edições nesta sessão.';
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da última sessão com edições.';
     case 'import_original':
-      return 'Recupere os dados originais da planilha importada.';
+      return 'Recupere os dados para como estavam quando foram importados pela primeira vez.';
     case 'before_recovery':
       return 'Recupere os dados para como estavam antes da última recuperação.';
     case 'after_recovery':

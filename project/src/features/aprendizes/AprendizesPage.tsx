@@ -23,9 +23,13 @@ import {
 } from '../../shared/data/schemas';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
 import {
+  getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
+  pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
+  replaceGlobalUndoStack,
   registerGlobalUndoController,
+  type GlobalUndoEntry,
 } from '../../shared/undo/globalUndo';
 
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
@@ -683,7 +687,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
 
     try {
-      const response = await fetch('/api/aprendizes/backup', {
+      const response = await fetch('/api/recovery', {
         cache: 'no-store',
       });
 
@@ -754,6 +758,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
 
     try {
+      const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const parsedSheet = await readSheetFile(file);
       const response = await fetch('/api/aprendizes/import', {
         method: 'POST',
@@ -778,7 +783,16 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       }, {
         resetColumnWidths: true,
       });
-      await fetchRecoveryInfo();
+      const nextRecoveryInfo = await fetchRecoveryInfo();
+      if (nextRecoveryInfo?.canRecover) {
+        pushGlobalBoundaryUndoEntry(
+          {
+            originTab: 'aprendizes',
+            kind: 'global-import',
+          },
+          previousUndoStack,
+        );
+      }
       setImportError('');
     } catch (error) {
       if (error instanceof MissingRequiredColumnsError) {
@@ -843,6 +857,24 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
   };
 
+  const recoverGlobalData = async () => {
+    const response = await fetch('/api/recovery', {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      throw new Error('recover-failed');
+    }
+
+    await response.json();
+    await fetchProviderFile({
+      resetColumnWidths: false,
+    });
+    await fetchRecoveryInfo();
+    window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
+    setImportError('');
+  };
+
   const recoverBackup = async () => {
     if (!recoveryInfo?.canRecover || isRecoveringBackup) {
       return;
@@ -851,21 +883,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     setIsRecoveringBackup(true);
 
     try {
-      const response = await fetch('/api/aprendizes/recover', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error('recover-failed');
-      }
-
-      await response.json();
-      await fetchProviderFile({
-        resetColumnWidths: false,
-      });
-      await fetchRecoveryInfo();
+      await recoverGlobalData();
       setIsRecoveryDialogOpen(false);
-      setImportError('');
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel recuperar os dados do backup.');
     } finally {
@@ -2395,6 +2414,25 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     return Boolean(nextSheet);
   };
 
+  const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
+    replaceGlobalUndoStack(
+      Array.isArray(entry.previousUndoStack)
+        ? (entry.previousUndoStack as GlobalUndoEntry[])
+        : [],
+    );
+  };
+
+  const undoGlobalBoundaryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      await recoverGlobalData();
+      restoreUndoStackFromBoundary(entry);
+      return true;
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel desfazer a importa\u00e7\u00e3o.');
+      return false;
+    }
+  };
+
   const isUndoShortcut = ({
     ctrlKey,
     key,
@@ -2435,7 +2473,10 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     () =>
       registerGlobalUndoController('aprendizes', {
         beforeUndo: finalizeActiveEditsForUndo,
-        undo: () => undoLastCellEditAndSave(),
+        undo: (entry) =>
+          entry.kind === 'global-import'
+            ? undoGlobalBoundaryAction(entry)
+            : undoLastCellEditAndSave(),
       }),
     [importedSheet, isRegistrationMode, selectedDetailsRow],
   );
@@ -2667,10 +2708,10 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   };
   const recoveryButtonLabel =
     recoveryInfo?.formattedUpdatedAt
-      ? `Recuperar ${recoveryInfo.label || 'Aprendizes'} - ${
+      ? `Recuperar ${recoveryInfo.label || 'Dados'} - ${
           recoveryInfo.formattedUpdatedAt
         }`
-      : `Recuperar ${recoveryInfo?.label || 'Aprendizes'}`;
+      : `Recuperar ${recoveryInfo?.label || 'Dados'}`;
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
   const selectedDetailsRowValues =
     importedSheet && selectedDetailsRow
@@ -3732,13 +3773,13 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 function getRecoveryDescription(info: RecoveryInfo | null) {
   switch (info?.reason) {
     case 'before_import':
-      return 'Recupere os dados anteriores \u00e0 \u00faltima importa\u00e7\u00e3o.';
+      return 'Recupere os dados para como estavam antes da \u00faltima importa\u00e7\u00e3o.';
     case 'before_edit':
       return 'Recupere os dados para como estavam antes de edi\u00e7\u00f5es nesta sess\u00e3o.';
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da \u00faltima sess\u00e3o com edi\u00e7\u00f5es.';
     case 'import_original':
-      return 'Recupere os dados originais da planilha importada.';
+      return 'Recupere os dados para como estavam quando foram importados pela primeira vez.';
     case 'before_recovery':
       return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     case 'after_recovery':
