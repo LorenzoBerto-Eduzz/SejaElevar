@@ -1363,6 +1363,385 @@ svg {
   background-color: var(--brand-hover, var(--brand-tertiary));
 }
 
+.turmas-board-frame {
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.turmas-board-frame:has(.turmas-shared-horizontal-scroll) {
+  grid-template-rows: minmax(0, 1fr) 14px;
+}
+
+.turmas-board-scroll {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
+}
+
+.turmas-board-scroll:focus,
+.turmas-board-scroll:focus-visible {
+  outline: none;
+}
+
+.turmas-board-scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.turmas-board-scroll::-webkit-scrollbar-track,
+.turmas-board-scroll::-webkit-scrollbar-corner,
+.turmas-board-scroll::-webkit-scrollbar-button {
+  background: var(--brand-scroll-track);
+}
+
+.turmas-board-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.turmas-board-scroll::-webkit-scrollbar-thumb,
+.turmas-board-scroll::-webkit-scrollbar-thumb:hover {
+  border: 3px solid var(--brand-scroll-track);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.turmas-board {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  min-width: 100%;
+  padding: 0;
+}
+
+.turma-group {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--brand-border, #000);
+  border-radius: 8px;
+  background: var(--brand-panel);
+  overflow: hidden;
+}
+
+.turma-group:has(.turma-add-student-cell.active) {
+  border-bottom-left-radius: 0;
+}
+
+.turma-group:focus,
+.turma-group:focus-visible,
+.turma-group:focus-within {
+  outline: none;
+}
+
+.turma-group.expanded {
+  margin-bottom: 20px;
+}
+
+.turma-group-header {
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: 1fr 42px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: calc(var(--table-header-height, 40px) + 10px);
+  min-height: calc(var(--table-header-height, 40px) + 10px);
+  border: 0;
+  border-radius: 7px 7px 0 0;
+  padding: 0;
+  color: var(--brand-header-text);
+  background: var(--brand-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.turma-group-header:focus,
+.turma-group-header:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.turma-header-title {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 10px;
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turma-chevron {
+  align-self: center;
+  justify-self: center;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  transition: transform 160ms ease;
+}
+
+.turma-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.turma-students-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.turma-students-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.turma-students-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.turma-students-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.turma-students-table td {
+  height: var(--table-row-height, 30px);
+  width: var(--table-column-width, 160px);
+  min-width: var(--table-column-width, 160px);
+  max-width: var(--table-column-width, 160px);
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.turma-students-table td:not(.turma-add-student-cell) {
+  padding: 0 10px !important;
+}
+
+.data-table td.invalid-dropdown-cell,
+.data-table td.invalid-dropdown-cell.pinned-column,
+.data-table tbody tr:hover td.invalid-dropdown-cell,
+.data-table tbody tr:hover td.invalid-dropdown-cell.pinned-column,
+.turma-students-table td.invalid-dropdown-cell,
+.turma-students-table td.invalid-dropdown-cell:hover,
+.row-details-field-value.invalid-dropdown-cell {
+  background: rgba(217, 48, 37, 0.16);
+}
+
+.turma-select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0 22px 0 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  outline: none;
+}
+
+.turma-select.invalid-dropdown-value {
+  color: #9f1b14;
+}
+
+.table-cell-select {
+  height: 100%;
+  min-height: 0;
+}
+
+.turma-add-student-cell {
+  position: relative;
+  height: var(--table-row-height, 30px);
+  padding: 0;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.data-table td.turma-add-student-cell {
+  padding: 0;
+}
+
+.turma-add-student-cell span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  width: max-content;
+  max-width: 100%;
+  height: var(--table-row-height, 30px);
+  padding: 0 10px;
+  color: var(--brand-text);
+  font: inherit;
+  font-weight: 400;
+  line-height: var(--table-row-height, 30px);
+  text-align: left;
+}
+
+.turma-add-student-cell:hover {
+  background: var(--brand-hover, var(--brand-tertiary));
+}
+
+.turma-add-student-cell.active {
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  font-weight: 400;
+  cursor: text;
+}
+
+.turma-add-student-cell.active {
+  border-bottom-left-radius: 0;
+}
+
+.turma-add-student-picker {
+  width: 260px;
+  max-width: min(260px, 100%);
+  height: var(--table-row-height, 30px);
+}
+
+.turma-add-student-picker input {
+  width: 100%;
+  height: var(--table-row-height, 30px);
+  border: 0;
+  padding: 0 10px;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  font: 400 0.8rem Aptos, "Segoe UI Variable", "Segoe UI", sans-serif;
+  outline: none;
+}
+
+.data-table td .turma-add-student-picker input:focus {
+  padding: 0 10px !important;
+  font: 400 0.8rem Aptos, "Segoe UI Variable", "Segoe UI", sans-serif;
+}
+
+.data-table tbody tr.turma-add-student-row:hover
+  td.turma-add-student-cell.active:has(.turma-add-student-options:hover) {
+  background-color: var(--brand-panel, #fff);
+}
+
+.turma-add-student-options {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  width: max-content;
+  min-width: 160px;
+  border: 1px solid var(--brand-line);
+  border-radius: 0 0 6px 6px;
+  background: var(--brand-panel);
+  box-shadow: 0 10px 26px rgba(16, 42, 64, 0.18);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.turma-add-student-options:empty {
+  display: none;
+}
+
+.turma-add-student-options button {
+  min-height: var(--table-row-height, 30px);
+  border: 0;
+  padding: 0 10px;
+  color: var(--brand-text);
+  background: transparent;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.turma-add-student-options button:hover,
+.turma-add-student-options button:focus-visible {
+  color: var(--brand-active-text);
+  background: var(--brand-primary);
+  outline: none;
+}
+
+.turmas-shared-horizontal-scroll {
+  width: 100%;
+  height: 14px;
+  min-height: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--brand-scroll-thumb) transparent;
+}
+
+.turmas-shared-horizontal-scroll::-webkit-scrollbar {
+  height: 14px;
+}
+
+.turmas-shared-horizontal-scroll::-webkit-scrollbar-track,
+.turmas-shared-horizontal-scroll::-webkit-scrollbar-corner,
+.turmas-shared-horizontal-scroll::-webkit-scrollbar-button {
+  background: transparent;
+}
+
+.turmas-shared-horizontal-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.turmas-shared-horizontal-scroll::-webkit-scrollbar-thumb,
+.turmas-shared-horizontal-scroll::-webkit-scrollbar-thumb:hover {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+  background-clip: padding-box;
+}
+
+.turmas-shared-horizontal-scroll-spacer {
+  height: 1px;
+}
+
+.turma-empty-students {
+  min-height: 42px;
+  padding: 12px 14px;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  font-weight: 700;
+}
+
+.turma-student-details-panel {
+  z-index: 16;
+}
+
+.turma-student-details-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 12px 14px;
+  position: absolute;
+  inset: 0 0 72px;
+  padding: 56px 20px 16px;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.turma-student-details-fields::-webkit-scrollbar {
+  display: none;
+}
+
 .row-details-panel {
   position: absolute;
   z-index: 14;
@@ -1682,7 +2061,7 @@ svg {
 .row-details-close-button {
   position: absolute;
   top: 14px;
-  right: 14px;
+  right: 20px;
   display: grid;
   place-items: center;
   z-index: 2;

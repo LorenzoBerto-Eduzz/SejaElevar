@@ -60,6 +60,7 @@ internal static class Program
         Directory.CreateDirectory(GetDadosFolder(appFolder));
         MigrateLegacyPlanilhasFolder(appFolder);
         StartWorkbookSession(appFolder);
+        StartTurmasWorkbookSession(appFolder);
         try
         {
             var (listener, port) = BindListener();
@@ -308,6 +309,13 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "POST" && request.Path == "/api/turmas/export")
+            {
+                MarkHeartbeat();
+                await ExportWorkbookAsync(stream, appFolder, GetTurmasWorkbookControlPath(appFolder));
+                return;
+            }
+
             if (request.Method == "GET" && request.Path == "/api/data-index")
             {
                 MarkHeartbeat();
@@ -338,10 +346,34 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "GET" && request.Path == "/api/turmas/backup")
+            {
+                MarkHeartbeat();
+                await ServeBackupInfoAsync(
+                    stream,
+                    appFolder,
+                    "Turmas",
+                    GetTurmasWorkbookControlPath(appFolder)
+                );
+                return;
+            }
+
             if (request.Method == "POST" && request.Path == "/api/aprendizes/recover")
             {
                 MarkHeartbeat();
                 await RecoverWorkbookBackupAsync(stream, appFolder);
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/turmas/recover")
+            {
+                MarkHeartbeat();
+                await RecoverWorkbookBackupAsync(
+                    stream,
+                    appFolder,
+                    GetTurmasWorkbookControlPath(appFolder),
+                    false
+                );
                 return;
             }
 
@@ -363,10 +395,35 @@ internal static class Program
                 return;
             }
 
-            if (request.Method == "POST" && request.Path == "/api/turmas/import")
+            if (
+                (request.Method == "POST" && request.Path == "/api/turmas/import") ||
+                (request.Method == "PUT" && request.Path == "/api/turmas/file")
+            )
             {
                 MarkHeartbeat();
-                await ImportTurmasWorkbookAsync(stream, request, appFolder);
+                if (request.Method == "POST")
+                {
+                    await ImportWorkbookAsync(
+                        stream,
+                        request,
+                        appFolder,
+                        "Turmas",
+                        GetTurmasWorkbookControlPath(appFolder),
+                        false
+                    );
+                }
+                else
+                {
+                    await SaveEditedWorkbookAsync(
+                        stream,
+                        request,
+                        appFolder,
+                        "Turmas",
+                        GetTurmasWorkbookControlPath(appFolder),
+                        false
+                    );
+                }
+
                 return;
             }
 
@@ -660,9 +717,13 @@ internal static class Program
                 : null;
     }
 
-    private static async Task ServeWorkbookAsync(NetworkStream stream, string appFolder)
+    private static async Task ServeWorkbookAsync(
+        NetworkStream stream,
+        string appFolder,
+        string? controlPath = null
+    )
     {
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath);
         var workbookPath = ResolveWorkbookPath(appFolder, control.OnUseFile);
 
         if (workbookPath is null || !File.Exists(workbookPath))
@@ -687,9 +748,13 @@ internal static class Program
         );
     }
 
-    private static async Task ExportWorkbookAsync(NetworkStream stream, string appFolder)
+    private static async Task ExportWorkbookAsync(
+        NetworkStream stream,
+        string appFolder,
+        string? controlPath = null
+    )
     {
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath);
         var workbookPath = ResolveWorkbookPath(appFolder, control.OnUseFile);
 
         if (workbookPath is null || !File.Exists(workbookPath))
@@ -762,7 +827,10 @@ internal static class Program
     private static async Task ImportWorkbookAsync(
         NetworkStream stream,
         HttpRequest request,
-        string appFolder
+        string appFolder,
+        string entityName = "Aprendizes",
+        string? controlPath = null,
+        bool deleteLegacyMetadata = true
     )
     {
         if (request.Body.Length == 0)
@@ -773,13 +841,17 @@ internal static class Program
 
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
         var previousOnUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
         var previousBackupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
-        var importedFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
+        var importedFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, importedFileName);
 
-        DeleteLegacyMetadata(appFolder);
+        if (deleteLegacyMetadata)
+        {
+            DeleteLegacyMetadata(appFolder);
+        }
+
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
         if (
@@ -806,7 +878,7 @@ internal static class Program
             CaptureBackupOnNextSave = false
         };
 
-        SaveWorkbookControl(appFolder, nextControl);
+        SaveWorkbookControl(appFolder, nextControl, controlPath);
 
         await WriteJsonAsync(
             stream,
@@ -823,8 +895,8 @@ internal static class Program
 
     private static async Task ServeTurmasWorkbookAsync(NetworkStream stream, string appFolder)
     {
-        var meta = LoadSimpleWorkbookMeta(GetTurmasMetaPath(appFolder));
-        var workbookPath = ResolveWorkbookPath(appFolder, meta.OnUseFile);
+        var control = LoadTurmasWorkbookControl(appFolder);
+        var workbookPath = ResolveWorkbookPath(appFolder, control.OnUseFile);
 
         if (workbookPath is null || !File.Exists(workbookPath))
         {
@@ -900,7 +972,10 @@ internal static class Program
     private static async Task SaveEditedWorkbookAsync(
         NetworkStream stream,
         HttpRequest request,
-        string appFolder
+        string appFolder,
+        string entityName = "Aprendizes",
+        string? controlPath = null,
+        bool deleteLegacyMetadata = true
     )
     {
         if (request.Body.Length == 0)
@@ -911,7 +986,7 @@ internal static class Program
 
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
         var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
         var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
         var shouldCaptureMissingBackup = backupPath is null &&
@@ -922,7 +997,7 @@ internal static class Program
             File.Exists(onUsePath);
         var shouldPreserveOnUseAsBackup = shouldCaptureMissingBackup ||
             shouldCaptureSessionStart;
-        var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder);
+        var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
 
         if (
@@ -965,8 +1040,13 @@ internal static class Program
             CaptureBackupOnNextSave = false
         };
 
-        SaveWorkbookControl(appFolder, nextControl);
-        DeleteLegacyMetadata(appFolder);
+        SaveWorkbookControl(appFolder, nextControl, controlPath);
+
+        if (deleteLegacyMetadata)
+        {
+            DeleteLegacyMetadata(appFolder);
+        }
+
         await WriteJsonAsync(
             stream,
             200,
@@ -980,9 +1060,14 @@ internal static class Program
         );
     }
 
-    private static async Task ServeBackupInfoAsync(NetworkStream stream, string appFolder)
+    private static async Task ServeBackupInfoAsync(
+        NetworkStream stream,
+        string appFolder,
+        string label = "Aprendizes",
+        string? controlPath = null
+    )
     {
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
         var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
         var reason = NormalizeBackupReason(control.BackupReason);
         var canRecover = backupPath is not null &&
@@ -997,7 +1082,7 @@ internal static class Program
                 available = backupPath is not null && File.Exists(backupPath),
                 canRecover,
                 fileName = backupPath is null ? null : Path.GetFileName(backupPath),
-                label = "Aprendizes",
+                label,
                 updatedAt = backupPath is null
                     ? null
                     : File.GetLastWriteTime(backupPath).ToString("O"),
@@ -1009,12 +1094,17 @@ internal static class Program
         );
     }
 
-    private static async Task RecoverWorkbookBackupAsync(NetworkStream stream, string appFolder)
+    private static async Task RecoverWorkbookBackupAsync(
+        NetworkStream stream,
+        string appFolder,
+        string? controlPath = null,
+        bool deleteLegacyMetadata = true
+    )
     {
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
 
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
         var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
         var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
 
@@ -1041,8 +1131,12 @@ internal static class Program
             CaptureBackupOnNextSave = false
         };
 
-        SaveWorkbookControl(appFolder, nextControl);
-        DeleteLegacyMetadata(appFolder);
+        SaveWorkbookControl(appFolder, nextControl, controlPath);
+
+        if (deleteLegacyMetadata)
+        {
+            DeleteLegacyMetadata(appFolder);
+        }
 
         await WriteJsonAsync(
             stream,
@@ -1169,6 +1263,11 @@ internal static class Program
         return Path.Combine(GetDadosFolder(appFolder), "turmas.json");
     }
 
+    private static string GetTurmasWorkbookControlPath(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), "turmas-controle.json");
+    }
+
     private static string GetDataSystemFolder(string appFolder)
     {
         return Path.Combine(GetDadosFolder(appFolder), "sistema");
@@ -1287,9 +1386,9 @@ internal static class Program
             );
     }
 
-    private static void StartWorkbookSession(string appFolder)
+    private static void StartWorkbookSession(string appFolder, string? controlPath = null)
     {
-        var control = LoadWorkbookControl(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
 
         if (control.OnUseFile is null)
         {
@@ -1302,7 +1401,13 @@ internal static class Program
         }
 
         control.CaptureBackupOnNextSave = control.HasEditingHistory == true;
-        SaveWorkbookControl(appFolder, control);
+        SaveWorkbookControl(appFolder, control, controlPath);
+    }
+
+    private static void StartTurmasWorkbookSession(string appFolder)
+    {
+        _ = LoadTurmasWorkbookControl(appFolder);
+        StartWorkbookSession(appFolder, GetTurmasWorkbookControlPath(appFolder));
     }
 
     private static string? FindCurrentWorkbookPath(string appFolder)
@@ -1311,10 +1416,43 @@ internal static class Program
         return ResolveWorkbookPath(appFolder, control.OnUseFile);
     }
 
-    private static WorkbookControl LoadWorkbookControl(string appFolder)
+    private static WorkbookControl LoadTurmasWorkbookControl(string appFolder)
+    {
+        var controlPath = GetTurmasWorkbookControlPath(appFolder);
+
+        if (!File.Exists(controlPath))
+        {
+            var meta = LoadSimpleWorkbookMeta(GetTurmasMetaPath(appFolder));
+
+            if (!string.IsNullOrWhiteSpace(meta.OnUseFile))
+            {
+                SaveWorkbookControl(
+                    appFolder,
+                    new WorkbookControl
+                    {
+                        OnUseFile = meta.OnUseFile,
+                        BackupFile = null,
+                        BackupReason = null,
+                        RecoveryEnabled = false,
+                        HasEditingHistory = false,
+                        CaptureBackupOnNextSave = false
+                    },
+                    controlPath
+                );
+            }
+        }
+
+        return LoadWorkbookControl(appFolder, controlPath, false);
+    }
+
+    private static WorkbookControl LoadWorkbookControl(
+        string appFolder,
+        string? controlPath = null,
+        bool inferKnownWorkbooks = true
+    )
     {
         MigrateLegacyPlanilhasFolder(appFolder);
-        var controlPath = GetWorkbookControlPath(appFolder);
+        controlPath ??= GetWorkbookControlPath(appFolder);
         WorkbookControl? control = null;
 
         try
@@ -1350,7 +1488,7 @@ internal static class Program
             control.CaptureBackupOnNextSave = false;
         }
 
-        if (control.OnUseFile is null)
+        if (control.OnUseFile is null && inferKnownWorkbooks)
         {
             var knownWorkbooks = GetKnownWorkbookFiles(appFolder)
                 .Take(2)
@@ -1406,16 +1544,20 @@ internal static class Program
             control.RecoveryEnabled = true;
         }
 
-        SaveWorkbookControl(appFolder, control);
+        SaveWorkbookControl(appFolder, control, controlPath);
         return control;
     }
 
-    private static void SaveWorkbookControl(string appFolder, WorkbookControl control)
+    private static void SaveWorkbookControl(
+        string appFolder,
+        WorkbookControl control,
+        string? controlPath = null
+    )
     {
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
         File.WriteAllText(
-            GetWorkbookControlPath(appFolder),
+            controlPath ?? GetWorkbookControlPath(appFolder),
             JsonSerializer.Serialize(control, PrettyUtf8JsonOptions),
             Encoding.UTF8
         );

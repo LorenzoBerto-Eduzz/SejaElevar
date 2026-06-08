@@ -1,9 +1,11 @@
 import {
   useEffect,
+  useLayoutEffect,
   type FormEvent,
   useRef,
   useState,
   type CSSProperties,
+  type ChangeEvent,
   type DragEvent,
   type KeyboardEvent,
   type PointerEvent,
@@ -13,6 +15,7 @@ import {
   buildAprendizesDataIndexEntity,
   buildEmptyDataIndexEntity,
 } from '../../shared/data/dataIndex';
+import { APRENDIZES_DATA_CHANGED_EVENT } from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
   normalizeFieldLabel,
@@ -45,9 +48,17 @@ const ROLE_COLUMN = 'Função';
 const ADMISSION_DATE_COLUMN = 'Data de Admissão';
 const END_DATE_COLUMN = 'Data do Término';
 const CLASS_COLUMN = 'Turma';
+const TURMAS_REQUIRED_COLUMNS = ['Turma'] as const;
 const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
+const STARTUP_FILE_LOAD_ATTEMPTS = 8;
+const STARTUP_FILE_LOAD_RETRY_MS = 250;
+
+const delay = (milliseconds: number) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 const ROW_DETAILS_PANEL_WIDTH = ROW_DETAILS_PANEL_HEIGHT * 1.4;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
@@ -90,6 +101,28 @@ const getRowDetailsPanelSize = (frame: HTMLElement) => {
       ROW_DETAILS_PANEL_HEIGHT,
     ),
   };
+};
+
+const getUniqueValues = (values: string[]) =>
+  Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+
+const normalizeDropdownKey = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+const getCanonicalDropdownValue = (value: string, options: string[]) => {
+  const valueKey = normalizeDropdownKey(value);
+
+  if (!valueKey) {
+    return '';
+  }
+
+  return (
+    options.find((option) => normalizeDropdownKey(option) === valueKey) ?? null
+  );
 };
 
 type ImportedSheet = {
@@ -364,7 +397,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
   const [invalidImportToast, setInvalidImportToast] = useState('');
-  const [workspaceStatus, setWorkspaceStatus] = useState('');
+  const [turmaOptions, setTurmaOptions] = useState<string[]>([]);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
@@ -428,6 +461,126 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       setInvalidImportToast('');
       invalidImportToastTimerRef.current = null;
     }, 3000);
+  };
+
+  const isInvalidTurmaValue = (value: string) =>
+    turmaOptions.length > 0 &&
+    value !== '' &&
+    getCanonicalDropdownValue(value, turmaOptions) === null;
+
+  const getCanonicalTurmaValue = (value: string) =>
+    getCanonicalDropdownValue(value, turmaOptions);
+
+  const canonicalizeSheetTurmaValues = (sheet: ImportedSheet) => {
+    if (turmaOptions.length === 0) {
+      return null;
+    }
+
+    const turmaColumnIndex = sheet.columns.indexOf(CLASS_COLUMN);
+
+    if (turmaColumnIndex < 0) {
+      return null;
+    }
+
+    let didChange = false;
+    const nextRows = sheet.rows.map((row) => {
+      const value = row[turmaColumnIndex] || '';
+      const canonicalValue = getCanonicalTurmaValue(value);
+
+      if (!canonicalValue || canonicalValue === value) {
+        return row;
+      }
+
+      didChange = true;
+      const nextRow = [...row];
+      nextRow[turmaColumnIndex] = canonicalValue;
+      return nextRow;
+    });
+
+    return didChange
+      ? {
+          ...sheet,
+          rows: nextRows,
+        }
+      : null;
+  };
+
+  const readTurmaOptionsFile = async (file: File) => {
+    const { read, utils } = await loadXlsx();
+    const workbook = read(await file.arrayBuffer(), {
+      cellDates: true,
+    });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = sheetName ? workbook.Sheets[sheetName] : null;
+
+    if (!sheetName || !worksheet) {
+      return [];
+    }
+
+    const sheetRows = utils.sheet_to_json<unknown[]>(worksheet, {
+      blankrows: false,
+      defval: '',
+      header: 1,
+      raw: false,
+    });
+    const headerIndex = sheetRows.findIndex((row) =>
+      row.some((cell) => normalizeCell(cell) !== ''),
+    );
+
+    if (headerIndex < 0) {
+      return [];
+    }
+
+    const headerRow = sheetRows[headerIndex];
+    const rawColumns = headerRow.map((cell, index) =>
+      normalizeCell(cell) || `Coluna ${index + 1}`,
+    );
+    const { missingColumns, normalizedColumns } = normalizeColumnsForSchema(
+      rawColumns,
+      TURMAS_REQUIRED_COLUMNS,
+    );
+
+    if (missingColumns.length > 0) {
+      return [];
+    }
+
+    const turmaColumnIndex = normalizedColumns.indexOf(CLASS_COLUMN);
+
+    if (turmaColumnIndex < 0) {
+      return [];
+    }
+
+    return getUniqueValues(
+      sheetRows
+        .slice(headerIndex + 1)
+        .map((row) => normalizeCell(row[turmaColumnIndex])),
+    );
+  };
+
+  const loadTurmaOptions = async () => {
+    try {
+      const response = await fetch('/api/turmas/file', {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        setTurmaOptions([]);
+        return;
+      }
+
+      const rawFileName = response.headers.get('x-file-name') || 'turmas.xlsx';
+      const fileName = decodeURIComponent(rawFileName);
+      const blob = await response.blob();
+      const file = new File([blob], fileName, {
+        type:
+          blob.type ||
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      setTurmaOptions(await readTurmaOptionsFile(file));
+    } catch {
+      setTurmaOptions([]);
+    }
   };
 
   const clearWorkingSheet = () => {
@@ -543,18 +696,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   };
 
   const fetchProviderFile = async (
-    options: { resetColumnWidths?: boolean } = {},
+    options: {
+      clearOnMissing?: boolean;
+      resetColumnWidths?: boolean;
+    } = {},
   ) => {
     const response = await fetch('/api/aprendizes/file', {
       cache: 'no-store',
     });
 
     if (response.status === 404) {
-      clearWorkingSheet();
-      void persistAprendizesDataIndex(null);
-      setWorkspaceStatus(
-        'Nenhuma planilha encontrada em dados. Importe um .xlsx.',
-      );
+      if (options.clearOnMissing ?? true) {
+        clearWorkingSheet();
+        void persistAprendizesDataIndex(null);
+      }
+
       return false;
     }
 
@@ -618,7 +774,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
         resetColumnWidths: true,
       });
       await fetchRecoveryInfo();
-      setWorkspaceStatus(`Planilha copiada para dados/${storedFileName}.`);
       setImportError('');
     } catch (error) {
       if (error instanceof MissingRequiredColumnsError) {
@@ -641,7 +796,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       }
 
       if ((error as DOMException).name === 'AbortError') {
-        setWorkspaceStatus('Importação cancelada.');
         return;
       }
 
@@ -675,13 +829,9 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       };
 
       if (result.canceled) {
-        setWorkspaceStatus('Exporta\u00e7\u00e3o cancelada.');
         return;
       }
 
-      setWorkspaceStatus(
-        `Planilha exportada como ${result.fileName || 'Aprendizes.xlsx'}.`,
-      );
       setImportError('');
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel exportar a planilha.');
@@ -704,15 +854,12 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
         throw new Error('recover-failed');
       }
 
-      const result = (await response.json()) as { fileName?: string };
+      await response.json();
       await fetchProviderFile({
         resetColumnWidths: false,
       });
       await fetchRecoveryInfo();
       setIsRecoveryDialogOpen(false);
-      setWorkspaceStatus(
-        `Dados recuperados em dados/${result.fileName || 'Aprendizes.xlsx'}.`,
-      );
       setImportError('');
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel recuperar os dados do backup.');
@@ -738,7 +885,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
         resetColumnWidths: options.resetColumnWidths,
       });
 
-      setWorkspaceStatus('Planilha carregada.');
       setImportError('');
       return true;
     } catch (error) {
@@ -841,13 +987,33 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   useEffect(() => {
     let isMounted = true;
     window.localStorage.removeItem(LEGACY_APRENDIZES_STORAGE_KEY);
+    void loadTurmaOptions();
 
     const loadSavedWorkbook = async () => {
       try {
         isLocalProviderActiveRef.current = true;
-        const hasWorkbook = await fetchProviderFile({
-          resetColumnWidths: false,
-        });
+        let hasWorkbook = false;
+
+        for (let attempt = 1; attempt <= STARTUP_FILE_LOAD_ATTEMPTS; attempt += 1) {
+          const isFinalAttempt = attempt === STARTUP_FILE_LOAD_ATTEMPTS;
+
+          try {
+            hasWorkbook = await fetchProviderFile({
+              clearOnMissing: isFinalAttempt,
+              resetColumnWidths: false,
+            });
+          } catch {
+            if (isFinalAttempt) {
+              throw new Error('startup-file-load-failed');
+            }
+          }
+
+          if (hasWorkbook || !isMounted) {
+            break;
+          }
+
+          await delay(STARTUP_FILE_LOAD_RETRY_MS);
+        }
 
         if (!isMounted) {
           return;
@@ -855,15 +1021,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
         setHasCheckedWorkspace(true);
 
-        if (hasWorkbook) {
-          setWorkspaceStatus('Dados vinculados à planilha em dados.');
-        }
       } catch {
         isLocalProviderActiveRef.current = false;
         clearWorkingSheet();
 
         if (isMounted) {
-          setWorkspaceStatus('');
           setHasCheckedWorkspace(true);
         }
       }
@@ -885,6 +1047,31 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     onInitialReady?.();
   }, [hasCheckedWorkspace, onInitialReady]);
 
+  useEffect(() => {
+    const reloadChangedAprendizesData = () => {
+      if (!isLocalProviderActiveRef.current) {
+        return;
+      }
+
+      void fetchProviderFile({
+        clearOnMissing: true,
+        resetColumnWidths: false,
+      });
+    };
+
+    window.addEventListener(
+      APRENDIZES_DATA_CHANGED_EVENT,
+      reloadChangedAprendizesData,
+    );
+
+    return () => {
+      window.removeEventListener(
+        APRENDIZES_DATA_CHANGED_EVENT,
+        reloadChangedAprendizesData,
+      );
+    };
+  }, []);
+
   useEffect(
     () => () => {
       if (invalidImportToastTimerRef.current !== null) {
@@ -900,6 +1087,21 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       activeCellEditRef.current = null;
     }
   }, [isEditMode]);
+
+  useEffect(() => {
+    if (!importedSheet || turmaOptions.length === 0) {
+      return;
+    }
+
+    const canonicalSheet = canonicalizeSheetTurmaValues(importedSheet);
+
+    if (!canonicalSheet) {
+      return;
+    }
+
+    storeImportedSheet(canonicalSheet);
+    void writeSheetToSourceFile(canonicalSheet);
+  }, [importedSheet, turmaOptions]);
 
   useEffect(() => {
     if (!isRegistrationMode) {
@@ -1279,7 +1481,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     importedSheet && (selectedDetailsRow || isRegistrationMode),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!shouldShowRowDetailsPanel || !importedSheet) {
       applyRowDetailsPanelStyle({});
       return;
@@ -1295,6 +1497,11 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
       const frameWidth = frame.clientWidth;
       const frameHeight = frame.clientHeight;
+
+      if (frameWidth <= 0 || frameHeight <= 0) {
+        return;
+      }
+
       const preferredPanelSize = getRowDetailsPanelSize(frame);
       const firstHeaderCell =
         tableHeaderScrollRef.current?.querySelector<HTMLTableCellElement>(
@@ -1552,7 +1759,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       void persistAprendizesDataIndex(savedSheet);
       await fetchRecoveryInfo();
 
-      setWorkspaceStatus(`Alterações gravadas em dados/${savedFileName}.`);
       setImportError('');
     } catch {
       setImportError(
@@ -2666,6 +2872,44 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const rowDetailsClass = isRegistrationDetailsMode
     ? getRegistrationDraftDisplayValue(CLASS_COLUMN)
     : selectedDetailsClass;
+  const renderTurmaSelect = ({
+    ariaLabel,
+    className = 'turma-select',
+    onChange,
+    value,
+  }: {
+    ariaLabel: string;
+    className?: string;
+    onChange: (event: ChangeEvent<HTMLSelectElement>) => void;
+    value: string;
+  }) => {
+    const canonicalValue = getCanonicalTurmaValue(value);
+    const selectValue = canonicalValue ?? value;
+    const shouldIncludeCurrentValue =
+      value !== '' && canonicalValue === null && !turmaOptions.includes(value);
+
+    return (
+      <select
+        aria-label={ariaLabel}
+        className={[
+          className,
+          isInvalidTurmaValue(value) ? 'invalid-dropdown-value' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        value={selectValue}
+        onChange={onChange}
+      >
+        <option value="">Sem turma</option>
+        {shouldIncludeCurrentValue && <option value={value}>{value}</option>}
+        {turmaOptions.map((turmaName) => (
+          <option key={turmaName} value={turmaName}>
+            {turmaName}
+          </option>
+        ))}
+      </select>
+    );
+  };
   const renderRowDetailsField = ({
     className = '',
     columnName,
@@ -2689,6 +2933,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     const inputKey = isRegistrationDetailsMode
       ? `register-details-${registrationDraftResetKey}-${columnName}`
       : `${selectedDetailsRow?.rowIndex}-${columnName}`;
+    const isTurmaField = columnName === CLASS_COLUMN;
+    const isInvalidFieldValue = isTurmaField && isInvalidTurmaValue(value);
 
     return (
       <div className={fieldClassName}>
@@ -2697,12 +2943,43 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
           className={[
             'row-details-field-value',
             readOnly ? 'row-details-field-value-readonly' : '',
+            isInvalidFieldValue ? 'invalid-dropdown-cell' : '',
           ]
             .filter(Boolean)
             .join(' ')}
         >
           {readOnly ? (
             value
+          ) : isRegistrationDetailsMode && isTurmaField ? (
+            renderTurmaSelect({
+              ariaLabel: `${label} cadastrar aprendiz`,
+              className: 'row-details-field-value-input turma-select',
+              value,
+              onChange: (event) =>
+                updateRegistrationDraft(columnName, event.target.value),
+            })
+          ) : !isRegistrationDetailsMode && isTurmaField ? (
+            renderTurmaSelect({
+              ariaLabel: `${label} do aprendiz`,
+              className: 'row-details-field-value-input turma-select',
+              value,
+              onChange: (event) => {
+                if (!selectedDetailsRow) {
+                  return;
+                }
+
+                beginCellEdit(selectedDetailsRow.rowIndex, columnName, value);
+                const sheet = commitCellValue(
+                  selectedDetailsRow.rowIndex,
+                  columnName,
+                  event.target.value,
+                );
+
+                if (sheet) {
+                  void writeSheetToSourceFile(sheet);
+                }
+              },
+            })
           ) : isRegistrationDetailsMode ? (
             <input
               key={inputKey}
@@ -3043,6 +3320,9 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                         row,
                         column,
                       );
+                      const isTurmaColumn = column === CLASS_COLUMN;
+                      const isInvalidTurmaCell =
+                        isTurmaColumn && isInvalidTurmaValue(value);
 
                       return (
                         <td
@@ -3050,6 +3330,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className={[
                             orderedColumnIndex === 0 ? 'pinned-column' : '',
                             column === AGE_COLUMN ? 'derived-cell' : '',
+                            isInvalidTurmaCell ? 'invalid-dropdown-cell' : '',
                           ]
                             .filter(Boolean)
                             .join(' ')}
@@ -3070,7 +3351,25 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                             });
                           }}
                         >
-                          {areBodyEditInputsReady && column !== AGE_COLUMN ? (
+                          {areBodyEditInputsReady && isTurmaColumn ? (
+                            renderTurmaSelect({
+                              ariaLabel: `${column} linha ${rowIndex + 1}`,
+                              className: 'table-cell-select turma-select',
+                              value,
+                              onChange: (event) => {
+                                beginCellEdit(rowIndex, column, value);
+                                const sheet = commitCellValue(
+                                  rowIndex,
+                                  column,
+                                  event.target.value,
+                                );
+
+                                if (sheet) {
+                                  void writeSheetToSourceFile(sheet);
+                                }
+                              },
+                            })
+                          ) : areBodyEditInputsReady && column !== AGE_COLUMN ? (
                             <input
                               key={`${rowIndex}-${column}-${value}`}
                               ref={(element) => {
@@ -3308,8 +3607,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                         <button
                           className="row-details-action-button row-details-delete-button"
                           type="button"
-                          aria-label="Cadastrar aluno"
-                          title="Cadastrar Aluno"
+                          aria-label="Cadastrar aprendiz"
+                          title="Cadastrar Aprendiz"
                           disabled={!hasRegistrationDraftValue}
                           onClick={() => {
                             finalizeActiveRegistrationDraftEdit();
@@ -3323,7 +3622,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
                           className="row-details-action-button row-details-delete-button"
                           type="button"
                           aria-label="Descadastrar aprendiz"
-                          title="Descadastrar"
+                          title="Descadastrar Aprendiz"
                           onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
                         >
                           <UserXIcon />

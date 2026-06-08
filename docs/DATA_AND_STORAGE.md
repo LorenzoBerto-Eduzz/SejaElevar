@@ -26,13 +26,16 @@ Current Aprendizes behavior:
 
 Current Turmas behavior:
 
-- Turmas is an early/provisional table flow, not yet a full edit/recover/export tool.
+- Turmas is now an active linked-record flow, not just a placeholder table.
 - Import validates required Turmas column labels from `project/src/shared/data/schemas.ts`: `Turma`, `Dia`, `Período`, `Instrutor`, `Sala`, `Disciplina`, `No. de Aprendizes`, and `Aprendizes`. Blank cells are valid and extra columns are preserved.
-- The provider copies the selected workbook directly into `dados/` as `Turmas_hhmmssddmmyy.xlsx` and tracks the active Turmas workbook in `dados/turmas.json`.
-- The provisional Turmas table uses the same table frame/header/body scroll structure as Aprendizes.
+- The provider copies the selected workbook directly into `dados/` as `Turmas_hhmmssddmmyy.xlsx` and tracks the active Turmas workbook in `dados/turmas-controle.json`. Older local `dados/turmas.json` metadata can be migrated into the current control file shape.
+- Turmas supports import, export, backup inspection, and recovery through Turmas-specific provider endpoints. Recovery uses the same one-slot reversible backup model as Aprendizes, but with independent Turmas control metadata.
+- The Turmas page displays imported Turmas as expandable groups. Each group can show the Aprendizes currently assigned to that Turma, using `Aprendizes.Turma` as the preferred relationship source.
+- `+ Adicionar Aprendiz` opens a searchable picker of available Aprendizes and writes the selected Turma value back into the Aprendizes workbook, then refreshes the Aprendizes generated data index and notifies mounted pages through the shared `sejaelevar:aprendizes-data-changed` event.
+- The Turmas student details popup can edit Aprendizes fields from inside the Turmas page. Its `Turma` field uses canonical dropdown matching against active Turmas names, and `Descadastrar Aprendiz` removes the selected Aprendiz row through the normal save/index path.
 - The source workbook is not rewritten during Turmas import. If `No. de Aprendizes` is a Google Sheets formula, the formula remains in the copied `.xlsx`.
-- In the app display and generated data index, `No. de Aprendizes` is derived from the comma-separated `Aprendizes` cell by splitting on commas, trimming names, and ignoring blanks/trailing empty entries.
-- Importing a workbook whose headers do not match the active tool schema shows a bottom-right red toast for 3 seconds: `Arquivo importado não possui os valores necessários`.
+- In the app display and generated data index, `No. de Aprendizes` and `Aprendizes` are derived from linked Aprendizes when Aprendizes data exists. If Aprendizes data is unavailable, `No. de Aprendizes` falls back to counting comma-separated names from the Turmas `Aprendizes` cell.
+- Importing a workbook whose headers do not match the active tool schema shows a bottom-right red toast for 3 seconds: `Arquivo escolhido não possui os valores necessários`.
 
 ## Generated Data Index
 
@@ -63,7 +66,7 @@ For Aprendizes and Turmas, each row becomes one record with:
 - `searchText`: normalized searchable text built from entity, label, column names, and row values.
 - `source`: source filename, sheet name, and row index.
 
-The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The Turmas index is rebuilt after active sheet load/import, including the app-derived `No. de Aprendizes` value. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
+The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, registration, deletion, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The Turmas index is rebuilt after active sheet load, import, recovery, save, and apprentice assignment changes; when Aprendizes data exists, the Turmas index uses linked Aprendizes to derive `No. de Aprendizes` and `Aprendizes`. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
 
 The local provider writes JSON files as readable UTF-8. PT-BR characters such as `ç`, `ã`, `é`, and `í` should appear normally in `dados/sistema/data-index.json`; if PowerShell displays mojibake, verify the file with a UTF-8-aware editor before assuming the stored data is corrupt.
 
@@ -76,7 +79,7 @@ Future fields that assign one app item to another should be treated as linked/re
 Examples:
 
 - `Empresa` on an Aprendiz should eventually be a dropdown sourced from registered `Empresas`.
-- `Turma` on an Aprendiz should eventually be a dropdown sourced from registered `Turmas`.
+- `Turma` on an Aprendiz is now a dropdown sourced from registered `Turmas`.
 - `Instrutor`, `Sala`, and `Disciplina` on a Turma should eventually be dropdowns sourced from registered `Funcionários`, `Salas`, and `Disciplinas`.
 
 The spreadsheet cells can continue storing the canonical display name, not hidden IDs, so exported files remain easy to read and paste back into Google Sheets. Internally, the app should match imported text by normalizing case, extra spacing, punctuation, and accentuation. For example, an imported value like `Sao Jose` should be able to match the registered option `São José`, after which the app displays/saves/exports the canonical registered spelling.

@@ -106,8 +106,8 @@ Use shared folders only when the file really is shared. Do not put feature-speci
 
 ## Current Project Status
 
-The template frame has been adapted for SejaElevar planning, but no real app scaffold exists yet.
+The real app scaffold now exists in `project/`: Vite/React/TypeScript source, a local Windows launcher/provider, feature folders for `Aprendizes` and `Turmas`, shared data/schema/UI foundations, and the tracked dev package used for cross-PC testing.
 
-`project/` remains the source/app folder. Do not add a framework or move the folder without confirming the stack choice with the user.
+`project/` remains the source/app folder. Keep new features modular and close to their domain folder, and avoid moving the folder or broadening the architecture without confirming the direction with the user.
 
 Do not perform broad reorganizations casually. If a folder move will change many imports, paths, generated files, or user understanding, confirm first and do it as one focused structural change.

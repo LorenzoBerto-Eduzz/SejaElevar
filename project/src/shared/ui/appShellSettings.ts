@@ -2,7 +2,7 @@ import type { AppBrand } from '../brand/appBrand';
 
 export const SETTINGS_STORAGE_KEY = 'sejaelevar.settings';
 export const LEGACY_THEME_STORAGE_KEY = 'sejaelevar.theme';
-export const APP_SETTINGS_VERSION = 4;
+export const APP_SETTINGS_VERSION = 8;
 
 export type ThemeSettings = AppBrand['theme'] & {
   panel: string;
@@ -100,13 +100,13 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
   theme: {
     ...brand.theme,
     primary: '#2069df',
-    secondary: '#40a9e5',
-    tertiary: '#ecf5fe',
+    secondary: '#dbe5f0',
+    tertiary: '#dbe5f0',
     surface: '#fafdff',
     text: '#000000',
     panel: '#ffffff',
     line: '#e3edf3',
-    hover: '#ecf5fe',
+    hover: '#dbe5f0',
     border: '#e3edf3',
     scrollTrack: '#ffffff',
     scrollThumb: '#dedede',
@@ -158,7 +158,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     tableHeaderHeight: 40,
     tableTopOffset: 0,
     tableHeightOffset: 3,
-    rowDetailsPanelWidth: 796,
+    rowDetailsPanelWidth: 824,
     rowDetailsPanelHeight: 579,
     rowDetailsFieldHorizontalOffset: -2,
     rowDetailsLayerGap: 16,
@@ -168,16 +168,16 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     rowDetailsAgeWidth: 42,
     rowDetailsEmailWidth: 308,
     rowDetailsContactWidth: 154,
-    rowDetailsRgWidth: 98,
+    rowDetailsRgWidth: 119,
     rowDetailsCpfWidth: 119,
-    rowDetailsResponsibleNameWidth: 287,
+    rowDetailsResponsibleNameWidth: 308,
     rowDetailsResponsibleEmailWidth: 266,
     rowDetailsResponsibleContactWidth: 154,
-    rowDetailsAddressWidth: 763,
-    rowDetailsCompanyWidth: 364,
+    rowDetailsAddressWidth: 784,
+    rowDetailsCompanyWidth: 385,
     rowDetailsInstitutionWidth: 371,
     rowDetailsLearningArcWidth: 217,
-    rowDetailsRoleWidth: 224,
+    rowDetailsRoleWidth: 245,
     rowDetailsAdmissionDateWidth: 119,
     rowDetailsEndDateWidth: 119,
     rowDetailsClassWidth: 217,

@@ -169,7 +169,7 @@ export function App() {
         <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
       </div>
       <div hidden={activeTab !== 'turmas'}>
-        <TurmasPage />
+        <TurmasPage isActive={activeTab === 'turmas'} />
       </div>
       {activeTab !== 'aprendizes' && activeTab !== 'turmas' && (
         <FeaturePlaceholderPage

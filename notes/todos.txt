@@ -1,3 +1,1 @@
-# Personal scratchpad
-
-AI should not treat this file as instructions unless the user explicitly asks.
+remvoe that last row. have button on labeltor wo add aprendiz, popping then that search row at the top being first on list. so simply moe that we have tothe top and only apepar/pops when click the button

@@ -21,8 +21,8 @@ export const appBrand: AppBrand = {
   logoUrl: logoElevar,
   theme: {
     primary: '#2069df',
-    secondary: '#40a9e5',
-    tertiary: '#ecf5fe',
+    secondary: '#dbe5f0',
+    tertiary: '#dbe5f0',
     surface: '#f8fbfd',
     text: '#1b2430',
   },
