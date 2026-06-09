@@ -27,6 +27,7 @@ import {
   handleGlobalUndoShortcut,
   pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
+  remapGlobalUndoCheckpointReferences,
   replaceGlobalUndoStack,
   registerGlobalUndoController,
   type GlobalUndoEntry,
@@ -922,6 +923,7 @@ export function AprendizesPage({
           originTab: 'aprendizes',
           kind: 'global-recovery',
           checkpointId: result.checkpointId,
+          restoredCheckpointId: checkpointId,
         });
       }
       setIsRecoveryDialogOpen(false);
@@ -2417,6 +2419,7 @@ export function AprendizesPage({
 
     const currentSheet = latestSheetRef.current;
     const undoEntry = takeUndoEntry(requestedEntry);
+    const selectedDetailsBeforeUndo = selectedDetailsRow;
 
     if (!undoEntry) {
       return false;
@@ -2466,6 +2469,28 @@ export function AprendizesPage({
           : currentRowIndex;
       });
       storeImportedSheet(nextSheet);
+      if (selectedDetailsBeforeUndo) {
+        if (selectedDetailsBeforeUndo.rowIndex === undoEntry.rowIndex) {
+          setSelectedDetailsRow(null);
+          applyRowDetailsPanelStyle({});
+        } else {
+          const nextSelectedRowIndex =
+            selectedDetailsBeforeUndo.rowIndex > undoEntry.rowIndex
+              ? selectedDetailsBeforeUndo.rowIndex - 1
+              : selectedDetailsBeforeUndo.rowIndex;
+          setSelectedDetailsRow({
+            rowIndex: nextSelectedRowIndex,
+            visualIndex: Math.max(
+              getVisualRowIndex(
+                nextSheet,
+                nextSelectedRowIndex,
+                sessionRegisteredRowIndexes,
+              ),
+              0,
+            ),
+          });
+        }
+      }
       window.requestAnimationFrame(() => {
         focusFirstRegistrationDetailsField();
       });
@@ -2504,10 +2529,22 @@ export function AprendizesPage({
           sessionRegisteredRowIndexes,
         );
 
-        setSelectedDetailsRow({
-          rowIndex: undoEntry.rowIndex,
-          visualIndex: Math.max(visualIndex, 0),
-        });
+        if (selectedDetailsBeforeUndo) {
+          const nextSelectedRowIndex =
+            selectedDetailsBeforeUndo.rowIndex >= undoEntry.rowIndex
+              ? selectedDetailsBeforeUndo.rowIndex + 1
+              : selectedDetailsBeforeUndo.rowIndex;
+          const nextVisualIndex = getVisualRowIndex(
+            nextSheet,
+            nextSelectedRowIndex,
+            sessionRegisteredRowIndexes,
+          );
+
+          setSelectedDetailsRow({
+            rowIndex: nextSelectedRowIndex,
+            visualIndex: Math.max(nextVisualIndex, 0),
+          });
+        }
       });
       return nextSheet;
     }
@@ -2569,6 +2606,7 @@ export function AprendizesPage({
     protectUndoCommit();
     activeCellEditRef.current = null;
     activeRegistrationEditRef.current = null;
+    const selectedDetailsBeforeRedo = selectedDetailsRow;
 
     const currentSheet = latestSheetRef.current;
 
@@ -2600,6 +2638,23 @@ export function AprendizesPage({
       };
 
       storeImportedSheet(nextSheet);
+      if (selectedDetailsBeforeRedo) {
+        const nextSelectedRowIndex =
+          selectedDetailsBeforeRedo.rowIndex >= entry.rowIndex
+            ? selectedDetailsBeforeRedo.rowIndex + 1
+            : selectedDetailsBeforeRedo.rowIndex;
+        setSelectedDetailsRow({
+          rowIndex: nextSelectedRowIndex,
+          visualIndex: Math.max(
+            getVisualRowIndex(
+              nextSheet,
+              nextSelectedRowIndex,
+              sessionRegisteredRowIndexes,
+            ),
+            0,
+          ),
+        });
+      }
       setSessionRegisteredRowIndexes((currentIndexes) => [
         entry.rowIndex,
         ...currentIndexes
@@ -2632,8 +2687,26 @@ export function AprendizesPage({
       };
 
       storeImportedSheet(nextSheet);
-      setSelectedDetailsRow(null);
-      applyRowDetailsPanelStyle({});
+      if (selectedDetailsBeforeRedo?.rowIndex === entry.rowIndex) {
+        setSelectedDetailsRow(null);
+        applyRowDetailsPanelStyle({});
+      } else if (selectedDetailsBeforeRedo) {
+        const nextSelectedRowIndex =
+          selectedDetailsBeforeRedo.rowIndex > entry.rowIndex
+            ? selectedDetailsBeforeRedo.rowIndex - 1
+            : selectedDetailsBeforeRedo.rowIndex;
+        setSelectedDetailsRow({
+          rowIndex: nextSelectedRowIndex,
+          visualIndex: Math.max(
+            getVisualRowIndex(
+              nextSheet,
+              nextSelectedRowIndex,
+              sessionRegisteredRowIndexes,
+            ),
+            0,
+          ),
+        });
+      }
       void writeSheetToSourceFile(nextSheet);
       return true;
     }
@@ -2710,6 +2783,11 @@ export function AprendizesPage({
     try {
       const result = await recoverGlobalData(entry.checkpointId);
       entry.redoCheckpointId = result.checkpointId;
+      remapGlobalUndoCheckpointReferences(
+        entry.restoredCheckpointId,
+        result.checkpointId,
+      );
+      entry.restoredCheckpointId = result.checkpointId;
       return true;
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel desfazer a recupera\u00e7\u00e3o.');

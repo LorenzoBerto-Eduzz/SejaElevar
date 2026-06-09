@@ -896,18 +896,15 @@ internal static class Program
         var nextControl = new WorkbookControl
         {
             OnUseFile = importedFileName,
-            BackupFile = previousOnUsePath is null
-                ? importedFileName
-                : Path.GetFileName(previousOnUsePath),
-            BackupReason = previousOnUsePath is null
-                ? BackupReasonImportOriginal
-                : BackupReasonBeforeImport,
-            RecoveryEnabled = previousOnUsePath is not null,
+            BackupFile = null,
+            BackupReason = null,
+            RecoveryEnabled = false,
             HasEditingHistory = false,
             CaptureBackupOnNextSave = false
         };
 
         SaveWorkbookControl(appFolder, nextControl, controlPath);
+        CleanupInactiveRootWorkbookFiles(appFolder);
 
         if (!hadActiveAppDataBeforeImport)
         {
@@ -1068,20 +1065,15 @@ internal static class Program
         var nextControl = new WorkbookControl
         {
             OnUseFile = targetFileName,
-            BackupFile = shouldPreserveOnUseAsBackup && onUsePath is not null
-                ? Path.GetFileName(onUsePath)
-                : control.BackupFile,
-            BackupReason = shouldCaptureSessionStart
-                ? BackupReasonBeforeEdit
-                : control.BackupReason == BackupReasonRestored
-                ? BackupReasonAfterRecovery
-                : control.BackupReason ?? BackupReasonImportOriginal,
-            RecoveryEnabled = true,
-            HasEditingHistory = true,
+            BackupFile = null,
+            BackupReason = null,
+            RecoveryEnabled = false,
+            HasEditingHistory = false,
             CaptureBackupOnNextSave = false
         };
 
         SaveWorkbookControl(appFolder, nextControl, controlPath);
+        CleanupInactiveRootWorkbookFiles(appFolder);
         MarkGlobalCheckpointEdited(appFolder);
 
         if (deleteLegacyMetadata)
@@ -1202,20 +1194,15 @@ internal static class Program
         var nextControl = new WorkbookControl
         {
             OnUseFile = targetFileName,
-            BackupFile = shouldPreserveOnUseAsBackup
-                ? Path.GetFileName(onUsePath)
-                : control.BackupFile,
-            BackupReason = shouldCaptureSessionStart
-                ? BackupReasonBeforeEdit
-                : control.BackupReason == BackupReasonRestored
-                ? BackupReasonAfterRecovery
-                : control.BackupReason ?? BackupReasonImportOriginal,
-            RecoveryEnabled = true,
-            HasEditingHistory = true,
+            BackupFile = null,
+            BackupReason = null,
+            RecoveryEnabled = false,
+            HasEditingHistory = false,
             CaptureBackupOnNextSave = false
         };
 
         SaveWorkbookControl(appFolder, nextControl, controlPath);
+        CleanupInactiveRootWorkbookFiles(appFolder);
         MarkGlobalCheckpointEdited(appFolder);
 
         if (deleteLegacyMetadata)
@@ -1525,6 +1512,7 @@ internal static class Program
             control.LastCheckpointAction = "recovery";
             SaveGlobalCheckpointControl(appFolder, control);
             PruneOrphanGlobalCheckpoints(appFolder, control.Checkpoints);
+            CleanupInactiveRootWorkbookFiles(appFolder);
 
             await WriteJsonAsync(
                 stream,
@@ -1973,6 +1961,60 @@ internal static class Program
             catch
             {
                 // Old same-session undo checkpoints are best-effort cleanup.
+            }
+        }
+    }
+
+    private static void CleanupInactiveRootWorkbookFiles(string appFolder)
+    {
+        var dadosFolder = GetDadosFolder(appFolder);
+
+        if (!Directory.Exists(dadosFolder))
+        {
+            return;
+        }
+
+        var activeFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var source in GetWorkbookSources(appFolder))
+        {
+            try
+            {
+                if (!File.Exists(source.ControlPath))
+                {
+                    continue;
+                }
+
+                var control = JsonSerializer.Deserialize<WorkbookControl>(
+                    File.ReadAllText(source.ControlPath)
+                );
+                var onUseFile = NormalizeTrackedWorkbookFileName(control?.OnUseFile);
+
+                if (onUseFile is not null)
+                {
+                    activeFileNames.Add(onUseFile);
+                }
+            }
+            catch
+            {
+                // Cleanup should never block saving the user's current workbook.
+            }
+        }
+
+        foreach (var workbookPath in Directory.EnumerateFiles(dadosFolder, "*.xlsx"))
+        {
+            if (activeFileNames.Contains(Path.GetFileName(workbookPath)))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(workbookPath);
+            }
+            catch
+            {
+                // If a file is temporarily locked, the next save/import/recovery can retry cleanup.
             }
         }
     }

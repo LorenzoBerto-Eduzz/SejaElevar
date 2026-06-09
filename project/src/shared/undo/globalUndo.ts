@@ -82,6 +82,60 @@ const loadGlobalUndoStacks = () => {
   }
 };
 
+const remapCheckpointReference = (
+  entry: GlobalUndoEntry,
+  previousCheckpointId: string,
+  nextCheckpointId: string,
+) => {
+  if (entry.checkpointId === previousCheckpointId) {
+    entry.checkpointId = nextCheckpointId;
+  }
+
+  if (entry.redoCheckpointId === previousCheckpointId) {
+    entry.redoCheckpointId = nextCheckpointId;
+  }
+
+  if (entry.restoredCheckpointId === previousCheckpointId) {
+    entry.restoredCheckpointId = nextCheckpointId;
+  }
+
+  if (Array.isArray(entry.previousUndoStack)) {
+    entry.previousUndoStack = (entry.previousUndoStack as GlobalUndoEntry[]).map(
+      (nestedEntry) => ({
+        ...nestedEntry,
+      }),
+    );
+    (entry.previousUndoStack as GlobalUndoEntry[]).forEach((nestedEntry) =>
+      remapCheckpointReference(nestedEntry, previousCheckpointId, nextCheckpointId),
+    );
+  }
+};
+
+export const remapGlobalUndoCheckpointReferences = (
+  previousCheckpointId: unknown,
+  nextCheckpointId: unknown,
+) => {
+  if (
+    typeof previousCheckpointId !== 'string' ||
+    typeof nextCheckpointId !== 'string' ||
+    !previousCheckpointId ||
+    !nextCheckpointId ||
+    previousCheckpointId === nextCheckpointId
+  ) {
+    return;
+  }
+
+  undoStack = undoStack.map((entry) => ({ ...entry }));
+  redoStack = redoStack.map((entry) => ({ ...entry }));
+  undoStack.forEach((entry) =>
+    remapCheckpointReference(entry, previousCheckpointId, nextCheckpointId),
+  );
+  redoStack.forEach((entry) =>
+    remapCheckpointReference(entry, previousCheckpointId, nextCheckpointId),
+  );
+  saveGlobalUndoStacks();
+};
+
 const waitForFrames = (frameCount: number) =>
   new Promise<void>((resolve) => {
     const waitNextFrame = (remainingFrames: number) => {

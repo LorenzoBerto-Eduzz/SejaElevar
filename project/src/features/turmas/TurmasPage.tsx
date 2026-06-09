@@ -32,6 +32,7 @@ import {
   handleGlobalUndoShortcut,
   pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
+  remapGlobalUndoCheckpointReferences,
   replaceGlobalUndoStack,
   registerGlobalUndoController,
   type GlobalUndoEntry,
@@ -1182,6 +1183,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           originTab: 'turmas',
           kind: 'global-recovery',
           checkpointId: result.checkpointId,
+          restoredCheckpointId: checkpointId,
         });
       }
       setIsRecoveryDialogOpen(false);
@@ -2031,6 +2033,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     protectUndoCommit();
 
     const undoEntry = takeUndoEntry(requestedEntry);
+    const selectedRowBeforeUndo = selectedStudentRowIndex;
 
     if (!undoEntry || !aprendizesSheet) {
       return null;
@@ -2045,7 +2048,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       };
 
       setAprendizesSheet(nextSheet);
-      setSelectedStudentRowIndex(undoEntry.rowIndex);
+      if (selectedRowBeforeUndo !== null) {
+        setSelectedStudentRowIndex(
+          selectedRowBeforeUndo >= undoEntry.rowIndex
+            ? selectedRowBeforeUndo + 1
+            : selectedRowBeforeUndo,
+        );
+      }
       return nextSheet;
     }
 
@@ -2070,7 +2079,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     };
 
     setAprendizesSheet(nextSheet);
-    setSelectedStudentRowIndex(undoEntry.rowIndex);
     return nextSheet;
   };
 
@@ -2096,6 +2104,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       if (!aprendizesSheet.rows[entry.rowIndex]) {
         return false;
       }
+      const selectedRowBeforeRedo = selectedStudentRowIndex;
 
       const nextSheet = {
         ...aprendizesSheet,
@@ -2105,8 +2114,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       };
 
       setAprendizesSheet(nextSheet);
-      setSelectedStudentRowIndex(null);
-      applyRowDetailsPanelStyle({});
+      if (selectedRowBeforeRedo === entry.rowIndex) {
+        setSelectedStudentRowIndex(null);
+        applyRowDetailsPanelStyle({});
+      } else if (selectedRowBeforeRedo !== null) {
+        setSelectedStudentRowIndex(
+          selectedRowBeforeRedo > entry.rowIndex
+            ? selectedRowBeforeRedo - 1
+            : selectedRowBeforeRedo,
+        );
+      }
       void writeAprendizesSheetToSourceFile(nextSheet);
       return true;
     }
@@ -2132,7 +2149,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     };
 
     setAprendizesSheet(nextSheet);
-    setSelectedStudentRowIndex(entry.rowIndex);
     void writeAprendizesSheetToSourceFile(nextSheet);
     return true;
   };
@@ -2172,6 +2188,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     try {
       const result = await recoverGlobalData(entry.checkpointId);
       entry.redoCheckpointId = result.checkpointId;
+      remapGlobalUndoCheckpointReferences(
+        entry.restoredCheckpointId,
+        result.checkpointId,
+      );
+      entry.restoredCheckpointId = result.checkpointId;
       return true;
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel desfazer a recupera\u00e7\u00e3o.');
