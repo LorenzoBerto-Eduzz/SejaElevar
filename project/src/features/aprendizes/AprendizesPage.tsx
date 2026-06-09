@@ -166,6 +166,7 @@ type CellEditUndoEntry = {
 type RowInsertUndoEntry = {
   kind: 'row-insert';
   rowIndex: number;
+  rowValues: string[];
 };
 
 type RowDeleteUndoEntry = {
@@ -210,13 +211,22 @@ type RecoveryReason =
 type RecoveryInfo = {
   available: boolean;
   canRecover: boolean;
+  checkpointId?: string | null;
   fileName?: string | null;
   label?: string | null;
   formattedUpdatedAt?: string | null;
   reason?: RecoveryReason | null;
+  checkpoints?: Array<{
+    checkpointId?: string | null;
+    canRecover: boolean;
+    label?: string | null;
+    formattedUpdatedAt?: string | null;
+    reason?: RecoveryReason | null;
+  }>;
 };
 
 type AprendizesPageProps = {
+  isActive?: boolean;
   onInitialReady?: () => void;
 };
 
@@ -374,7 +384,10 @@ const readSavedViewSettings = () => {
   }
 };
 
-export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
+export function AprendizesPage({
+  isActive = true,
+  onInitialReady,
+}: AprendizesPageProps = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const rowDetailsInputRefs = useRef<Record<string, HTMLInputElement | null>>(
@@ -448,6 +461,16 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     rowDetailsPanelStyleRef.current = nextStyle;
     setRowDetailsPanelStyle(nextStyle);
   };
+
+  useEffect(() => {
+    if (isActive) {
+      return;
+    }
+
+    setSelectedDetailsRow(null);
+    setIsRegistrationMode(false);
+    applyRowDetailsPanelStyle({});
+  }, [isActive]);
   const saveViewSettings = (settings: TableViewSettings) => {
     setViewSettings(settings);
     window.localStorage.setItem(
@@ -774,7 +797,10 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       if (!response.ok) {
         throw new Error('import-failed');
       }
-      const result = (await response.json()) as { fileName?: string };
+      const result = (await response.json()) as {
+        fileName?: string;
+        globalCheckpointId?: string | null;
+      };
       const storedFileName = result.fileName || file.name;
 
       saveImportedSheet({
@@ -789,6 +815,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
           {
             originTab: 'aprendizes',
             kind: 'global-import',
+            checkpointId: result.globalCheckpointId,
           },
           previousUndoStack,
         );
@@ -857,25 +884,31 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
   };
 
-  const recoverGlobalData = async () => {
+  const recoverGlobalData = async (checkpointId?: unknown) => {
+    const headers =
+      typeof checkpointId === 'string' && checkpointId
+        ? { 'x-checkpoint-id': checkpointId }
+        : undefined;
     const response = await fetch('/api/recovery', {
       method: 'POST',
+      headers,
     });
 
     if (!response.ok) {
       throw new Error('recover-failed');
     }
 
-    await response.json();
+    const result = (await response.json()) as { checkpointId?: string | null };
     await fetchProviderFile({
       resetColumnWidths: false,
     });
     await fetchRecoveryInfo();
     window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
     setImportError('');
+    return result;
   };
 
-  const recoverBackup = async () => {
+  const recoverBackup = async (checkpointId?: string | null) => {
     if (!recoveryInfo?.canRecover || isRecoveringBackup) {
       return;
     }
@@ -883,7 +916,14 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     setIsRecoveringBackup(true);
 
     try {
-      await recoverGlobalData();
+      const result = await recoverGlobalData(checkpointId);
+      if (result.checkpointId) {
+        pushGlobalUndoEntry({
+          originTab: 'aprendizes',
+          kind: 'global-recovery',
+          checkpointId: result.checkpointId,
+        });
+      }
       setIsRecoveryDialogOpen(false);
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel recuperar os dados do backup.');
@@ -2182,6 +2222,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     pushTableUndoEntry({
       kind: 'row-insert',
       rowIndex: nextRowIndex,
+      rowValues: nextRow,
     });
 
     if (registerHighlightTimerRef.current !== null) {
@@ -2254,20 +2295,134 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     };
   };
 
-  const undoLastCellEdit = () => {
+  const isTableUndoEntry = (
+    entry: GlobalUndoEntry | TableUndoEntry | undefined,
+  ): entry is TableUndoEntry => {
+    if (!entry) {
+      return false;
+    }
+
+    if (entry.kind === 'row-insert') {
+      return (
+        typeof entry.rowIndex === 'number' && Array.isArray(entry.rowValues)
+      );
+    }
+
+    if (entry.kind === 'row-delete') {
+      return (
+        typeof entry.rowIndex === 'number' && Array.isArray(entry.rowValues)
+      );
+    }
+
+    if (entry.kind === 'registration-draft-edit') {
+      return (
+        typeof entry.columnName === 'string' &&
+        typeof entry.previousValue === 'string' &&
+        typeof entry.nextValue === 'string'
+      );
+    }
+
+    return (
+      entry.kind === 'cell-edit' &&
+      typeof entry.rowIndex === 'number' &&
+      typeof entry.columnName === 'string' &&
+      typeof entry.previousValue === 'string' &&
+      typeof entry.nextValue === 'string'
+    );
+  };
+
+  const tableUndoEntriesMatch = (
+    leftEntry: TableUndoEntry,
+    rightEntry: TableUndoEntry,
+  ) => {
+    if (leftEntry.kind !== rightEntry.kind) {
+      return false;
+    }
+
+    if (leftEntry.kind === 'row-insert' && rightEntry.kind === 'row-insert') {
+      return (
+        leftEntry.rowIndex === rightEntry.rowIndex &&
+        leftEntry.rowValues.join('\u0000') === rightEntry.rowValues.join('\u0000')
+      );
+    }
+
+    if (leftEntry.kind === 'row-delete' && rightEntry.kind === 'row-delete') {
+      return (
+        leftEntry.rowIndex === rightEntry.rowIndex &&
+        leftEntry.rowValues.join('\u0000') === rightEntry.rowValues.join('\u0000')
+      );
+    }
+
+    if (
+      leftEntry.kind === 'registration-draft-edit' &&
+      rightEntry.kind === 'registration-draft-edit'
+    ) {
+      return (
+        leftEntry.columnName === rightEntry.columnName &&
+        leftEntry.previousValue === rightEntry.previousValue &&
+        leftEntry.nextValue === rightEntry.nextValue
+      );
+    }
+
+    if (leftEntry.kind === 'cell-edit' && rightEntry.kind === 'cell-edit') {
+      return (
+        leftEntry.rowIndex === rightEntry.rowIndex &&
+        leftEntry.columnName === rightEntry.columnName &&
+        leftEntry.previousValue === rightEntry.previousValue &&
+        leftEntry.nextValue === rightEntry.nextValue
+      );
+    }
+
+    return false;
+  };
+
+  const takeUndoEntry = (requestedEntry?: GlobalUndoEntry) => {
+    if (!requestedEntry) {
+      const undoEntry = cellUndoStackRef.current.at(-1);
+      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
+      return undoEntry;
+    }
+
+    if (!isTableUndoEntry(requestedEntry)) {
+      return null;
+    }
+
+    const undoEntry = requestedEntry;
+    let matchingIndex = -1;
+
+    for (
+      let index = cellUndoStackRef.current.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      if (tableUndoEntriesMatch(cellUndoStackRef.current[index], undoEntry)) {
+        matchingIndex = index;
+        break;
+      }
+    }
+
+    if (matchingIndex >= 0) {
+      cellUndoStackRef.current = cellUndoStackRef.current.filter(
+        (_entry, index) => index !== matchingIndex,
+      );
+    }
+
+    return undoEntry;
+  };
+
+  const undoLastCellEdit = (requestedEntry?: GlobalUndoEntry) => {
     finalizeActiveEditsForUndo();
     protectUndoCommit();
     activeCellEditRef.current = null;
 
     const currentSheet = latestSheetRef.current;
-    const undoEntry = cellUndoStackRef.current.at(-1);
+    const undoEntry = takeUndoEntry(requestedEntry);
 
     if (!undoEntry) {
       return false;
     }
 
     if (undoEntry.kind === 'registration-draft-edit') {
-      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
       undoRegistrationDraftEdit(undoEntry);
       return true;
     }
@@ -2280,11 +2435,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
     if (undoEntry.kind === 'row-insert') {
       if (!currentSheet.rows[undoEntry.rowIndex]) {
-        cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
         return false;
       }
-
-      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
 
       const nextSheet = {
         ...currentSheet,
@@ -2321,8 +2473,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     }
 
     if (undoEntry.kind === 'row-delete') {
-      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
-
       const nextRows = [...currentSheet.rows];
       nextRows.splice(undoEntry.rowIndex, 0, undoEntry.rowValues);
 
@@ -2365,11 +2515,8 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     const columnIndex = currentSheet.columns.indexOf(undoEntry.columnName);
 
     if (columnIndex < 0 || !currentSheet.rows[undoEntry.rowIndex]) {
-      cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
       return false;
     }
-
-    cellUndoStackRef.current = cellUndoStackRef.current.slice(0, -1);
 
     const nextRows = currentSheet.rows.map((row, index) => {
       if (index !== undoEntry.rowIndex) {
@@ -2404,14 +2551,128 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     return nextSheet;
   };
 
-  const undoLastCellEditAndSave = () => {
-    const nextSheet = undoLastCellEdit();
+  const undoLastCellEditAndSave = (entry?: GlobalUndoEntry) => {
+    const nextSheet = undoLastCellEdit(entry);
 
     if (nextSheet && nextSheet !== true) {
       void writeSheetToSourceFile(nextSheet);
     }
 
     return Boolean(nextSheet);
+  };
+
+  const redoCellEdit = (entry: GlobalUndoEntry) => {
+    if (!isTableUndoEntry(entry)) {
+      return false;
+    }
+
+    protectUndoCommit();
+    activeCellEditRef.current = null;
+    activeRegistrationEditRef.current = null;
+
+    const currentSheet = latestSheetRef.current;
+
+    if (entry.kind === 'registration-draft-edit') {
+      setRegistrationDraftColumnValue(entry.columnName, entry.nextValue);
+      activeRegistrationEditRef.current = {
+        columnName: entry.columnName,
+        initialValue: entry.nextValue,
+      };
+      window.requestAnimationFrame(() => {
+        const input = getRegistrationDraftInput(entry.columnName);
+        input?.focus();
+        input?.select();
+      });
+      return true;
+    }
+
+    if (!currentSheet) {
+      return false;
+    }
+
+    if (entry.kind === 'row-insert') {
+      const nextRows = [...currentSheet.rows];
+      nextRows.splice(entry.rowIndex, 0, entry.rowValues);
+
+      const nextSheet = {
+        ...currentSheet,
+        rows: nextRows,
+      };
+
+      storeImportedSheet(nextSheet);
+      setSessionRegisteredRowIndexes((currentIndexes) => [
+        entry.rowIndex,
+        ...currentIndexes
+          .filter((rowIndex) => rowIndex !== entry.rowIndex)
+          .map((rowIndex) =>
+            rowIndex >= entry.rowIndex ? rowIndex + 1 : rowIndex,
+          ),
+      ]);
+      setHighlightedRegisteredRowIndex(entry.rowIndex);
+      window.requestAnimationFrame(() => {
+        scrollToRegisteredRow(
+          nextSheet,
+          entry.rowIndex,
+          sessionRegisteredRowIndexes,
+        );
+        focusFirstRegistrationDetailsField();
+      });
+      void writeSheetToSourceFile(nextSheet);
+      return true;
+    }
+
+    if (entry.kind === 'row-delete') {
+      if (!currentSheet.rows[entry.rowIndex]) {
+        return false;
+      }
+
+      const nextSheet = {
+        ...currentSheet,
+        rows: currentSheet.rows.filter((_row, index) => index !== entry.rowIndex),
+      };
+
+      storeImportedSheet(nextSheet);
+      setSelectedDetailsRow(null);
+      applyRowDetailsPanelStyle({});
+      void writeSheetToSourceFile(nextSheet);
+      return true;
+    }
+
+    const columnIndex = currentSheet.columns.indexOf(entry.columnName);
+
+    if (columnIndex < 0 || !currentSheet.rows[entry.rowIndex]) {
+      return false;
+    }
+
+    const nextRows = currentSheet.rows.map((row, index) => {
+      if (index !== entry.rowIndex) {
+        return row;
+      }
+
+      const nextRow = [...row];
+      nextRow[columnIndex] = entry.nextValue;
+      return nextRow;
+    });
+    const nextSheet = {
+      ...currentSheet,
+      rows: nextRows,
+    };
+
+    storeImportedSheet(nextSheet);
+    window.requestAnimationFrame(() => {
+      const orderedColumnIndex = orderedColumns.indexOf(entry.columnName);
+
+      if (orderedColumnIndex >= 0) {
+        scrollToRegisteredRow(
+          nextSheet,
+          entry.rowIndex,
+          sessionRegisteredRowIndexes,
+        );
+        focusCell(entry.rowIndex, orderedColumnIndex);
+      }
+    });
+    void writeSheetToSourceFile(nextSheet);
+    return true;
   };
 
   const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
@@ -2424,11 +2685,45 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
 
   const undoGlobalBoundaryAction = async (entry: GlobalUndoEntry) => {
     try {
-      await recoverGlobalData();
+      const result = await recoverGlobalData(entry.checkpointId);
+      entry.redoCheckpointId = result.checkpointId;
       restoreUndoStackFromBoundary(entry);
       return true;
     } catch {
       setImportError('N\u00e3o foi poss\u00edvel desfazer a importa\u00e7\u00e3o.');
+      return false;
+    }
+  };
+
+  const redoGlobalBoundaryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      const result = await recoverGlobalData(entry.redoCheckpointId);
+      entry.checkpointId = result.checkpointId;
+      return true;
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel refazer a importa\u00e7\u00e3o.');
+      return false;
+    }
+  };
+
+  const undoGlobalRecoveryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      const result = await recoverGlobalData(entry.checkpointId);
+      entry.redoCheckpointId = result.checkpointId;
+      return true;
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel desfazer a recupera\u00e7\u00e3o.');
+      return false;
+    }
+  };
+
+  const redoGlobalRecoveryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      const result = await recoverGlobalData(entry.redoCheckpointId);
+      entry.checkpointId = result.checkpointId;
+      return true;
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel refazer a recupera\u00e7\u00e3o.');
       return false;
     }
   };
@@ -2453,7 +2748,10 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
   const handleInputHistoryUndo = (event: FormEvent<HTMLInputElement>) => {
     const nativeEvent = event.nativeEvent as InputEvent;
 
-    if (nativeEvent.inputType !== 'historyUndo') {
+    if (
+      nativeEvent.inputType !== 'historyUndo' &&
+      nativeEvent.inputType !== 'historyRedo'
+    ) {
       return;
     }
 
@@ -2461,7 +2759,7 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     void handleGlobalUndoShortcut({
       ctrlKey: true,
       defaultPrevented: false,
-      key: 'z',
+      key: nativeEvent.inputType === 'historyRedo' ? 'y' : 'z',
       metaKey: false,
       preventDefault: () => {},
       shiftKey: false,
@@ -2473,10 +2771,28 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     () =>
       registerGlobalUndoController('aprendizes', {
         beforeUndo: finalizeActiveEditsForUndo,
-        undo: (entry) =>
-          entry.kind === 'global-import'
-            ? undoGlobalBoundaryAction(entry)
-            : undoLastCellEditAndSave(),
+        undo: (entry) => {
+          if (entry.kind === 'global-import') {
+            return undoGlobalBoundaryAction(entry);
+          }
+
+          if (entry.kind === 'global-recovery') {
+            return undoGlobalRecoveryAction(entry);
+          }
+
+          return undoLastCellEditAndSave(entry);
+        },
+        redo: (entry) => {
+          if (entry.kind === 'global-import') {
+            return redoGlobalBoundaryAction(entry);
+          }
+
+          if (entry.kind === 'global-recovery') {
+            return redoGlobalRecoveryAction(entry);
+          }
+
+          return redoCellEdit(entry);
+        },
       }),
     [importedSheet, isRegistrationMode, selectedDetailsRow],
   );
@@ -2689,6 +3005,20 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
     .join(' ');
   const hasWorkingSheet = Boolean(importedSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
+  const recoveryCheckpoints =
+    recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
+      ? recoveryInfo.checkpoints
+      : recoveryInfo?.canRecover
+        ? [
+            {
+              checkpointId: recoveryInfo.checkpointId,
+              canRecover: recoveryInfo.canRecover,
+              label: recoveryInfo.label,
+              formattedUpdatedAt: recoveryInfo.formattedUpdatedAt,
+              reason: recoveryInfo.reason,
+            },
+          ]
+        : [];
   const toggleRegistrationMode = () => {
     const shouldSwapSelectedDetails = Boolean(selectedDetailsRow);
 
@@ -2706,12 +3036,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
       return nextMode;
     });
   };
-  const recoveryButtonLabel =
-    recoveryInfo?.formattedUpdatedAt
-      ? `Recuperar ${recoveryInfo.label || 'Dados'} - ${
-          recoveryInfo.formattedUpdatedAt
-        }`
-      : `Recuperar ${recoveryInfo?.label || 'Dados'}`;
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
   const selectedDetailsRowValues =
     importedSheet && selectedDetailsRow
@@ -3199,20 +3523,6 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               <SquarePlusIcon />
             </button>
             <button
-              className={
-                hasWorkingSheet && canRecoverBackup
-                  ? 'square-action toolbar-section-start'
-                  : 'square-action toolbar-section-start disabled'
-              }
-              type="button"
-              aria-label="Recuperar dados"
-              title="Recuperar Dados"
-              disabled={!hasWorkingSheet || !canRecoverBackup}
-              onClick={() => setIsRecoveryDialogOpen(true)}
-            >
-              <RotateClockwiseIcon />
-            </button>
-            <button
               className="square-action"
               type="button"
               aria-label="Substituir planilha .xlsx"
@@ -3234,6 +3544,20 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               onClick={() => void exportWorkingFile()}
             >
               <ExportIcon />
+            </button>
+            <button
+              className={
+                hasWorkingSheet && canRecoverBackup
+                  ? 'square-action toolbar-section-start'
+                  : 'square-action toolbar-section-start disabled'
+              }
+              type="button"
+              aria-label="Recuperar dados"
+              title="Recuperar Dados"
+              disabled={!hasWorkingSheet || !canRecoverBackup}
+              onClick={() => setIsRecoveryDialogOpen(true)}
+            >
+              <RotateClockwiseIcon />
             </button>
             <ThemeToggleButton className="toolbar-section-start" />
             </div>
@@ -3754,15 +4078,24 @@ export function AprendizesPage({ onInitialReady }: AprendizesPageProps = {}) {
               </button>
             </div>
             <p>{recoveryDescription}</p>
-            <button
-              className="primary-action recovery-confirm-action"
-              type="button"
-              disabled={!canRecoverBackup || isRecoveringBackup}
-              onClick={() => void recoverBackup()}
-            >
-              <RotateClockwiseIcon />
-              {isRecoveringBackup ? 'Recuperando...' : recoveryButtonLabel}
-            </button>
+            <div className="recovery-checkpoint-list">
+              {recoveryCheckpoints.map((checkpoint) => (
+                <button
+                  className="primary-action recovery-confirm-action"
+                  type="button"
+                  disabled={!checkpoint.canRecover || isRecoveringBackup}
+                  key={checkpoint.checkpointId ?? checkpoint.formattedUpdatedAt}
+                  onClick={() => void recoverBackup(checkpoint.checkpointId)}
+                >
+                  <RotateClockwiseIcon />
+                  {isRecoveringBackup
+                    ? 'Recuperando...'
+                    : `Recuperar dados em ${
+                        checkpoint.formattedUpdatedAt || 'checkpoint'
+                      }`}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

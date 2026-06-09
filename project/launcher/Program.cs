@@ -21,6 +21,7 @@ internal static class Program
     private const string BackupReasonAfterRecovery = "after_recovery";
     private const string BackupReasonRestored = "restored";
     private const string GlobalCheckpointFolderName = "checkpoints";
+    private const int MaxGlobalCheckpoints = 3;
     private const double DefaultZoomFactor = 1.1;
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
     private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromMilliseconds(
@@ -335,7 +336,7 @@ internal static class Program
             if (request.Method == "POST" && request.Path == "/api/recovery")
             {
                 MarkHeartbeat();
-                await RecoverGlobalCheckpointAsync(stream, appFolder);
+                await RecoverGlobalCheckpointAsync(stream, request, appFolder);
                 return;
             }
 
@@ -372,14 +373,14 @@ internal static class Program
             if (request.Method == "POST" && request.Path == "/api/aprendizes/recover")
             {
                 MarkHeartbeat();
-                await RecoverGlobalCheckpointAsync(stream, appFolder);
+                await RecoverGlobalCheckpointAsync(stream, request, appFolder);
                 return;
             }
 
             if (request.Method == "POST" && request.Path == "/api/turmas/recover")
             {
                 MarkHeartbeat();
-                await RecoverGlobalCheckpointAsync(stream, appFolder);
+                await RecoverGlobalCheckpointAsync(stream, request, appFolder);
                 return;
             }
 
@@ -876,10 +877,9 @@ internal static class Program
             DeleteLegacyMetadata(appFolder);
         }
 
-        if (hadActiveAppDataBeforeImport)
-        {
-            CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeImport, true);
-        }
+        var importUndoCheckpointId = hadActiveAppDataBeforeImport
+            ? CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeImport, true)
+            : null;
 
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
@@ -915,7 +915,7 @@ internal static class Program
         }
         else
         {
-            MarkGlobalCheckpointEdited(appFolder);
+            MarkGlobalCheckpointImported(appFolder);
         }
 
         await WriteJsonAsync(
@@ -926,7 +926,8 @@ internal static class Program
                 ok = true,
                 fileName = importedFileName,
                 onUseFile = nextControl.OnUseFile,
-                backupFile = nextControl.BackupFile
+                backupFile = nextControl.BackupFile,
+                globalCheckpointId = importUndoCheckpointId
             }
         );
     }
@@ -1332,43 +1333,78 @@ internal static class Program
     )
     {
         var control = LoadGlobalCheckpointControl(appFolder);
-        var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
-        var createdAt = ParseIsoDateTime(control.CreatedAt);
-        var canRecover = checkpointPath is not null &&
-            Directory.Exists(checkpointPath) &&
-            Directory.EnumerateFiles(checkpointPath, "*.xlsx", SearchOption.TopDirectoryOnly).Any() &&
-            control.RecoveryEnabled == true;
+        var checkpoints = (control.Checkpoints ?? [])
+            .Select(entry =>
+            {
+                var checkpointPath = ResolveGlobalCheckpointPath(appFolder, entry.CheckpointId);
+                var createdAt = ParseIsoDateTime(entry.CreatedAt);
+                var canRecover = checkpointPath is not null &&
+                    Directory.Exists(checkpointPath) &&
+                    Directory.EnumerateFiles(checkpointPath, "*.xlsx", SearchOption.TopDirectoryOnly).Any() &&
+                    entry.RecoveryEnabled == true;
+
+                return new
+                {
+                    checkpointId = entry.CheckpointId,
+                    canRecover,
+                    label = "Dados",
+                    updatedAt = entry.CreatedAt,
+                    formattedUpdatedAt = createdAt is null
+                        ? null
+                        : FormatBackupDateTime(createdAt.Value),
+                    reason = NormalizeBackupReason(entry.Reason)
+                };
+            })
+            .ToList();
+        var latestCheckpoint = checkpoints.FirstOrDefault();
 
         await WriteJsonAsync(
             stream,
             200,
             new
             {
-                available = checkpointPath is not null && Directory.Exists(checkpointPath),
-                canRecover,
+                available = checkpoints.Count > 0,
+                canRecover = checkpoints.Any(checkpoint => checkpoint.canRecover),
                 fileName = (string?)null,
                 label = "Dados",
-                updatedAt = control.CreatedAt,
-                formattedUpdatedAt = createdAt is null
-                    ? null
-                    : FormatBackupDateTime(createdAt.Value),
-                reason = NormalizeBackupReason(control.Reason)
+                checkpointId = latestCheckpoint?.checkpointId,
+                updatedAt = latestCheckpoint?.updatedAt,
+                formattedUpdatedAt = latestCheckpoint?.formattedUpdatedAt,
+                reason = latestCheckpoint?.reason,
+                checkpoints
             }
         );
     }
 
     private static async Task RecoverGlobalCheckpointAsync(
         NetworkStream stream,
+        HttpRequest request,
         string appFolder
     )
     {
         var control = LoadGlobalCheckpointControl(appFolder);
-        var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
+        var requestedCheckpointId =
+            request.Headers.TryGetValue("x-checkpoint-id", out var rawCheckpointId)
+                ? rawCheckpointId
+                : null;
+        var hasRequestedCheckpoint = !string.IsNullOrWhiteSpace(requestedCheckpointId);
+        var selectedCheckpoint = hasRequestedCheckpoint
+            ? control.Checkpoints?.FirstOrDefault(entry =>
+                string.Equals(
+                    entry.CheckpointId,
+                    requestedCheckpointId,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            : control.Checkpoints?.FirstOrDefault();
+        var selectedCheckpointId = selectedCheckpoint?.CheckpointId ??
+            (hasRequestedCheckpoint ? requestedCheckpointId : control.CheckpointId);
+        var checkpointPath = ResolveGlobalCheckpointPath(appFolder, selectedCheckpointId);
 
         if (
             checkpointPath is null ||
             !Directory.Exists(checkpointPath) ||
-            control.RecoveryEnabled != true
+            (!hasRequestedCheckpoint && control.RecoveryEnabled != true)
         )
         {
             await WriteJsonAsync(stream, 400, new { error = "Nenhum backup disponivel." });
@@ -1462,18 +1498,33 @@ internal static class Program
                 Directory.Delete(checkpointPath, true);
             }
 
-            SaveGlobalCheckpointControl(
-                appFolder,
-                new GlobalCheckpointControl
+            var reverseEntry = activeSnapshots.Count > 0
+                ? new GlobalCheckpointEntry
                 {
                     CheckpointId = activeSnapshots.Count > 0 ? reverseCheckpointId : null,
                     Reason = activeSnapshots.Count > 0 ? BackupReasonBeforeRecovery : null,
                     CreatedAt = activeSnapshots.Count > 0 ? DateTime.Now.ToString("O") : null,
-                    RecoveryEnabled = activeSnapshots.Count > 0,
-                    HasEditingHistory = false,
-                    CaptureBackupOnNextSave = false
+                    RecoveryEnabled = activeSnapshots.Count > 0
                 }
-            );
+                : null;
+
+            var remainingCheckpoints = (control.Checkpoints ?? [])
+                .Where(entry =>
+                    !string.Equals(
+                        entry.CheckpointId,
+                        selectedCheckpointId,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
+
+            control.Checkpoints = reverseEntry is null
+                ? remainingCheckpoints.Take(MaxGlobalCheckpoints).ToList()
+                : [reverseEntry, ..remainingCheckpoints.Take(MaxGlobalCheckpoints - 1)];
+            control.HasEditingHistory = false;
+            control.CaptureBackupOnNextSave = false;
+            control.LastCheckpointAction = "recovery";
+            SaveGlobalCheckpointControl(appFolder, control);
+            PruneOrphanGlobalCheckpoints(appFolder, control.Checkpoints);
 
             await WriteJsonAsync(
                 stream,
@@ -1763,8 +1814,14 @@ internal static class Program
             control.Reason = BackupReasonBeforeSessionEdit;
         }
 
+        if (control.LastCheckpointAction == "import")
+        {
+            control.LastCheckpointAction = null;
+        }
+
         control.CaptureBackupOnNextSave = control.HasEditingHistory == true;
         SaveGlobalCheckpointControl(appFolder, control);
+        PruneOrphanGlobalCheckpoints(appFolder, control.Checkpoints);
     }
 
     private static void CaptureGlobalCheckpointBeforeEdit(string appFolder)
@@ -1798,28 +1855,55 @@ internal static class Program
         control.RecoveryEnabled = true;
         control.HasEditingHistory = true;
         control.CaptureBackupOnNextSave = false;
+        control.LastCheckpointAction = "edit";
         SaveGlobalCheckpointControl(appFolder, control);
     }
 
-    private static void CaptureGlobalCheckpoint(
+    private static void MarkGlobalCheckpointImported(string appFolder)
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+
+        if (control.CheckpointId is null)
+        {
+            return;
+        }
+
+        control.RecoveryEnabled = true;
+        control.HasEditingHistory = false;
+        control.CaptureBackupOnNextSave = false;
+        control.LastCheckpointAction = "import";
+        SaveGlobalCheckpointControl(appFolder, control);
+    }
+
+    private static string? CaptureGlobalCheckpoint(
         string appFolder,
         string reason,
         bool recoveryEnabled
     )
     {
+        var control = LoadGlobalCheckpointControl(appFolder);
+        var normalizedReason = NormalizeBackupReason(reason) ?? reason;
+        var latestCheckpoint = control.Checkpoints?.FirstOrDefault();
+
+        if (
+            normalizedReason == BackupReasonBeforeImport &&
+            control.LastCheckpointAction == "import" &&
+            latestCheckpoint is not null &&
+            latestCheckpoint.Reason == BackupReasonBeforeImport &&
+            ResolveGlobalCheckpointPath(appFolder, latestCheckpoint.CheckpointId) is not null
+        )
+        {
+            return latestCheckpoint.CheckpointId;
+        }
+
         var sources = GetWorkbookSources(appFolder);
         var snapshots = GetActiveWorkbookSnapshots(appFolder, sources).ToList();
 
         if (snapshots.Count == 0)
         {
-            return;
+            return null;
         }
 
-        var previousControl = LoadGlobalCheckpointControl(appFolder);
-        var previousCheckpointPath = ResolveGlobalCheckpointPath(
-            appFolder,
-            previousControl.CheckpointId
-        );
         var checkpointId = CreateCheckpointId();
         var checkpointPath = Path.Combine(GetGlobalCheckpointsFolder(appFolder), checkpointId);
 
@@ -1836,27 +1920,61 @@ internal static class Program
 
         WriteCheckpointManifest(checkpointPath, reason, snapshots);
 
-        if (
-            previousCheckpointPath is not null &&
-            Directory.Exists(previousCheckpointPath) &&
-            !string.Equals(previousCheckpointPath, checkpointPath, StringComparison.OrdinalIgnoreCase)
-        )
+        var checkpointEntry = new GlobalCheckpointEntry
         {
-            Directory.Delete(previousCheckpointPath, true);
+            CheckpointId = checkpointId,
+            Reason = normalizedReason,
+            CreatedAt = DateTime.Now.ToString("O"),
+            RecoveryEnabled = recoveryEnabled
+        };
+
+        control.Checkpoints = [
+            checkpointEntry,
+            ..(control.Checkpoints ?? [])
+                .Where(entry => entry.CheckpointId != checkpointId)
+                .Take(MaxGlobalCheckpoints - 1)
+        ];
+        control.HasEditingHistory = recoveryEnabled;
+        control.CaptureBackupOnNextSave = false;
+        SaveGlobalCheckpointControl(appFolder, control);
+        PruneOrphanGlobalCheckpoints(appFolder, control.Checkpoints);
+
+        return checkpointId;
+    }
+
+    private static void PruneOrphanGlobalCheckpoints(
+        string appFolder,
+        IEnumerable<GlobalCheckpointEntry>? activeCheckpoints
+    )
+    {
+        var checkpointsFolder = GetGlobalCheckpointsFolder(appFolder);
+
+        if (!Directory.Exists(checkpointsFolder))
+        {
+            return;
         }
 
-        SaveGlobalCheckpointControl(
-            appFolder,
-            new GlobalCheckpointControl
+        var activeCheckpointPaths = (activeCheckpoints ?? [])
+            .Select(entry => ResolveGlobalCheckpointPath(appFolder, entry.CheckpointId))
+            .Where(path => path is not null)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var checkpointPath in Directory.EnumerateDirectories(checkpointsFolder))
+        {
+            if (activeCheckpointPaths.Contains(checkpointPath))
             {
-                CheckpointId = checkpointId,
-                Reason = reason,
-                CreatedAt = DateTime.Now.ToString("O"),
-                RecoveryEnabled = recoveryEnabled,
-                HasEditingHistory = recoveryEnabled,
-                CaptureBackupOnNextSave = false
+                continue;
             }
-        );
+
+            try
+            {
+                Directory.Delete(checkpointPath, true);
+            }
+            catch
+            {
+                // Old same-session undo checkpoints are best-effort cleanup.
+            }
+        }
     }
 
     private static IEnumerable<WorkbookSnapshot> GetActiveWorkbookSnapshots(
@@ -1956,23 +2074,68 @@ internal static class Program
         }
 
         control ??= new GlobalCheckpointControl();
-        control.Reason = NormalizeBackupReason(control.Reason);
-
-        if (ResolveGlobalCheckpointPath(appFolder, control.CheckpointId) is null)
-        {
-            control.CheckpointId = null;
-            control.Reason = null;
-            control.CreatedAt = null;
-            control.RecoveryEnabled = false;
-            control.HasEditingHistory = false;
-            control.CaptureBackupOnNextSave = false;
-        }
-
-        control.RecoveryEnabled ??= control.CheckpointId is not null;
+        NormalizeGlobalCheckpointControl(appFolder, control);
         control.HasEditingHistory ??= control.RecoveryEnabled == true;
         control.CaptureBackupOnNextSave ??= false;
         SaveGlobalCheckpointControl(appFolder, control);
         return control;
+    }
+
+    private static void NormalizeGlobalCheckpointControl(
+        string appFolder,
+        GlobalCheckpointControl control
+    )
+    {
+        var checkpoints = control.Checkpoints ?? [];
+
+        if (
+            checkpoints.Count == 0 &&
+            !string.IsNullOrWhiteSpace(control.CheckpointId)
+        )
+        {
+            checkpoints.Add(
+                new GlobalCheckpointEntry
+                {
+                    CheckpointId = control.CheckpointId,
+                    Reason = control.Reason,
+                    CreatedAt = control.CreatedAt,
+                    RecoveryEnabled = control.RecoveryEnabled
+                }
+            );
+        }
+
+        control.Checkpoints = checkpoints
+            .Where(entry =>
+                !string.IsNullOrWhiteSpace(entry.CheckpointId) &&
+                ResolveGlobalCheckpointPath(appFolder, entry.CheckpointId) is not null
+            )
+            .Select(entry => new GlobalCheckpointEntry
+            {
+                CheckpointId = entry.CheckpointId,
+                Reason = NormalizeBackupReason(entry.Reason),
+                CreatedAt = entry.CreatedAt,
+                RecoveryEnabled = entry.RecoveryEnabled ?? true
+            })
+            .OrderByDescending(entry =>
+                DateTime.TryParse(entry.CreatedAt, out var createdAt)
+                    ? createdAt
+                    : DateTime.MinValue
+            )
+            .Take(MaxGlobalCheckpoints)
+            .ToList();
+
+        MirrorLatestGlobalCheckpoint(control);
+    }
+
+    private static void MirrorLatestGlobalCheckpoint(GlobalCheckpointControl control)
+    {
+        var latestCheckpoint = control.Checkpoints?.FirstOrDefault();
+
+        control.CheckpointId = latestCheckpoint?.CheckpointId;
+        control.Reason = NormalizeBackupReason(latestCheckpoint?.Reason);
+        control.CreatedAt = latestCheckpoint?.CreatedAt;
+        control.RecoveryEnabled =
+            latestCheckpoint is not null && latestCheckpoint.RecoveryEnabled == true;
     }
 
     private static void SaveGlobalCheckpointControl(
@@ -1980,6 +2143,7 @@ internal static class Program
         GlobalCheckpointControl control
     )
     {
+        MirrorLatestGlobalCheckpoint(control);
         var dadosFolder = GetDadosFolder(appFolder);
         Directory.CreateDirectory(dadosFolder);
         File.WriteAllText(
@@ -2308,7 +2472,7 @@ internal static class Program
 
     private static string FormatBackupDateTime(DateTime dateTime)
     {
-        return $"{dateTime:HH}h{dateTime:mm}m{dateTime:ss}s {dateTime:dd/MM/yy}";
+        return $"{dateTime:HH:mm:ss} {dateTime:dd/MM/yyyy}";
     }
 
     private static DateTime? ParseIsoDateTime(string? value)
@@ -2464,6 +2628,16 @@ internal static class Program
         public bool? RecoveryEnabled { get; set; }
         public bool? HasEditingHistory { get; set; }
         public bool? CaptureBackupOnNextSave { get; set; }
+        public List<GlobalCheckpointEntry>? Checkpoints { get; set; }
+        public string? LastCheckpointAction { get; set; }
+    }
+
+    private sealed class GlobalCheckpointEntry
+    {
+        public string? CheckpointId { get; set; }
+        public string? Reason { get; set; }
+        public string? CreatedAt { get; set; }
+        public bool? RecoveryEnabled { get; set; }
     }
 
     private sealed record WorkbookSource(

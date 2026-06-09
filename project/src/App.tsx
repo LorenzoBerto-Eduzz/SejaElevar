@@ -4,6 +4,7 @@ import { TurmasPage } from './features/turmas/TurmasPage';
 import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
 import { appTabs } from './shared/navigation/tabs';
+import { ActionLogOverlay } from './shared/actionLog/ActionLogOverlay';
 import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
 import {
@@ -159,7 +160,14 @@ export function App() {
   }, [isInitialPageReady, isProviderReady]);
 
   useEffect(() => {
-    configureGlobalUndoNavigation(() => activeTab, setActiveTab);
+    configureGlobalUndoNavigation(
+      () => activeTab,
+      (tab) =>
+        new Promise<void>((resolve) => {
+          setActiveTab(tab);
+          window.requestAnimationFrame(() => resolve());
+        }),
+    );
 
     const handleKeyDown = (event: KeyboardEvent) => {
       handleGlobalUndoShortcut(event);
@@ -187,8 +195,12 @@ export function App() {
       activeTab={activeTab}
       onTabChange={setActiveTab}
     >
+      <ActionLogOverlay />
       <div hidden={activeTab !== 'aprendizes'}>
-        <AprendizesPage onInitialReady={() => setIsInitialPageReady(true)} />
+        <AprendizesPage
+          isActive={activeTab === 'aprendizes'}
+          onInitialReady={() => setIsInitialPageReady(true)}
+        />
       </div>
       <div hidden={activeTab !== 'turmas'}>
         <TurmasPage isActive={activeTab === 'turmas'} />

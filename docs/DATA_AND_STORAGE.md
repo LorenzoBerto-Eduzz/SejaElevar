@@ -19,10 +19,11 @@ Current Aprendizes behavior:
 - The app then uses `dados/controle.json` to track the active Aprendizes workbook. Recoverable app-state checkpoints are tracked globally in `dados/controle-global.json` plus `dados/checkpoints/<checkpoint-id>/`. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
 - When a saved edit changes data, the provider writes a fresh timestamped `Aprendizes_hhmmssddmmyy.xlsx` active file so the filename reflects the most recent update. The replaced active file is deleted unless it is the protected backup.
 - Importing when no previous app data exists records the imported state as a disabled original checkpoint. Recovery stays disabled until an edit makes the active state differ from that original.
-- Importing any workbook while app data already exists captures the previous whole-app data state as the global checkpoint and makes recovery immediately available for the state before import.
-- The first editing session after an import or recovery preserves its explicit checkpoint. Once the same app data chain has been edited in an earlier app session, the first edit in a later session replaces the checkpoint with the whole-app state immediately before edits in the current session; later edits in that same session keep it.
+- Importing any workbook while app data already exists captures the previous whole-app data state as a global checkpoint and makes recovery immediately available for the state before import.
+- The provider keeps up to three whole-app checkpoint filesets under `dados/checkpoints/`, newest first. Repeated sequential imports in the same launched app session amend the same import checkpoint instead of filling the three checkpoint slots with near-duplicate states. A new edit, recovery, or new launched session breaks that import sequence.
+- The first editing session after an import or recovery preserves its explicit checkpoint. Once the same app data chain has been edited in an earlier app session, the first edit in a later session can capture the whole-app state immediately before edits in the current session; later edits in that same session keep it.
 - `dados/` should normally contain current timestamped on-use workbooks, per-workbook control files, `controle-global.json`, `checkpoints/`, `sistema/`, and `.gitkeep`.
-- Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. Imports are global undo boundaries: pressing `Ctrl+Z` immediately after an import recovers the previous global checkpoint and restores the previous undo stack; once the user edits after the import or imports again, the old pre-import detailed undo history is discarded.
+- Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. Imports and recoveries are global undo actions. Each import stores the provider checkpoint id for the previous whole-app state, so `Ctrl+Z` can walk backward through imports, recoveries, edits, registrations, and deletions in chronological order.
 
 Current Turmas behavior:
 
@@ -115,7 +116,7 @@ Day/period behavior direction: `Dia` is a dropdown of weekdays or defined day la
 
 A checkpoint currently contains copies of the active Aprendizes and Turmas workbooks when those workbooks exist. Future data tabs should join this checkpoint through the provider workbook-source list instead of creating independent recovery meanings.
 
-Pressing `Recuperar Dados` restores the checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible.
+Pressing `Recuperar Dados` restores the chosen checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible. The recovery popup can list up to three checkpoints, newest first, with friendly labels in the format `HH:mm:ss dd/MM/yyyy`.
 
 Current normal popup messages are:
 
@@ -126,7 +127,11 @@ Current normal popup messages are:
 - That editing-session checkpoint is viewed after reopening without a newer edit: `Recupere os dados para como estavam antes da última sessão com edições.`
 - No app data exists, or an initial import has not yet been edited: the toolbar button stays disabled.
 
-Importing a workbook is also a global undo boundary. `Ctrl+Z` immediately after import restores the previous checkpoint and previous undo stack; once the user edits after the import or imports again, the old pre-import detailed undo history is discarded.
+Importing a workbook is also a global undo boundary. Each import entry stores the checkpoint id it must restore, so imports can be undone in order instead of only the newest import being recoverable. Sequential imports in the same app session are intentionally amended into one import action/checkpoint until an edit, recovery, or new session breaks the sequence.
+
+Global undo is app-wide, not page-local, and is persisted in browser storage with a 200-action limit. `Ctrl+Z` walks backward through edits, registrations, deletions, imports, and recoveries; `Ctrl+Y` or `Ctrl+Shift+Z` walks forward again. If the next action to undo/redo was made from another tab, the app first switches to that tab, waits for the tab UI to settle, then runs that tab's handler. Undo handlers must update the source workbook(s), generated `dados/sistema/data-index.json`, visible UI state, selected item/popup state, and any linked workbook values affected by that action.
+
+The dev app has a non-release action-history overlay in `project/src/shared/actionLog/`. It is toggled by a tiny top-left button, is visually click-through, lists newest actions at the top, colors done actions green, undone actions red, and history cuts/session markers blue. It is a diagnostic tool for understanding the global undo/checkpoint flow and should not become coworker-facing product UI unless explicitly redesigned.
 
 The first app should focus on useful operations rather than fancy presentation: view data, filter/search data, edit it when appropriate, fill extra values through the web UI, and generate documents from selected data and templates.
 

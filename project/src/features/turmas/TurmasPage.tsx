@@ -88,6 +88,7 @@ const END_DATE_COLUMN = 'Data do Término';
 const AGE_COLUMN = 'Idade';
 const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
+const TURMAS_ROW_DETAILS_VERTICAL_OFFSET = -1;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
 const ROW_DETAILS_PANEL_WIDTH = ROW_DETAILS_PANEL_HEIGHT * 1.4;
 
@@ -95,6 +96,7 @@ const invalidImportedFileMessage =
   'Arquivo importado não possui os valores necessários';
 
 type AprendizesViewSettings = {
+  columnOrder: string[];
   columnWidths: Record<string, number>;
 };
 
@@ -136,13 +138,22 @@ type RecoveryReason =
 type RecoveryInfo = {
   available: boolean;
   canRecover: boolean;
+  checkpointId?: string | null;
   fileName?: string | null;
   label?: string | null;
   formattedUpdatedAt?: string | null;
   reason?: RecoveryReason | null;
+  checkpoints?: Array<{
+    checkpointId?: string | null;
+    canRecover: boolean;
+    label?: string | null;
+    formattedUpdatedAt?: string | null;
+    reason?: RecoveryReason | null;
+  }>;
 };
 
 const defaultAprendizesViewSettings: AprendizesViewSettings = {
+  columnOrder: [],
   columnWidths: {},
 };
 
@@ -581,6 +592,15 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     setRowDetailsPanelStyle(nextStyle);
   };
 
+  useEffect(() => {
+    if (isActive) {
+      return;
+    }
+
+    setSelectedStudentRowIndex(null);
+    applyRowDetailsPanelStyle({});
+  }, [isActive]);
+
   const syncTurmaStudentsHorizontalScroll = (scrollLeft: number) => {
     const frame = boardFrameRef.current;
 
@@ -699,6 +719,20 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const shouldShowStudentDetailsPanel = Boolean(
     aprendizesSheet && selectedStudentRow,
   );
+  const orderedAprendizColumns = useMemo(() => {
+    if (!aprendizesSheet) {
+      return [];
+    }
+
+    const savedColumns = aprendizesViewSettings.columnOrder.filter((column) =>
+      aprendizesSheet.columns.includes(column),
+    );
+    const remainingColumns = aprendizesSheet.columns.filter(
+      (column) => !savedColumns.includes(column),
+    );
+
+    return [...savedColumns, ...remainingColumns];
+  }, [aprendizesSheet, aprendizesViewSettings.columnOrder]);
   const studentsByClass = useMemo(
     () =>
       aprendizesSheet
@@ -1112,23 +1146,29 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
   };
 
-  const recoverGlobalData = async () => {
+  const recoverGlobalData = async (checkpointId?: unknown) => {
+    const headers =
+      typeof checkpointId === 'string' && checkpointId
+        ? { 'x-checkpoint-id': checkpointId }
+        : undefined;
     const response = await fetch('/api/recovery', {
       method: 'POST',
+      headers,
     });
 
     if (!response.ok) {
       throw new Error('recover-failed');
     }
 
-    await response.json();
+    const result = (await response.json()) as { checkpointId?: string | null };
     const nextAprendizesSheet = await loadAprendizesProviderFile();
     await loadProviderFile(nextAprendizesSheet);
     await fetchRecoveryInfo();
     setImportError('');
+    return result;
   };
 
-  const recoverBackup = async () => {
+  const recoverBackup = async (checkpointId?: string | null) => {
     if (!recoveryInfo?.canRecover || isRecoveringBackup) {
       return;
     }
@@ -1136,7 +1176,14 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     setIsRecoveringBackup(true);
 
     try {
-      await recoverGlobalData();
+      const result = await recoverGlobalData(checkpointId);
+      if (result.checkpointId) {
+        pushGlobalUndoEntry({
+          originTab: 'turmas',
+          kind: 'global-recovery',
+          checkpointId: result.checkpointId,
+        });
+      }
       setIsRecoveryDialogOpen(false);
     } catch {
       setImportError('Não foi possível recuperar os dados do backup.');
@@ -1453,7 +1500,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
       applyRowDetailsPanelStyle({
         left: Math.round(maximumRight - width),
-        top: Math.round(maximumBottom - height),
+        top: Math.round(maximumBottom - height + TURMAS_ROW_DETAILS_VERTICAL_OFFSET),
         width: Math.round(width),
         height: Math.round(height),
       });
@@ -1537,7 +1584,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         throw new Error('import-failed');
       }
 
-      const result = (await response.json()) as { fileName?: string };
+      const result = (await response.json()) as {
+        fileName?: string;
+        globalCheckpointId?: string | null;
+      };
       const storedFileName = result.fileName || file.name;
       const nextSheet = {
         ...parsedSheet,
@@ -1559,6 +1609,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           {
             originTab: 'turmas',
             kind: 'global-import',
+            checkpointId: result.globalCheckpointId,
           },
           previousUndoStack,
         );
@@ -1893,17 +1944,97 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }, 0);
   };
 
-  const undoLastAction = () => {
+  const isTableUndoEntry = (
+    entry: GlobalUndoEntry | TableUndoEntry | undefined,
+  ): entry is TableUndoEntry => {
+    if (!entry) {
+      return false;
+    }
+
+    if (entry.kind === 'row-delete') {
+      return (
+        typeof entry.rowIndex === 'number' && Array.isArray(entry.rowValues)
+      );
+    }
+
+    return (
+      entry.kind === 'cell-edit' &&
+      typeof entry.rowIndex === 'number' &&
+      typeof entry.columnName === 'string' &&
+      typeof entry.previousValue === 'string' &&
+      typeof entry.nextValue === 'string'
+    );
+  };
+
+  const tableUndoEntriesMatch = (
+    leftEntry: TableUndoEntry,
+    rightEntry: TableUndoEntry,
+  ) => {
+    if (
+      leftEntry.kind !== rightEntry.kind ||
+      leftEntry.rowIndex !== rightEntry.rowIndex
+    ) {
+      return false;
+    }
+
+    if (leftEntry.kind === 'row-delete' && rightEntry.kind === 'row-delete') {
+      return leftEntry.rowValues.join('\u0000') === rightEntry.rowValues.join('\u0000');
+    }
+
+    if (leftEntry.kind === 'cell-edit' && rightEntry.kind === 'cell-edit') {
+      return (
+        leftEntry.columnName === rightEntry.columnName &&
+        leftEntry.previousValue === rightEntry.previousValue &&
+        leftEntry.nextValue === rightEntry.nextValue
+      );
+    }
+
+    return false;
+  };
+
+  const takeUndoEntry = (requestedEntry?: GlobalUndoEntry) => {
+    if (!requestedEntry) {
+      const undoEntry = undoStackRef.current.at(-1);
+      undoStackRef.current = undoStackRef.current.slice(0, -1);
+      return undoEntry;
+    }
+
+    if (!isTableUndoEntry(requestedEntry)) {
+      return null;
+    }
+
+    const undoEntry = requestedEntry;
+    let matchingIndex = -1;
+
+    for (
+      let index = undoStackRef.current.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      if (tableUndoEntriesMatch(undoStackRef.current[index], undoEntry)) {
+        matchingIndex = index;
+        break;
+      }
+    }
+
+    if (matchingIndex >= 0) {
+      undoStackRef.current = undoStackRef.current.filter(
+        (_entry, index) => index !== matchingIndex,
+      );
+    }
+
+    return undoEntry;
+  };
+
+  const undoLastAction = (requestedEntry?: GlobalUndoEntry) => {
     commitActiveStudentEditForUndo();
     protectUndoCommit();
 
-    const undoEntry = undoStackRef.current.at(-1);
+    const undoEntry = takeUndoEntry(requestedEntry);
 
     if (!undoEntry || !aprendizesSheet) {
       return null;
     }
-
-    undoStackRef.current = undoStackRef.current.slice(0, -1);
 
     if (undoEntry.kind === 'row-delete') {
       const nextRows = [...aprendizesSheet.rows];
@@ -1943,12 +2074,67 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     return nextSheet;
   };
 
-  const undoLastActionAndSave = () => {
-    const nextSheet = undoLastAction();
+  const undoLastActionAndSave = (entry?: GlobalUndoEntry) => {
+    const nextSheet = undoLastAction(entry);
 
     if (nextSheet) {
       void writeAprendizesSheetToSourceFile(nextSheet);
     }
+
+    return Boolean(nextSheet);
+  };
+
+  const redoLastActionAndSave = (entry: GlobalUndoEntry) => {
+    if (!isTableUndoEntry(entry) || !aprendizesSheet) {
+      return false;
+    }
+
+    protectUndoCommit();
+    activeStudentEditRef.current = null;
+
+    if (entry.kind === 'row-delete') {
+      if (!aprendizesSheet.rows[entry.rowIndex]) {
+        return false;
+      }
+
+      const nextSheet = {
+        ...aprendizesSheet,
+        rows: aprendizesSheet.rows.filter(
+          (_row, currentRowIndex) => currentRowIndex !== entry.rowIndex,
+        ),
+      };
+
+      setAprendizesSheet(nextSheet);
+      setSelectedStudentRowIndex(null);
+      applyRowDetailsPanelStyle({});
+      void writeAprendizesSheetToSourceFile(nextSheet);
+      return true;
+    }
+
+    const columnIndex = getColumnIndex(aprendizesSheet, entry.columnName);
+
+    if (columnIndex < 0 || !aprendizesSheet.rows[entry.rowIndex]) {
+      return false;
+    }
+
+    const nextRows = aprendizesSheet.rows.map((row, rowIndex) => {
+      if (rowIndex !== entry.rowIndex) {
+        return row;
+      }
+
+      const nextRow = [...row];
+      nextRow[columnIndex] = entry.nextValue;
+      return nextRow;
+    });
+    const nextSheet = {
+      ...aprendizesSheet,
+      rows: nextRows,
+    };
+
+    setAprendizesSheet(nextSheet);
+    setSelectedStudentRowIndex(entry.rowIndex);
+    void writeAprendizesSheetToSourceFile(nextSheet);
+    return true;
   };
 
   const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
@@ -1961,11 +2147,45 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const undoGlobalBoundaryAction = async (entry: GlobalUndoEntry) => {
     try {
-      await recoverGlobalData();
+      const result = await recoverGlobalData(entry.checkpointId);
+      entry.redoCheckpointId = result.checkpointId;
       restoreUndoStackFromBoundary(entry);
       return true;
     } catch {
-      setImportError('NÃ£o foi possÃ­vel desfazer a importaÃ§Ã£o.');
+      setImportError('Não foi possível desfazer a importação.');
+      return false;
+    }
+  };
+
+  const redoGlobalBoundaryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      const result = await recoverGlobalData(entry.redoCheckpointId);
+      entry.checkpointId = result.checkpointId;
+      return true;
+    } catch {
+      setImportError('Não foi possível refazer a importação.');
+      return false;
+    }
+  };
+
+  const undoGlobalRecoveryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      const result = await recoverGlobalData(entry.checkpointId);
+      entry.redoCheckpointId = result.checkpointId;
+      return true;
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel desfazer a recupera\u00e7\u00e3o.');
+      return false;
+    }
+  };
+
+  const redoGlobalRecoveryAction = async (entry: GlobalUndoEntry) => {
+    try {
+      const result = await recoverGlobalData(entry.redoCheckpointId);
+      entry.checkpointId = result.checkpointId;
+      return true;
+    } catch {
+      setImportError('N\u00e3o foi poss\u00edvel refazer a recupera\u00e7\u00e3o.');
       return false;
     }
   };
@@ -1988,7 +2208,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const handleInputHistoryUndo = (event: FormEvent<HTMLInputElement>) => {
     const nativeEvent = event.nativeEvent as InputEvent;
 
-    if (nativeEvent.inputType !== 'historyUndo') {
+    if (
+      nativeEvent.inputType !== 'historyUndo' &&
+      nativeEvent.inputType !== 'historyRedo'
+    ) {
       return;
     }
 
@@ -1996,7 +2219,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     void handleGlobalUndoShortcut({
       ctrlKey: true,
       defaultPrevented: false,
-      key: 'z',
+      key: nativeEvent.inputType === 'historyRedo' ? 'y' : 'z',
       metaKey: false,
       preventDefault: () => {},
       shiftKey: false,
@@ -2013,8 +2236,22 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
             return undoGlobalBoundaryAction(entry);
           }
 
-          undoLastActionAndSave();
-          return true;
+          if (entry.kind === 'global-recovery') {
+            return undoGlobalRecoveryAction(entry);
+          }
+
+          return undoLastActionAndSave(entry);
+        },
+        redo: (entry) => {
+          if (entry.kind === 'global-import') {
+            return redoGlobalBoundaryAction(entry);
+          }
+
+          if (entry.kind === 'global-recovery') {
+            return redoGlobalRecoveryAction(entry);
+          }
+
+          return redoLastActionAndSave(entry);
         },
       }),
     [aprendizesSheet, selectedStudentRowIndex],
@@ -2022,12 +2259,20 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const hasWorkingSheet = Boolean(turmasSheet);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
-  const recoveryButtonLabel =
-    recoveryInfo?.formattedUpdatedAt
-      ? `Recuperar ${recoveryInfo.label || 'Dados'} - ${
-          recoveryInfo.formattedUpdatedAt
-        }`
-      : `Recuperar ${recoveryInfo?.label || 'Dados'}`;
+  const recoveryCheckpoints =
+    recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
+      ? recoveryInfo.checkpoints
+      : recoveryInfo?.canRecover
+        ? [
+            {
+              checkpointId: recoveryInfo.checkpointId,
+              canRecover: recoveryInfo.canRecover,
+              label: recoveryInfo.label,
+              formattedUpdatedAt: recoveryInfo.formattedUpdatedAt,
+              reason: recoveryInfo.reason,
+            },
+          ]
+        : [];
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
 
   return (
@@ -2046,20 +2291,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
               disabled
             >
               <SquarePlusIcon />
-            </button>
-            <button
-              className={
-                canRecoverBackup
-                  ? 'square-action toolbar-section-start'
-                  : 'square-action toolbar-section-start disabled'
-              }
-              type="button"
-              aria-label="Recuperar dados"
-              title="Recuperar Dados"
-              disabled={!canRecoverBackup}
-              onClick={() => setIsRecoveryDialogOpen(true)}
-            >
-              <RotateClockwiseIcon />
             </button>
             <button
               className="square-action"
@@ -2081,6 +2312,20 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
               onClick={() => void exportWorkingFile()}
             >
               <ExportIcon />
+            </button>
+            <button
+              className={
+                canRecoverBackup
+                  ? 'square-action toolbar-section-start'
+                  : 'square-action toolbar-section-start disabled'
+              }
+              type="button"
+              aria-label="Recuperar dados"
+              title="Recuperar Dados"
+              disabled={!canRecoverBackup}
+              onClick={() => setIsRecoveryDialogOpen(true)}
+            >
+              <RotateClockwiseIcon />
             </button>
             <ThemeToggleButton className="toolbar-section-start" />
           </div>
@@ -2166,7 +2411,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
                           {aprendizesSheet ? (
                             <table className="data-table turma-students-table">
                               <colgroup>
-                                {aprendizesSheet.columns.map((column) => (
+                                {orderedAprendizColumns.map((column) => (
                                   <col
                                     key={column}
                                     style={getAprendizColumnWidthStyle(column)}
@@ -2186,9 +2431,14 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
                                       setSelectedStudentRowIndex(rowIndex)
                                     }
                                   >
-                                    {aprendizesSheet.columns.map(
-                                      (column, columnIndex) => {
-                                        const value = row[columnIndex] || '';
+                                    {orderedAprendizColumns.map(
+                                      (column, orderedColumnIndex) => {
+                                        const sourceColumnIndex =
+                                          aprendizesSheet.columns.indexOf(column);
+                                        const value =
+                                          sourceColumnIndex >= 0
+                                            ? row[sourceColumnIndex] || ''
+                                            : '';
                                         const isTurmaColumn =
                                           normalizeFieldLabel(column) ===
                                           normalizeFieldLabel(TURMA_COLUMN);
@@ -2203,9 +2453,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
                                         return (
                                           <td
                                             className={
-                                              isInvalidTurma
-                                                ? 'invalid-dropdown-cell'
-                                                : ''
+                                              [
+                                                orderedColumnIndex === 0
+                                                  ? 'pinned-column'
+                                                  : '',
+                                                isInvalidTurma
+                                                  ? 'invalid-dropdown-cell'
+                                                  : '',
+                                              ]
+                                                .filter(Boolean)
+                                                .join(' ')
                                             }
                                             key={`${rowIndex}-${column}`}
                                             style={getAprendizColumnWidthStyle(
@@ -2226,7 +2483,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
                                         ? 'turma-add-student-cell active'
                                         : 'turma-add-student-cell'
                                     }
-                                    colSpan={aprendizesSheet.columns.length}
+                                    colSpan={orderedAprendizColumns.length}
                                     ref={
                                       activeAddTurmaKey === turmaKey
                                         ? addStudentCellRef
@@ -2537,15 +2794,24 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
               </button>
             </div>
             <p>{recoveryDescription}</p>
-            <button
-              className="primary-action recovery-confirm-action"
-              type="button"
-              disabled={!canRecoverBackup || isRecoveringBackup}
-              onClick={() => void recoverBackup()}
-            >
-              <RotateClockwiseIcon />
-              {isRecoveringBackup ? 'Recuperando...' : recoveryButtonLabel}
-            </button>
+            <div className="recovery-checkpoint-list">
+              {recoveryCheckpoints.map((checkpoint) => (
+                <button
+                  className="primary-action recovery-confirm-action"
+                  type="button"
+                  disabled={!checkpoint.canRecover || isRecoveringBackup}
+                  key={checkpoint.checkpointId ?? checkpoint.formattedUpdatedAt}
+                  onClick={() => void recoverBackup(checkpoint.checkpointId)}
+                >
+                  <RotateClockwiseIcon />
+                  {isRecoveringBackup
+                    ? 'Recuperando...'
+                    : `Recuperar dados em ${
+                        checkpoint.formattedUpdatedAt || 'checkpoint'
+                      }`}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
