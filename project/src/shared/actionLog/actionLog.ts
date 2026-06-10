@@ -1,4 +1,4 @@
-export type ActionLogLineState = 'done' | 'undone' | 'cut';
+export type ActionLogLineState = 'done' | 'undone' | 'discarded' | 'cut';
 
 export type ActionLogEntry = {
   id: number;
@@ -90,13 +90,6 @@ const loadPreviousActionLogEntries = () => {
     nextActionLogId =
       Math.max(...actionLogEntries.map((entry) => entry.id).filter(Number.isFinite), 0) +
       1;
-    appendActionLogEntry(
-      {
-        message: 'Nova sessão iniciada; o histórico foi mantido.',
-        state: 'cut',
-      },
-      { persist: false },
-    );
     saveActionLogEntries();
   } catch {
     window.localStorage.removeItem(ACTION_HISTORY_STORAGE_KEY);
@@ -129,6 +122,22 @@ export const setActionHistoryLineState = (
 
   actionLogEntries = actionLogEntries.map((entry) =>
     entry.id === id ? { ...entry, state } : entry,
+  );
+  notifyActionLogListeners();
+};
+
+export const setActionHistoryLinesState = (
+  ids: unknown[],
+  state: ActionLogLineState,
+) => {
+  const numericIds = new Set(ids.filter((id): id is number => typeof id === 'number'));
+
+  if (numericIds.size === 0) {
+    return;
+  }
+
+  actionLogEntries = actionLogEntries.map((entry) =>
+    numericIds.has(entry.id) ? { ...entry, state } : entry,
   );
   notifyActionLogListeners();
 };

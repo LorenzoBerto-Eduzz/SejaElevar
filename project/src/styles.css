@@ -811,28 +811,34 @@ svg {
   width: 24px;
   height: 24px;
   border: 1px solid #0f5fbf;
-  border-radius: 0 0 6px 0;
+  border-radius: 0;
   padding: 0;
   color: #fff;
   background: #0f5fbf;
   box-shadow: 0 4px 14px rgb(0 0 0 / 20%);
-  font-size: 0.72rem;
-  font-weight: 800;
-  line-height: 1;
   cursor: pointer;
 }
 
 .action-history-toggle.open {
   left: min(520px, 46vw);
-  border-radius: 0 0 6px 0;
+  border-radius: 0;
   box-shadow: 0 4px 14px rgb(0 0 0 / 20%);
-  transform: translateX(-100%);
 }
 
 .action-history-toggle:hover,
 .action-history-toggle:focus-visible {
   background: #174f96;
   outline: none;
+}
+
+.action-history-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .action-history-panel {
@@ -881,6 +887,10 @@ svg {
   color: #d93025;
 }
 
+.action-history-line.discarded {
+  color: #b38a00;
+}
+
 .action-history-line.cut {
   color: #1c6ddb;
 }
@@ -891,6 +901,10 @@ svg {
 
 .dark-mode .action-history-line.undone {
   color: #ff8178;
+}
+
+.dark-mode .action-history-line.discarded {
+  color: #d6a900;
 }
 
 .dark-mode .action-history-line.cut {

@@ -1,6 +1,6 @@
 import {
-  recordActionHistoryCut,
   recordActionHistoryLine,
+  setActionHistoryLinesState,
   setActionHistoryLineState,
 } from '../actionLog/actionLog';
 import type { AppTab } from '../navigation/tabs';
@@ -164,6 +164,18 @@ const tabLabels: Record<AppTab, string> = {
 
 const stringifyActionValue = (value: unknown) => String(value ?? '').trim();
 
+const describeHistoryPrefix = (entry: GlobalUndoEntry) => {
+  const tabLabel = tabLabels[entry.originTab] ?? entry.originTab;
+
+  return `${tabLabel} |`;
+};
+
+const getEntryItemRef = (entry: GlobalUndoEntry) =>
+  stringifyActionValue(entry.itemRef) ||
+  stringifyActionValue(entry.recordId) ||
+  stringifyActionValue(entry.itemLabel) ||
+  '';
+
 const describeChangedValue = (entry: GlobalUndoEntry) => {
   const columnName = stringifyActionValue(entry.columnName) || 'valor';
   const previousValue = stringifyActionValue(entry.previousValue) || 'vazio';
@@ -173,33 +185,36 @@ const describeChangedValue = (entry: GlobalUndoEntry) => {
 };
 
 const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
-  const tabLabel = tabLabels[entry.originTab] ?? entry.originTab;
+  const prefix = describeHistoryPrefix(entry);
+  const itemRef = getEntryItemRef(entry);
+  const itemPart = itemRef ? ` | ${itemRef}` : '';
 
   if (entry.kind === 'cell-edit') {
-    return `${tabLabel}: editado ${describeChangedValue(entry)}.`;
+    return `${prefix} editado${itemPart} | ${describeChangedValue(entry)}`;
   }
 
   if (entry.kind === 'row-insert') {
-    return `${tabLabel}: linha cadastrada.`;
+    return `${prefix} cadastrado${itemPart}`;
   }
 
   if (entry.kind === 'row-delete') {
-    return `${tabLabel}: linha descadastrada.`;
+    return `${prefix} descadastrado${itemPart}`;
   }
 
   if (entry.kind === 'registration-draft-edit') {
-    return `${tabLabel}: preenchimento de cadastro detectado.`;
+    return `${prefix} preenchido${itemPart} | ${describeChangedValue(entry)}`;
   }
 
   if (entry.kind === 'global-import') {
-    return `${tabLabel}: planilha importada.`;
+    const fileName = stringifyActionValue(entry.fileName);
+    return `${prefix} importado${fileName ? ` | ${fileName}` : ''}`;
   }
 
   if (entry.kind === 'global-recovery') {
-    return `${tabLabel}: dados recuperados.`;
+    return `${prefix} recuperado`;
   }
 
-  return `${tabLabel}: ação detectada.`;
+  return `${prefix} ação`;
 };
 
 const clearRedoPathForNewAction = () => {
@@ -207,8 +222,11 @@ const clearRedoPathForNewAction = () => {
     return;
   }
 
+  setActionHistoryLinesState(
+    redoStack.map((entry) => entry.__historyId),
+    'discarded',
+  );
   redoStack = [];
-  recordActionHistoryCut('Nova ação detectada; o caminho de refazer foi descartado.');
 };
 
 const withHistoryLine = (entry: GlobalUndoEntry) => ({

@@ -413,6 +413,7 @@ export function AprendizesPage({
   const [viewSettings, setViewSettings] = useState<TableViewSettings>(
     readSavedViewSettings,
   );
+  const viewSettingsRef = useRef(viewSettings);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isRegistrationMode, setIsRegistrationMode] = useState(false);
   const [areBodyEditInputsReady, setAreBodyEditInputsReady] = useState(false);
@@ -464,6 +465,10 @@ export function AprendizesPage({
   };
 
   useEffect(() => {
+    viewSettingsRef.current = viewSettings;
+  }, [viewSettings]);
+
+  useEffect(() => {
     if (isActive) {
       return;
     }
@@ -472,11 +477,21 @@ export function AprendizesPage({
     setIsRegistrationMode(false);
     applyRowDetailsPanelStyle({});
   }, [isActive]);
-  const saveViewSettings = (settings: TableViewSettings) => {
-    setViewSettings(settings);
+  const saveViewSettings = (
+    settings:
+      | TableViewSettings
+      | ((currentSettings: TableViewSettings) => TableViewSettings),
+  ) => {
+    const nextSettings =
+      typeof settings === 'function'
+        ? settings(viewSettingsRef.current)
+        : settings;
+
+    viewSettingsRef.current = nextSettings;
+    setViewSettings(nextSettings);
     window.localStorage.setItem(
       APRENDIZES_VIEW_STORAGE_KEY,
-      JSON.stringify(settings),
+      JSON.stringify(nextSettings),
     );
   };
   const storeImportedSheet = (sheet: ImportedSheet) => {
@@ -644,25 +659,6 @@ export function AprendizesPage({
     activeRegistrationEditRef.current = null;
     storeImportedSheet(sheet);
 
-    const knownColumns = new Set(sheet.columns);
-    const nextColumnOrder = [
-      ...viewSettings.columnOrder.filter((column) => knownColumns.has(column)),
-      ...sheet.columns.filter(
-        (column) => !viewSettings.columnOrder.includes(column),
-      ),
-    ];
-    const nextColumnWidths = options.resetColumnWidths
-      ? {}
-      : Object.fromEntries(
-          Object.entries(viewSettings.columnWidths).filter(([column]) =>
-            knownColumns.has(column),
-          ),
-        );
-    const nextSortState =
-      viewSettings.sortState && knownColumns.has(viewSettings.sortState.columnName)
-        ? viewSettings.sortState
-        : null;
-
     registrationDraftRef.current = {};
     setHasRegistrationDraftValue(false);
     setRegistrationDraftVersion((currentVersion) => currentVersion + 1);
@@ -673,11 +669,35 @@ export function AprendizesPage({
     applyRowDetailsPanelStyle({});
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
-    saveViewSettings({
-      ...viewSettings,
-      columnOrder: nextColumnOrder,
-      columnWidths: nextColumnWidths,
-      sortState: nextSortState,
+    saveViewSettings((currentViewSettings) => {
+      const knownColumns = new Set(sheet.columns);
+      const nextColumnOrder = [
+        ...currentViewSettings.columnOrder.filter((column) =>
+          knownColumns.has(column),
+        ),
+        ...sheet.columns.filter(
+          (column) => !currentViewSettings.columnOrder.includes(column),
+        ),
+      ];
+      const nextColumnWidths = options.resetColumnWidths
+        ? {}
+        : Object.fromEntries(
+            Object.entries(currentViewSettings.columnWidths).filter(([column]) =>
+              knownColumns.has(column),
+            ),
+          );
+      const nextSortState =
+        currentViewSettings.sortState &&
+        knownColumns.has(currentViewSettings.sortState.columnName)
+          ? currentViewSettings.sortState
+          : null;
+
+      return {
+        ...currentViewSettings,
+        columnOrder: nextColumnOrder,
+        columnWidths: nextColumnWidths,
+        sortState: nextSortState,
+      };
     });
     void persistAprendizesDataIndex(sheet);
   };
@@ -817,6 +837,7 @@ export function AprendizesPage({
             originTab: 'aprendizes',
             kind: 'global-import',
             checkpointId: result.globalCheckpointId,
+            fileName: storedFileName,
           },
           previousUndoStack,
         );
@@ -1261,16 +1282,19 @@ export function AprendizesPage({
       return;
     }
 
-    const nextSortState =
-      sortState?.columnName !== columnName
-        ? { columnName, direction: 'asc' as const }
-        : sortState.direction === 'asc'
-          ? { columnName, direction: 'desc' as const }
-          : null;
+    saveViewSettings((currentViewSettings) => {
+      const currentSortState = currentViewSettings.sortState;
+      const nextSortState =
+        currentSortState?.columnName !== columnName
+          ? { columnName, direction: 'asc' as const }
+          : currentSortState.direction === 'asc'
+            ? { columnName, direction: 'desc' as const }
+            : null;
 
-    saveViewSettings({
-      ...viewSettings,
-      sortState: nextSortState,
+      return {
+        ...currentViewSettings,
+        sortState: nextSortState,
+      };
     });
   };
 
@@ -1475,10 +1499,10 @@ export function AprendizesPage({
     };
 
     storeImportedSheet(nextSheet);
-    saveViewSettings({
-      ...viewSettings,
+    saveViewSettings((currentViewSettings) => ({
+      ...currentViewSettings,
       columnOrder: nextColumnOrder,
-    });
+    }));
     void writeSheetToSourceFile(nextSheet);
   };
 
@@ -1673,13 +1697,13 @@ export function AprendizesPage({
   ]);
 
   const resizeColumn = (column: string, width: number) => {
-    saveViewSettings({
-      ...viewSettings,
+    saveViewSettings((currentViewSettings) => ({
+      ...currentViewSettings,
       columnWidths: {
-        ...viewSettings.columnWidths,
+        ...currentViewSettings.columnWidths,
         [column]: Math.max(MIN_COLUMN_WIDTH, Math.round(width)),
       },
-    });
+    }));
   };
 
   const startColumnResize = (
@@ -1828,6 +1852,8 @@ export function AprendizesPage({
     return sheet.rows[rowIndex]?.[columnIndex] ?? '';
   };
 
+  const getRowActionRef = (rowIndex: number) => `apr#${rowIndex + 1}`;
+
   const pushTableUndoEntry = (entry: TableUndoEntry) => {
     if (
       entry.kind === 'cell-edit' &&
@@ -1842,6 +1868,10 @@ export function AprendizesPage({
     ].slice(-CELL_UNDO_LIMIT);
     pushGlobalUndoEntry({
       originTab: 'aprendizes',
+      itemRef:
+        entry.kind === 'registration-draft-edit'
+          ? 'cadastro'
+          : getRowActionRef(entry.rowIndex),
       ...entry,
     });
   };
