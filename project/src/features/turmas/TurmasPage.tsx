@@ -19,7 +19,10 @@ import {
   type DataIndexEntity,
   type SheetTable,
 } from '../../shared/data/dataIndex';
-import { APRENDIZES_DATA_CHANGED_EVENT } from '../../shared/data/events';
+import {
+  APRENDIZES_DATA_CHANGED_EVENT,
+  GLOBAL_DATA_CHANGED_EVENT,
+} from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
@@ -145,12 +148,16 @@ type RecoveryInfo = {
   label?: string | null;
   formattedUpdatedAt?: string | null;
   reason?: RecoveryReason | null;
+  importCount?: number | null;
+  fileCount?: number | null;
   checkpoints?: Array<{
     checkpointId?: string | null;
     canRecover: boolean;
     label?: string | null;
     formattedUpdatedAt?: string | null;
     reason?: RecoveryReason | null;
+    importCount?: number | null;
+    fileCount?: number | null;
   }>;
 };
 
@@ -1170,6 +1177,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     const nextAprendizesSheet = await loadAprendizesProviderFile();
     await loadProviderFile(nextAprendizesSheet);
     await fetchRecoveryInfo();
+    window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
     setImportError('');
     return result;
   };
@@ -1389,6 +1397,25 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
     return () => {
       window.removeEventListener(APRENDIZES_DATA_CHANGED_EVENT, syncAprendizesData);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncGlobalData = () => {
+      if (isApplyingUndoRef.current) {
+        return;
+      }
+
+      void (async () => {
+        const nextAprendizesSheet = await loadAprendizesProviderFile();
+        await loadProviderFile(nextAprendizesSheet);
+      })();
+    };
+
+    window.addEventListener(GLOBAL_DATA_CHANGED_EVENT, syncGlobalData);
+
+    return () => {
+      window.removeEventListener(GLOBAL_DATA_CHANGED_EVENT, syncGlobalData);
     };
   }, []);
 
@@ -3063,7 +3090,15 @@ const filterAvailableStudents = (
 function getRecoveryDescription(info: RecoveryInfo | null) {
   switch (info?.reason) {
     case 'before_import':
-      return 'Recupere os dados para como estavam antes da última importação.';
+      if ((info.fileCount ?? 0) === 0) {
+        return (info.importCount ?? 0) > 1
+          ? 'Recupere os dados para como estavam antes das primeiras importações.'
+          : 'Recupere os dados para como estavam antes da primeira importação.';
+      }
+
+      return (info.importCount ?? 0) > 1
+        ? 'Recupere os dados para como estavam antes das últimas importações.'
+        : 'Recupere os dados para como estavam antes da última importação.';
     case 'before_edit':
       return 'Recupere os dados para como estavam antes de edições nesta sessão.';
     case 'before_session_edit':

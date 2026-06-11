@@ -15,7 +15,10 @@ import {
   buildAprendizesDataIndexEntity,
   buildEmptyDataIndexEntity,
 } from '../../shared/data/dataIndex';
-import { APRENDIZES_DATA_CHANGED_EVENT } from '../../shared/data/events';
+import {
+  APRENDIZES_DATA_CHANGED_EVENT,
+  GLOBAL_DATA_CHANGED_EVENT,
+} from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
   normalizeFieldLabel,
@@ -217,12 +220,16 @@ type RecoveryInfo = {
   label?: string | null;
   formattedUpdatedAt?: string | null;
   reason?: RecoveryReason | null;
+  importCount?: number | null;
+  fileCount?: number | null;
   checkpoints?: Array<{
     checkpointId?: string | null;
     canRecover: boolean;
     label?: string | null;
     formattedUpdatedAt?: string | null;
     reason?: RecoveryReason | null;
+    importCount?: number | null;
+    fileCount?: number | null;
   }>;
 };
 
@@ -925,7 +932,7 @@ export function AprendizesPage({
       resetColumnWidths: false,
     });
     await fetchRecoveryInfo();
-    window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
+    window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
     setImportError('');
     return result;
   };
@@ -1135,9 +1142,13 @@ export function AprendizesPage({
   }, [hasCheckedWorkspace, onInitialReady]);
 
   useEffect(() => {
-    const reloadChangedAprendizesData = () => {
+    const reloadChangedAprendizesData = (event?: Event) => {
       if (!isLocalProviderActiveRef.current) {
         return;
+      }
+
+      if (event?.type === GLOBAL_DATA_CHANGED_EVENT) {
+        void fetchRecoveryInfo();
       }
 
       void fetchProviderFile({
@@ -1150,10 +1161,18 @@ export function AprendizesPage({
       APRENDIZES_DATA_CHANGED_EVENT,
       reloadChangedAprendizesData,
     );
+    window.addEventListener(
+      GLOBAL_DATA_CHANGED_EVENT,
+      reloadChangedAprendizesData,
+    );
 
     return () => {
       window.removeEventListener(
         APRENDIZES_DATA_CHANGED_EVENT,
+        reloadChangedAprendizesData,
+      );
+      window.removeEventListener(
+        GLOBAL_DATA_CHANGED_EVENT,
         reloadChangedAprendizesData,
       );
     };
@@ -4214,7 +4233,15 @@ export function AprendizesPage({
 function getRecoveryDescription(info: RecoveryInfo | null) {
   switch (info?.reason) {
     case 'before_import':
-      return 'Recupere os dados para como estavam antes da \u00faltima importa\u00e7\u00e3o.';
+      if ((info.fileCount ?? 0) === 0) {
+        return (info.importCount ?? 0) > 1
+          ? 'Recupere os dados para como estavam antes das primeiras importa\u00e7\u00f5es.'
+          : 'Recupere os dados para como estavam antes da primeira importa\u00e7\u00e3o.';
+      }
+
+      return (info.importCount ?? 0) > 1
+        ? 'Recupere os dados para como estavam antes das \u00faltimas importa\u00e7\u00f5es.'
+        : 'Recupere os dados para como estavam antes da \u00faltima importa\u00e7\u00e3o.';
     case 'before_edit':
       return 'Recupere os dados para como estavam antes de edi\u00e7\u00f5es nesta sess\u00e3o.';
     case 'before_session_edit':

@@ -1,7 +1,7 @@
 import {
+  recordActionHistoryCut,
   recordActionHistoryLine,
   setActionHistoryLinesState,
-  setActionHistoryLineState,
 } from '../actionLog/actionLog';
 import type { AppTab } from '../navigation/tabs';
 
@@ -9,6 +9,7 @@ export type GlobalUndoEntry = {
   originTab: AppTab;
   kind: string;
   __historyId?: number;
+  __historyIds?: number[];
   __sessionId?: string;
   [key: string]: unknown;
 };
@@ -217,23 +218,43 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
   return `${prefix} ação`;
 };
 
+const getEntryHistoryIds = (entry: GlobalUndoEntry) => {
+  const ids = Array.isArray(entry.__historyIds)
+    ? entry.__historyIds.filter((id): id is number => typeof id === 'number')
+    : [];
+
+  if (typeof entry.__historyId === 'number' && !ids.includes(entry.__historyId)) {
+    ids.push(entry.__historyId);
+  }
+
+  return ids;
+};
+
 const clearRedoPathForNewAction = () => {
   if (redoStack.length === 0) {
     return;
   }
 
   setActionHistoryLinesState(
-    redoStack.map((entry) => entry.__historyId),
+    redoStack.flatMap(getEntryHistoryIds),
     'discarded',
+  );
+  recordActionHistoryCut(
+    'Refazer descartado: nova a\u00e7\u00e3o substituiu o caminho anterior.',
   );
   redoStack = [];
 };
 
-const withHistoryLine = (entry: GlobalUndoEntry) => ({
-  ...entry,
-  __sessionId: currentSessionId,
-  __historyId: recordActionHistoryLine(describeGlobalUndoEntry(entry)),
-});
+const withHistoryLine = (entry: GlobalUndoEntry) => {
+  const historyId = recordActionHistoryLine(describeGlobalUndoEntry(entry));
+
+  return {
+    ...entry,
+    __sessionId: currentSessionId,
+    __historyId: historyId,
+    __historyIds: [historyId],
+  };
+};
 
 loadGlobalUndoStacks();
 
@@ -288,12 +309,16 @@ export const pushGlobalBoundaryUndoEntry = (
     lastUndoEntry.checkpointId === entry.checkpointId &&
     lastUndoEntry.__sessionId === currentSessionId
   ) {
+    clearRedoPathForNewAction();
+    const historyId = recordActionHistoryLine(describeGlobalUndoEntry(entry));
+
     undoStack = [
       ...undoStack.slice(0, -1),
       {
         ...lastUndoEntry,
         ...entry,
-        __historyId: lastUndoEntry.__historyId,
+        __historyId: historyId,
+        __historyIds: [...getEntryHistoryIds(lastUndoEntry), historyId],
         __sessionId: currentSessionId,
         previousUndoStack: lastUndoEntry.previousUndoStack,
       },
@@ -395,7 +420,7 @@ export const runGlobalUndo = async () => {
       undoStack = [...undoStack, undoEntry].slice(-GLOBAL_UNDO_LIMIT);
     } else {
       redoStack = [...redoStack, undoEntry].slice(-GLOBAL_UNDO_LIMIT);
-      setActionHistoryLineState(undoEntry.__historyId, 'undone');
+      setActionHistoryLinesState(getEntryHistoryIds(undoEntry), 'undone');
     }
 
     saveGlobalUndoStacks();
@@ -426,7 +451,7 @@ export const runGlobalRedo = async () => {
       redoStack = [...redoStack, redoEntry].slice(-GLOBAL_UNDO_LIMIT);
     } else {
       undoStack = [...undoStack, redoEntry].slice(-GLOBAL_UNDO_LIMIT);
-      setActionHistoryLineState(redoEntry.__historyId, 'done');
+      setActionHistoryLinesState(getEntryHistoryIds(redoEntry), 'done');
     }
 
     saveGlobalUndoStacks();

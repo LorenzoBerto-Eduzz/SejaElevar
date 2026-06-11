@@ -865,10 +865,6 @@ internal static class Program
         var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
         var previousOnUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
         var previousBackupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
-        var hadActiveAppDataBeforeImport = GetActiveWorkbookSnapshots(
-            appFolder,
-            GetWorkbookSources(appFolder)
-        ).Any();
         var importedFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, importedFileName);
 
@@ -877,9 +873,12 @@ internal static class Program
             DeleteLegacyMetadata(appFolder);
         }
 
-        var importUndoCheckpointId = hadActiveAppDataBeforeImport
-            ? CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeImport, true)
-            : null;
+        var importUndoCheckpointId = CaptureGlobalCheckpoint(
+            appFolder,
+            BackupReasonBeforeImport,
+            true,
+            true
+        );
 
         await File.WriteAllBytesAsync(targetPath, request.Body);
 
@@ -906,14 +905,7 @@ internal static class Program
         SaveWorkbookControl(appFolder, nextControl, controlPath);
         CleanupInactiveRootWorkbookFiles(appFolder);
 
-        if (!hadActiveAppDataBeforeImport)
-        {
-            CaptureGlobalCheckpoint(appFolder, BackupReasonImportOriginal, false);
-        }
-        else
-        {
-            MarkGlobalCheckpointImported(appFolder);
-        }
+        MarkGlobalCheckpointImported(appFolder);
 
         await WriteJsonAsync(
             stream,
@@ -1325,9 +1317,9 @@ internal static class Program
             {
                 var checkpointPath = ResolveGlobalCheckpointPath(appFolder, entry.CheckpointId);
                 var createdAt = ParseIsoDateTime(entry.CreatedAt);
+                var fileCount = CountGlobalCheckpointWorkbookFiles(checkpointPath);
                 var canRecover = checkpointPath is not null &&
                     Directory.Exists(checkpointPath) &&
-                    Directory.EnumerateFiles(checkpointPath, "*.xlsx", SearchOption.TopDirectoryOnly).Any() &&
                     entry.RecoveryEnabled == true;
 
                 return new
@@ -1339,7 +1331,9 @@ internal static class Program
                     formattedUpdatedAt = createdAt is null
                         ? null
                         : FormatBackupDateTime(createdAt.Value),
-                    reason = NormalizeBackupReason(entry.Reason)
+                    reason = NormalizeBackupReason(entry.Reason),
+                    importCount = entry.ImportCount ?? 0,
+                    fileCount
                 };
             })
             .ToList();
@@ -1358,6 +1352,8 @@ internal static class Program
                 updatedAt = latestCheckpoint?.updatedAt,
                 formattedUpdatedAt = latestCheckpoint?.formattedUpdatedAt,
                 reason = latestCheckpoint?.reason,
+                importCount = latestCheckpoint?.importCount,
+                fileCount = latestCheckpoint?.fileCount,
                 checkpoints
             }
         );
@@ -1408,25 +1404,22 @@ internal static class Program
 
         try
         {
-            if (activeSnapshots.Count > 0)
+            Directory.CreateDirectory(reverseCheckpointPath);
+
+            foreach (var snapshot in activeSnapshots)
             {
-                Directory.CreateDirectory(reverseCheckpointPath);
-
-                foreach (var snapshot in activeSnapshots)
-                {
-                    File.Copy(
-                        snapshot.Path,
-                        Path.Combine(reverseCheckpointPath, snapshot.CheckpointFileName),
-                        true
-                    );
-                }
-
-                WriteCheckpointManifest(
-                    reverseCheckpointPath,
-                    BackupReasonBeforeRecovery,
-                    activeSnapshots
+                File.Copy(
+                    snapshot.Path,
+                    Path.Combine(reverseCheckpointPath, snapshot.CheckpointFileName),
+                    true
                 );
             }
+
+            WriteCheckpointManifest(
+                reverseCheckpointPath,
+                BackupReasonBeforeRecovery,
+                activeSnapshots
+            );
 
             foreach (var source in sources)
             {
@@ -1434,18 +1427,36 @@ internal static class Program
                     checkpointPath,
                     source.CheckpointFileName
                 );
-
-                if (!File.Exists(checkpointFile))
-                {
-                    continue;
-                }
-
                 var currentControl = LoadWorkbookControl(
                     appFolder,
                     source.ControlPath,
                     source.InferKnownWorkbooks
                 );
                 var currentPath = ResolveWorkbookPath(appFolder, currentControl.OnUseFile);
+
+                if (!File.Exists(checkpointFile))
+                {
+                    if (currentPath is not null && File.Exists(currentPath))
+                    {
+                        File.Delete(currentPath);
+                    }
+
+                    SaveWorkbookControl(
+                        appFolder,
+                        new WorkbookControl
+                        {
+                            OnUseFile = null,
+                            BackupFile = null,
+                            BackupReason = null,
+                            RecoveryEnabled = false,
+                            HasEditingHistory = false,
+                            CaptureBackupOnNextSave = false
+                        },
+                        source.ControlPath
+                    );
+                    continue;
+                }
+
                 var restoredFileName = GetUniqueTimestampedWorkbookName(
                     GetDadosFolder(appFolder),
                     source.EntityName
@@ -1485,15 +1496,13 @@ internal static class Program
                 Directory.Delete(checkpointPath, true);
             }
 
-            var reverseEntry = activeSnapshots.Count > 0
-                ? new GlobalCheckpointEntry
-                {
-                    CheckpointId = activeSnapshots.Count > 0 ? reverseCheckpointId : null,
-                    Reason = activeSnapshots.Count > 0 ? BackupReasonBeforeRecovery : null,
-                    CreatedAt = activeSnapshots.Count > 0 ? DateTime.Now.ToString("O") : null,
-                    RecoveryEnabled = activeSnapshots.Count > 0
-                }
-                : null;
+            var reverseEntry = new GlobalCheckpointEntry
+            {
+                CheckpointId = reverseCheckpointId,
+                Reason = BackupReasonBeforeRecovery,
+                CreatedAt = DateTime.Now.ToString("O"),
+                RecoveryEnabled = true
+            };
 
             var remainingCheckpoints = (control.Checkpoints ?? [])
                 .Where(entry =>
@@ -1504,9 +1513,10 @@ internal static class Program
                     )
                 );
 
-            control.Checkpoints = reverseEntry is null
-                ? remainingCheckpoints.Take(MaxGlobalCheckpoints).ToList()
-                : [reverseEntry, ..remainingCheckpoints.Take(MaxGlobalCheckpoints - 1)];
+            control.Checkpoints = [
+                reverseEntry,
+                ..remainingCheckpoints.Take(MaxGlobalCheckpoints - 1)
+            ];
             control.HasEditingHistory = false;
             control.CaptureBackupOnNextSave = false;
             control.LastCheckpointAction = "recovery";
@@ -1520,7 +1530,7 @@ internal static class Program
                 new
                 {
                     ok = true,
-                    checkpointId = activeSnapshots.Count > 0 ? reverseCheckpointId : null
+                    checkpointId = reverseCheckpointId
                 }
             );
         }
@@ -1817,8 +1827,21 @@ internal static class Program
         var control = LoadGlobalCheckpointControl(appFolder);
         var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
         var checkpointMissing = checkpointPath is null || !Directory.Exists(checkpointPath);
+        var latestCheckpoint = control.Checkpoints?.FirstOrDefault();
+        var shouldCaptureImportedOriginalBeforeFirstEdit =
+            control.LastCheckpointAction == "import" &&
+            control.HasEditingHistory != true &&
+            latestCheckpoint is not null &&
+            latestCheckpoint.Reason == BackupReasonBeforeImport &&
+            CountGlobalCheckpointWorkbookFiles(
+                ResolveGlobalCheckpointPath(appFolder, latestCheckpoint.CheckpointId)
+            ) == 0;
 
-        if (checkpointMissing || control.CaptureBackupOnNextSave == true)
+        if (
+            checkpointMissing ||
+            control.CaptureBackupOnNextSave == true ||
+            shouldCaptureImportedOriginalBeforeFirstEdit
+        )
         {
             CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeEdit, true);
             return;
@@ -1866,7 +1889,8 @@ internal static class Program
     private static string? CaptureGlobalCheckpoint(
         string appFolder,
         string reason,
-        bool recoveryEnabled
+        bool recoveryEnabled,
+        bool allowEmpty = false
     )
     {
         var control = LoadGlobalCheckpointControl(appFolder);
@@ -1881,13 +1905,15 @@ internal static class Program
             ResolveGlobalCheckpointPath(appFolder, latestCheckpoint.CheckpointId) is not null
         )
         {
+            latestCheckpoint.ImportCount = Math.Max(1, latestCheckpoint.ImportCount ?? 1) + 1;
+            SaveGlobalCheckpointControl(appFolder, control);
             return latestCheckpoint.CheckpointId;
         }
 
         var sources = GetWorkbookSources(appFolder);
         var snapshots = GetActiveWorkbookSnapshots(appFolder, sources).ToList();
 
-        if (snapshots.Count == 0)
+        if (snapshots.Count == 0 && !allowEmpty)
         {
             return null;
         }
@@ -1913,7 +1939,8 @@ internal static class Program
             CheckpointId = checkpointId,
             Reason = normalizedReason,
             CreatedAt = DateTime.Now.ToString("O"),
-            RecoveryEnabled = recoveryEnabled
+            RecoveryEnabled = recoveryEnabled,
+            ImportCount = normalizedReason == BackupReasonBeforeImport ? 1 : null
         };
 
         control.Checkpoints = [
@@ -1963,6 +1990,18 @@ internal static class Program
                 // Old same-session undo checkpoints are best-effort cleanup.
             }
         }
+    }
+
+    private static int CountGlobalCheckpointWorkbookFiles(string? checkpointPath)
+    {
+        if (checkpointPath is null || !Directory.Exists(checkpointPath))
+        {
+            return 0;
+        }
+
+        return Directory
+            .EnumerateFiles(checkpointPath, "*.xlsx", SearchOption.TopDirectoryOnly)
+            .Count();
     }
 
     private static void CleanupInactiveRootWorkbookFiles(string appFolder)
@@ -2141,7 +2180,10 @@ internal static class Program
                     CheckpointId = control.CheckpointId,
                     Reason = control.Reason,
                     CreatedAt = control.CreatedAt,
-                    RecoveryEnabled = control.RecoveryEnabled
+                    RecoveryEnabled = control.RecoveryEnabled,
+                    ImportCount = NormalizeBackupReason(control.Reason) == BackupReasonBeforeImport
+                        ? 1
+                        : null
                 }
             );
         }
@@ -2156,7 +2198,10 @@ internal static class Program
                 CheckpointId = entry.CheckpointId,
                 Reason = NormalizeBackupReason(entry.Reason),
                 CreatedAt = entry.CreatedAt,
-                RecoveryEnabled = entry.RecoveryEnabled ?? true
+                RecoveryEnabled = entry.RecoveryEnabled ?? true,
+                ImportCount = NormalizeBackupReason(entry.Reason) == BackupReasonBeforeImport
+                    ? Math.Max(1, entry.ImportCount ?? 1)
+                    : null
             })
             .OrderByDescending(entry =>
                 DateTime.TryParse(entry.CreatedAt, out var createdAt)
@@ -2680,6 +2725,7 @@ internal static class Program
         public string? Reason { get; set; }
         public string? CreatedAt { get; set; }
         public bool? RecoveryEnabled { get; set; }
+        public int? ImportCount { get; set; }
     }
 
     private sealed record WorkbookSource(
