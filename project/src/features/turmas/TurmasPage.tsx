@@ -1132,14 +1132,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         );
 
         if (!hasSameSheetData(nextTurmasSheet, turmasSheet)) {
-          const savedTurmasSheet = await writeTurmasSheetToSourceFile(
-            nextTurmasSheet,
-            nextStudentsByClass,
-          );
-
-          if (!savedTurmasSheet) {
-            throw new Error('sync-before-export-failed');
-          }
+          await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
         } else {
           await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
         }
@@ -1151,6 +1144,15 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
       if (!response.ok) {
         throw new Error('export-failed');
+      }
+
+      const result = (await response.json()) as {
+        canceled?: boolean;
+        fileName?: string;
+      };
+
+      if (result.canceled) {
+        return;
       }
 
       setImportError('');

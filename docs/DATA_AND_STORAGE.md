@@ -44,6 +44,8 @@ Current Turmas behavior:
 
 The `.xlsx` files remain the source of truth. The app also maintains a generated internal index for search, document generation, and future cross-tool variable lookup.
 
+For future academic/scheduling logic, read `docs/ACADEMIC_MODEL.md` before implementing. The agreed model separates reusable `Aulas`, global `Cronograma` planning blocks, Turma-filtered timetable views, attendance/historical completion records, Arcos/Modulos/Disciplinas, and generated progress/proof data. Completed attendance records should be treated as historical proof and should not silently change when planned Cronograma blocks or Aula definitions are edited later.
+
 Current generated index location:
 
 ```text

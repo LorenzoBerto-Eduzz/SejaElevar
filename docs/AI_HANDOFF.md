@@ -15,6 +15,7 @@ This file is the portable continuity note for AI coding sessions working on this
 - The repository is organized as an AI-ready project frame: actual source code in `project/`, durable project memory in `docs/`, user scratch notes in `notes/`, and raw/reference assets in `asset_staging/`.
 - `AGENTS.md` is the boot file for AI sessions.
 - `docs/DATA_AND_STORAGE.md` records the current local-first data/storage direction.
+- `docs/ACADEMIC_MODEL.md` records the planned Aprendizes/Turmas/Aulas/Cronograma/Arcos/Disciplinas/Presenca model and should be read before implementing scheduling, attendance, progress, or document-proof logic.
 - `docs/RELEASE_PACKAGE.md` records the current coworker-facing baked/export app folder shape.
 
 ## User Intent
@@ -119,6 +120,7 @@ Current app icon: `project/src/assets/app-icon.png` is intentionally an exact co
 - Do not rebuild or hand over `exports/SejaElevar/` unless the user explicitly asks for release/export/package.
 - Keep `exports/` untracked and local-only; cross-device continuity uses the tracked dev package plus the exporter script.
 - Add document generation after the workspace and apprentice listing flow are reliable.
+- Before building Aulas, Cronograma, attendance, progress tracking, or Plano de Ensino documents, read `docs/ACADEMIC_MODEL.md`; it captures the agreed separation between planning blocks and historical completion records.
 - Separate temporary development tuning controls from final release configuration before packaging a coworker-facing build.
 
 ## Durable Decisions
