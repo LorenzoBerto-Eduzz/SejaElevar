@@ -29,6 +29,11 @@ import {
   normalizeColumnsForSchema,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
+import {
+  ensureSheetRecordIds,
+  getPublicColumns,
+  getSheetRecordId,
+} from '../../shared/data/stableIds';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
 import {
   getGlobalUndoBoundarySnapshot,
@@ -405,6 +410,7 @@ const normalizeWorkbookColumns = (
 
 const readSheetFile = async (
   file: File,
+  entity: string,
   requiredColumns: readonly string[],
   options: {
     removedColumns?: Set<string>;
@@ -471,12 +477,20 @@ const readSheetFile = async (
     )
     .filter((row) => row.some((cell) => cell !== ''));
 
+  const { sheet, didChange } = ensureSheetRecordIds(
+    {
+      fileName: file.name,
+      sheetName,
+      importedAt: new Date().toISOString(),
+      columns,
+      rows,
+    },
+    entity,
+  );
+
   return {
-    fileName: file.name,
-    sheetName,
-    importedAt: new Date().toISOString(),
-    columns,
-    rows,
+    ...sheet,
+    hasGeneratedRecordIds: didChange,
   };
 };
 
@@ -734,10 +748,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       return [];
     }
 
+    const publicColumns = getPublicColumns(aprendizesSheet.columns);
     const savedColumns = aprendizesViewSettings.columnOrder.filter((column) =>
-      aprendizesSheet.columns.includes(column),
+      publicColumns.includes(column),
     );
-    const remainingColumns = aprendizesSheet.columns.filter(
+    const remainingColumns = publicColumns.filter(
       (column) => !savedColumns.includes(column),
     );
 
@@ -803,7 +818,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     return columnIndex >= 0 ? aprendizesSheet.rows[rowIndex]?.[columnIndex] ?? '' : '';
   };
 
-  const getStudentActionRef = (rowIndex: number) => `apr#${rowIndex + 1}`;
+  const getStudentActionRef = (rowIndex: number) =>
+    aprendizesSheet
+      ? getSheetRecordId(aprendizesSheet, rowIndex, APRENDIZES_ENTITY_ID)
+      : `apr#${rowIndex + 1}`;
 
   const pushTableUndoEntry = (entry: TableUndoEntry) => {
     undoStackRef.current = [...undoStackRef.current, entry].slice(-1000);
@@ -1267,9 +1285,14 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           blob.type ||
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      const parsedSheet = await readSheetFile(file, APRENDIZES_REQUIRED_COLUMNS, {
-        removedColumns: REMOVED_APRENDIZES_COLUMNS,
-      });
+      const parsedSheet = await readSheetFile(
+        file,
+        APRENDIZES_ENTITY_ID,
+        APRENDIZES_REQUIRED_COLUMNS,
+        {
+          removedColumns: REMOVED_APRENDIZES_COLUMNS,
+        },
+      );
       const nextSheet = {
         ...parsedSheet,
         fileName,
@@ -1277,6 +1300,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
       setAprendizesSheet(nextSheet);
       await persistAprendizesDataIndex(nextSheet);
+      if (nextSheet.hasGeneratedRecordIds) {
+        void writeWorkbookSystemMetadataToSourceFile(
+          {
+            ...nextSheet,
+            hasGeneratedRecordIds: false,
+          },
+          '/api/aprendizes/file/system',
+          [AGE_COLUMN],
+        );
+      }
 
       return nextSheet;
     } catch {
@@ -1315,7 +1348,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           blob.type ||
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      const parsedSheet = await readSheetFile(file, TURMAS_REQUIRED_COLUMNS);
+      const parsedSheet = await readSheetFile(
+        file,
+        TURMAS_ENTITY_ID,
+        TURMAS_REQUIRED_COLUMNS,
+      );
       const nextSheet = {
         ...parsedSheet,
         fileName,
@@ -1330,6 +1367,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       setTurmasSheet(nextSheet);
       setImportError('');
       await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
+      if (nextSheet.hasGeneratedRecordIds) {
+        void writeWorkbookSystemMetadataToSourceFile(
+          {
+            ...nextSheet,
+            hasGeneratedRecordIds: false,
+          },
+          '/api/turmas/file/system',
+          [STUDENTS_COUNT_COLUMN],
+        );
+      }
       await fetchRecoveryInfo();
       return nextSheet;
     } catch (error) {
@@ -1627,7 +1674,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
     try {
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
-      const parsedSheet = await readSheetFile(file, TURMAS_REQUIRED_COLUMNS);
+      const parsedSheet = await readSheetFile(
+        file,
+        TURMAS_ENTITY_ID,
+        TURMAS_REQUIRED_COLUMNS,
+      );
       const response = await fetch('/api/turmas/import', {
         method: 'POST',
         headers: {
@@ -1662,6 +1713,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       setTurmasSheet(nextSheet);
       setImportError('');
       await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
+      if (nextSheet.hasGeneratedRecordIds) {
+        void writeWorkbookSystemMetadataToSourceFile(
+          {
+            ...nextSheet,
+            hasGeneratedRecordIds: false,
+          },
+          '/api/turmas/file/system',
+          [STUDENTS_COUNT_COLUMN],
+        );
+      }
       const nextRecoveryInfo = await fetchRecoveryInfo();
       if (nextRecoveryInfo?.canRecover) {
         pushGlobalBoundaryUndoEntry(
@@ -1830,20 +1891,76 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     ]);
   };
 
+  const writeWorkbookSystemMetadataToSourceFile = async (
+    sheet: SheetTable,
+    endpoint: string,
+    formulaColumns: string[] = [],
+  ) => {
+    try {
+      const { read, utils, write } = await loadXlsx();
+      const sourceResponse = await fetch(endpoint.replace('/system', ''), {
+        cache: 'no-store',
+      });
+      const workbook = sourceResponse.ok
+        ? read(await sourceResponse.arrayBuffer(), {
+            cellDates: true,
+          })
+        : utils.book_new();
+      const sheetName =
+        sheet.sheetName || workbook.SheetNames[0] || 'Planilha';
+      const safeSheetName = sheetName.slice(0, 31);
+      const previousWorksheet = workbook.Sheets[safeSheetName];
+      const nextWorksheet = utils.aoa_to_sheet([sheet.columns, ...sheet.rows]);
+
+      preserveColumnFormulas(
+        utils,
+        previousWorksheet,
+        nextWorksheet,
+        sheet,
+        formulaColumns,
+      );
+      workbook.Sheets[safeSheetName] = nextWorksheet;
+
+      if (!workbook.SheetNames.includes(safeSheetName)) {
+        workbook.SheetNames.push(safeSheetName);
+      }
+
+      const output = write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      }) as ArrayBuffer;
+
+      await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'content-type':
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+        body: output,
+      });
+    } catch {
+      // Internal ID seeding is repaired on the next successful save/load.
+    }
+  };
+
   const writeTurmasSheetToSourceFile = async (
     sheet: SheetTable,
     nextStudentsByClass?: Map<string, string[]>,
   ) => {
     try {
+      const { sheet: sheetWithIds } = ensureSheetRecordIds(
+        sheet,
+        TURMAS_ENTITY_ID,
+      );
       const saveResponse = await fetch('/api/turmas/values', {
         method: 'PUT',
         headers: {
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          sheetName: sheet.sheetName,
-          columns: sheet.columns,
-          rows: sheet.rows,
+          sheetName: sheetWithIds.sheetName,
+          columns: sheetWithIds.columns,
+          rows: sheetWithIds.rows,
           formulaColumns: [STUDENTS_COUNT_COLUMN],
         }),
       });
@@ -1854,8 +1971,8 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
       const result = (await saveResponse.json()) as { fileName?: string };
       const savedSheet = {
-        ...sheet,
-        fileName: result.fileName || sheet.fileName,
+        ...sheetWithIds,
+        fileName: result.fileName || sheetWithIds.fileName,
       };
 
       setTurmasSheet(savedSheet);
@@ -1895,6 +2012,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     options: SaveAprendizesOptions = {},
   ) => {
     try {
+      const { sheet: sheetWithIds } = ensureSheetRecordIds(
+        sheet,
+        APRENDIZES_ENTITY_ID,
+      );
       const { read, utils, write } = await loadXlsx();
       const sourceResponse = await fetch('/api/aprendizes/file', {
         cache: 'no-store',
@@ -1908,8 +2029,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
       const safeSheetName = sheetName.slice(0, 31);
       const previousWorksheet = workbook.Sheets[safeSheetName];
-      const nextWorksheet = utils.aoa_to_sheet([sheet.columns, ...sheet.rows]);
-      preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheet);
+      const nextWorksheet = utils.aoa_to_sheet([
+        sheetWithIds.columns,
+        ...sheetWithIds.rows,
+      ]);
+      preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheetWithIds);
       workbook.Sheets[safeSheetName] = nextWorksheet;
 
       if (!workbook.SheetNames.includes(safeSheetName)) {
@@ -1935,8 +2059,8 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
       const result = (await saveResponse.json()) as { fileName?: string };
       const savedSheet = {
-        ...sheet,
-        fileName: result.fileName || sheet.fileName,
+        ...sheetWithIds,
+        fileName: result.fileName || sheetWithIds.fileName,
       };
 
       if (options.applyLocalState !== false) {

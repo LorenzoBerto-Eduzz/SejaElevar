@@ -1,11 +1,18 @@
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  ARCOS_REQUIRED_COLUMNS,
+  AULAS_REQUIRED_COLUMNS,
+  DISCIPLINAS_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from './schemas';
+import { getPublicColumns, getSheetRecordId, isInternalColumn } from './stableIds';
 
 export const APRENDIZES_ENTITY_ID = 'aprendizes';
 export const TURMAS_ENTITY_ID = 'turmas';
+export const ARCOS_ENTITY_ID = 'arcos';
+export const DISCIPLINAS_ENTITY_ID = 'disciplinas';
+export const AULAS_ENTITY_ID = 'aulas';
 
 export type SheetTable = {
   fileName: string;
@@ -13,6 +20,7 @@ export type SheetTable = {
   importedAt: string;
   columns: string[];
   rows: string[][];
+  hasGeneratedRecordIds?: boolean;
 };
 
 export type DataIndexRecord = {
@@ -52,6 +60,9 @@ const createSearchText = (values: string[]) =>
 const getRecordLabel = (fields: Record<string, string>, rowIndex: number) =>
   fields.Nome ||
   fields.Turma ||
+  fields.Arco ||
+  fields.Disciplina ||
+  fields.Aula ||
   Object.values(fields).find((value) => value.trim() !== '') ||
   `Registro ${rowIndex + 1}`;
 
@@ -77,19 +88,28 @@ export const buildDataIndexEntity = (
   const knownColumnKeys = new Set(
     knownColumns.map((column) => normalizeFieldLabel(column)),
   );
+  const publicColumns = getPublicColumns(sheet.columns);
   const records = sheet.rows.map((row, rowIndex) => {
     const fields = Object.fromEntries(
-      sheet.columns.map((column, columnIndex) => [column, row[columnIndex] ?? '']),
+      publicColumns.map((column) => {
+        const columnIndex = sheet.columns.indexOf(column);
+        return [column, row[columnIndex] ?? ''];
+      }),
     );
     const customFields = Object.fromEntries(
-      sheet.columns
-        .filter((column) => !knownColumnKeys.has(normalizeFieldLabel(column)))
+      publicColumns
+        .filter(
+          (column) =>
+            !knownColumnKeys.has(normalizeFieldLabel(column)) &&
+            !isInternalColumn(column),
+        )
         .map((column) => [column, fields[column] ?? '']),
     );
     const recordLabel = getRecordLabel(fields, rowIndex);
+    const publicRowValues = publicColumns.map((column) => fields[column] ?? '');
 
     return {
-      id: `${entity}:${rowIndex + 1}`,
+      id: getSheetRecordId(sheet, rowIndex, entity),
       entity,
       rowIndex,
       label: recordLabel,
@@ -99,8 +119,8 @@ export const buildDataIndexEntity = (
         entity,
         label,
         recordLabel,
-        ...sheet.columns,
-        ...row,
+        ...publicColumns,
+        ...publicRowValues,
       ]),
       source: {
         fileName: sheet.fileName,
@@ -135,4 +155,28 @@ export const buildTurmasDataIndexEntity = (sheet: SheetTable) =>
     'Turmas',
     sheet,
     TURMAS_REQUIRED_COLUMNS,
+  );
+
+export const buildArcosDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    ARCOS_ENTITY_ID,
+    'Arcos',
+    sheet,
+    ARCOS_REQUIRED_COLUMNS,
+  );
+
+export const buildDisciplinasDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    DISCIPLINAS_ENTITY_ID,
+    'Disciplinas',
+    sheet,
+    DISCIPLINAS_REQUIRED_COLUMNS,
+  );
+
+export const buildAulasDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    AULAS_ENTITY_ID,
+    'Aulas',
+    sheet,
+    AULAS_REQUIRED_COLUMNS,
   );

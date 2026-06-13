@@ -10,6 +10,45 @@ The app UI is a browser page, but local file access is handled by a small self-c
 
 The most important early data source is the apprentices/students spreadsheet. The expected local format is `.xlsx`, matching the user's current Google Sheets/export workflow.
 
+## Intended Unified Workbook Direction
+
+The preferred data direction is now one active app workbook, not many independent workbook files. The user-facing file should be something like:
+
+```text
+Base SejaElevar.xlsx
+```
+
+Inside that single workbook, each worksheet tab represents one app table/entity:
+
+```text
+Aprendizes
+Turmas
+Arcos
+Empresas
+Aulas
+Cronograma
+Presencas
+```
+
+This gives the worker a simple Google Drive/Google Sheets experience: open one spreadsheet, see clear worksheet tabs, manually inspect or adjust data when needed, then import/export one file in the app. It also keeps the app model clean because each worksheet remains a normal table: one row means one item of that type.
+
+The current multi-workbook implementation should be treated as an intermediate local-first implementation, not the ideal final shape. Future refactors should move toward a storage adapter that reads/writes named worksheets inside one active workbook while preserving the app's separate generated entities.
+
+Global app buttons should follow this direction:
+
+- `Importar`: imports/replaces the whole active base workbook.
+- `Exportar`: exports/copies the whole active base workbook.
+- `Recuperar Dados`: restores whole-workbook checkpoints.
+- Theme/color controls remain global.
+
+UI tabs do not need to match workbook worksheets 1:1. For example, the `Turmas` page can read both the `Turmas` and `Aprendizes` worksheets to show apprentices grouped by turma, and the `Arcos` page can manage the Disciplinas that live inside the Arcos/plano-de-ensino data.
+
+The current sidebar still keeps `Aprendizes` as a main tab because it is useful for sorting, ordering, visualization, and direct apprentice management. A future Turmas-centered UI may absorb that work only after it can provide those same practical flows. `Documentos` should be a centralized document/template/generation tab rather than a data worksheet mirror. `Calendário` should visualize the global Cronograma. `Funcionários` and `Salas` are supporting/configurable linked values for Cronograma/Aula blocks for now, not main tabs.
+
+The workbook design should avoid stacked sections inside one worksheet. Prefer multiple worksheet tabs inside one workbook over a single worksheet with Turmas rows at the top and Aprendizes rows below. Separate worksheet tabs are easier for the app to parse, easier for Google Sheets users to filter/sort, and less fragile when edited manually.
+
+The planned relationship rule still holds: an Aprendiz is a separate record/entity, but it must reference valid required records such as Turma, Arco, and Empresa. That relationship rule does not require merging Aprendizes into the Turmas worksheet.
+
 Current Aprendizes behavior:
 
 - If no `.xlsx` exists directly in `dados/`, the Aprendizes page shows the missing/import state.
@@ -61,21 +100,26 @@ Current frontend helpers live in `project/src/shared/data/`:
 
 - `schemas.ts`: known required column labels and label normalization.
 - `dataIndex.ts`: converts sheet rows into normalized records.
+- `stableIds.ts`: manages the hidden app-owned record ID column used by generated records and future relationships.
 
 For Aprendizes and Turmas, each row becomes one record with:
 
-- `id`: generated as `aprendizes:rowNumber`.
+- `id`: read from the app-owned internal column `ID SejaElevar (não editar)` when present, with a temporary row-based fallback only when needed.
 - `label`: `Nome` when available, otherwise the first nonblank value or `Registro n`.
 - `fields`: every sheet column and current cell value.
 - `customFields`: columns not in the known required schema.
 - `searchText`: normalized searchable text built from entity, label, column names, and row values.
 - `source`: source filename, sheet name, and row index.
 
+The internal ID column is hidden from the table UI, item popup fields, search text, and public generated fields. It exists so future relationships, document generation, action-history references, and cross-sheet links can survive row reordering, blank names, imported names with typos, and manual spreadsheet edits. When a workbook is imported or loaded without IDs, or with duplicate IDs, the app repairs/generates them and writes the metadata back through a provider system-save endpoint. That system metadata write should not count as a user edit, checkpoint, recovery reason, or undoable action.
+
 The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, registration, deletion, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The Turmas index is rebuilt after active sheet load, import, recovery, save, and apprentice assignment changes; when Aprendizes data exists, the Turmas index uses linked Aprendizes to derive `No. de Aprendizes` and `Aprendizes`. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
 
 The local provider writes JSON files as readable UTF-8. PT-BR characters such as `ç`, `ã`, `é`, and `í` should appear normally in `dados/sistema/data-index.json`; if PowerShell displays mojibake, verify the file with a UTF-8-aware editor before assuming the stored data is corrupt.
 
-Aprendizes and Turmas are currently indexed as separate entities. Future tabs such as Empresas, Disciplinas, and Documentos should add their own entities instead of mixing data into existing entities.
+Aprendizes, Turmas, Arcos, Disciplinas, and Aulas have separate generated-index entity definitions. `Disciplinas` is an internal/indexed concept managed through the Arcos flow for now, not a main sidebar tab. Future tabs such as Empresas and Documentos should add their own entities instead of mixing data into existing entities.
+
+When implementing any new data-changing feature, define the whole data path before wiring the UI: which source workbook/file changes, how the generated data index refreshes, what action-history text appears, how undo/redo applies and refreshes linked data, and whether the action creates or uses a global recovery checkpoint. If any of those pieces are intentionally not affected, note why in the implementation or focused docs.
 
 ## Linked Records And Dropdown Fields
 
@@ -85,7 +129,7 @@ Examples:
 
 - `Empresa` on an Aprendiz should eventually be a dropdown sourced from registered `Empresas`.
 - `Turma` on an Aprendiz is now a dropdown sourced from registered `Turmas`.
-- `Instrutor`, `Sala`, and `Disciplina` on a Turma should eventually be dropdowns sourced from registered `Funcionários`, `Salas`, and `Disciplinas`.
+- `Instrutor`, `Sala`, and `Disciplina` on a Turma should eventually be dropdowns sourced from registered `Funcionários`, configured Sala options, and registered `Disciplinas`.
 
 The spreadsheet cells can continue storing the canonical display name, not hidden IDs, so exported files remain easy to read and paste back into Google Sheets. Internally, the app should match imported text by normalizing case, extra spacing, punctuation, and accentuation. For example, an imported value like `Sao Jose` should be able to match the registered option `São José`, after which the app displays/saves/exports the canonical registered spelling.
 
@@ -103,7 +147,7 @@ The current planned Turmas values are:
 - `Dia`: selected from day options.
 - `Período`: selected from period options available for the chosen day.
 - `Instrutor`: linked to registered Funcionários.
-- `Sala`: linked to registered Salas.
+- `Sala`: linked to configured Sala options when that support is implemented; it is not currently a main tab.
 - `Disciplina`: linked to registered Disciplinas.
 - `No. de Aprendizes`: preferably derived by the app from linked Aprendizes, not manually typed.
 - `Aprendizes`: preferably derived/listed by the app from Aprendizes assigned to the Turma, exported as names separated by comma + space.

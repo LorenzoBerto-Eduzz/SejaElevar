@@ -402,6 +402,13 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "PUT" && request.Path == "/api/aprendizes/file/system")
+            {
+                MarkHeartbeat();
+                await SaveSystemWorkbookInPlaceAsync(stream, request, appFolder);
+                return;
+            }
+
             if (
                 (request.Method == "POST" && request.Path == "/api/turmas/import") ||
                 (request.Method == "PUT" && request.Path == "/api/turmas/file")
@@ -431,6 +438,18 @@ internal static class Program
                     );
                 }
 
+                return;
+            }
+
+            if (request.Method == "PUT" && request.Path == "/api/turmas/file/system")
+            {
+                MarkHeartbeat();
+                await SaveSystemWorkbookInPlaceAsync(
+                    stream,
+                    request,
+                    appFolder,
+                    GetTurmasWorkbookControlPath(appFolder)
+                );
                 return;
             }
 
@@ -1082,6 +1101,42 @@ internal static class Program
                 fileName = targetFileName,
                 onUseFile = nextControl.OnUseFile,
                 backupFile = nextControl.BackupFile
+            }
+        );
+    }
+
+    private static async Task SaveSystemWorkbookInPlaceAsync(
+        NetworkStream stream,
+        HttpRequest request,
+        string appFolder,
+        string? controlPath = null
+    )
+    {
+        if (request.Body.Length == 0)
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Arquivo vazio." });
+            return;
+        }
+
+        var control = LoadWorkbookControl(appFolder, controlPath, controlPath is null);
+        var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+
+        if (onUsePath is null || !File.Exists(onUsePath))
+        {
+            await WriteJsonAsync(stream, 404, new { error = "Arquivo ativo não encontrado." });
+            return;
+        }
+
+        await File.WriteAllBytesAsync(onUsePath, request.Body);
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                fileName = control.OnUseFile,
+                onUseFile = control.OnUseFile
             }
         );
     }

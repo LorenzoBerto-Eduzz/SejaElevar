@@ -154,11 +154,9 @@ const waitForFrames = (frameCount: number) =>
 const tabLabels: Record<AppTab, string> = {
   aprendizes: 'Aprendizes',
   turmas: 'Turmas',
-  disciplinas: 'Disciplinas',
+  aulas: 'Aulas',
   arcos: 'Arcos',
-  funcionarios: 'Funcionários',
   empresas: 'Empresas',
-  salas: 'Salas',
   calendario: 'Calendário',
   documentos: 'Documentos',
 };

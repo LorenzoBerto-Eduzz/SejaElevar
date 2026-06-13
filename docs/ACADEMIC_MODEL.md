@@ -89,6 +89,8 @@ For now a Turma is expected to have one weekday. The model should remain open to
 
 The smarter long-term model is a global/universal Cronograma as the real source of scheduled events, with each Turma showing only the blocks assigned to it.
 
+The `Calendário` tab should be the main global Cronograma visualization area. It should eventually let the user see scheduled events across Turmas, while each Turma can still show a filtered timetable view of the same global Cronograma data.
+
 Each Cronograma block should know:
 
 ```text
@@ -119,6 +121,8 @@ From the Turma timetable, the user should eventually be able to:
 
 When an Aula is placed in a Turma's Cronograma, the block should default to the Turma's default Funcionario and Sala, but the block should allow overriding both through dropdowns.
 
+For now, `Funcionários` and `Salas` do not need their own main sidebar tabs. Treat them as supporting/configured linked values used by Turmas, Aulas, and Cronograma blocks. They can become full item-management sections later only if the real workflow needs that.
+
 ## Arcos, Modulos, Disciplinas, And Ementa
 
 Each Arco has an ementa/plano de ensino: the list of Disciplinas and required hours that Aprendizes in that Arco must complete.
@@ -148,6 +152,8 @@ Disciplina Especifica
 ```
 
 `Modulo` does not need to be a main tab/item unless later needed. It can start as a fixed/category property of Disciplinas: `Inicial`, `Basico`, `Especifico`.
+
+`Disciplina` also does not need its own main tab for now. Because Arcos are directly composed of their Disciplinas, the user-facing management for Disciplinas should live inside the `Arcos` tab/flow. Keep Disciplina as an internal data concept for Aula mappings, progress tracking, attendance proof, search, and document generation.
 
 ## Aula To Disciplina Mapping
 
@@ -222,6 +228,8 @@ Completed attendance records are historical proof and should not silently change
 
 Progress should be derived/calculated from source events and historical attendance records.
 
+The `Documentos` tab should become the centralized place for document/template/generation workflows: all student documents, internal institution documents, template definitions, and generation buttons. Item popups such as Aprendiz details can still expose contextual document actions, but they should connect back to the same document-generation model rather than becoming isolated document systems.
+
 The app should eventually be able to produce proof such as:
 
 ```text
@@ -252,11 +260,12 @@ Do not rush this whole model into code at once. Keep implementation modular and 
 Likely future areas:
 
 - `Aulas` tab for reusable Aula definitions and Disciplina mappings.
-- `Arcos`/`Disciplinas` support for ementa/plano de ensino with Modulo and required hours.
-- Global Cronograma data foundation.
+- `Arcos` support for ementa/plano de ensino, including its Modulos, Disciplinas, and required hours.
+- `Calendário` tab backed by a global Cronograma data foundation.
 - Turma timetable view filtered from global Cronograma.
 - Attendance/presence flow from scheduled Aula blocks.
-- Generated progress/proof records for documents.
+- `Documentos` tab for templates, generation actions, and generated progress/proof records.
 
 The existing generated data index remains the right direction: source files stay readable/plain, while the app builds internal normalized records and relationships for search, documents, and cross-tool logic.
 
+Stable app-managed record IDs are part of this foundation. Rows in imported/source workbooks can gain a hidden `ID SejaElevar (não editar)` column so references between Aprendiz, Turma, Aula, Arco, Disciplina, attendance records, documents, and future search results do not depend only on row position or display names. The visible workbook should stay human-readable, but internal relationships should prefer these stable IDs when available.

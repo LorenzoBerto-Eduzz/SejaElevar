@@ -31,8 +31,8 @@ Current scope is first prototype development:
 - Start with local development and local file-based data.
 - Keep the released app separate from the live data workspace.
 - Preserve a path toward future hosting or sync, without overcommitting to a platform yet.
-- Build the first MVP around the `Aprendizes` section before implementing the broader platform.
-- Use the current Vite/React prototype shell as the base: sidebar navigation, Elevar logo, multiple placeholder tabs, settings/search popups, and an `.xlsx` import/table/edit flow for `Aprendizes`.
+- Keep `Aprendizes` as the first mature data section for now, while building toward the broader linked model of Turmas, Aulas, Arcos, Empresas, Calendário, and Documentos.
+- Use the current Vite/React prototype shell as the base: sidebar navigation, Elevar logo, multiple placeholder tabs, settings/search popups, an `.xlsx` import/table/edit flow for `Aprendizes`, and linked Turmas behavior.
 
 ## Run And Test Commands
 
@@ -55,7 +55,9 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 - The app should run as a browser-accessed local web app during early development. The current friendly local entry point is `SejaElevar.exe`, which starts the local provider and opens the browser UI. Opening the raw HTML/address without the provider should not show the app UI.
 - Data starts as files/folders: real operational spreadsheets, structured data files, document templates, generated documents, company logos/images, and related assets.
 - The first data workflow uses real `.xlsx` spreadsheets as active sources. Importing asks only for the source `.xlsx`; the local provider copies it directly into `dados/` as a timestamped active workbook such as `Aprendizes_hhmmssddmmyy.xlsx` or `Turmas_hhmmssddmmyy.xlsx`. Per-workbook controls track the active files, while whole-app recovery uses `dados/controle-global.json` plus up to three checkpoint filesets under `dados/checkpoints/`. `Recuperar Dados` restores a chosen whole-app checkpoint and makes the previous active fileset the newest checkpoint, so recovery is reversible and undo-aware.
+- The preferred future data shape is one active base workbook, such as `Base SejaElevar.xlsx`, with multiple worksheet tabs (`Aprendizes`, `Turmas`, `Arcos`, `Empresas`, `Aulas`, future `Cronograma`, future `Presencas`). The current separate workbook files are an intermediate implementation. Moving to one workbook should make Importar/Exportar global and friendlier for Google Drive/Google Sheets use.
 - The `.xlsx` workbook remains the source of truth. The app also generates `dados/sistema/data-index.json` as disposable working memory for search, document generation, and cross-tool variables. Future tools should consume that generated index or a storage adapter, not scrape visible table cells.
+- Imported/source workbooks can contain a hidden app-owned `ID SejaElevar (não editar)` column. This internal ID is not part of the user-facing table/search fields, but it should be used by the app for stable references and future relationships when available.
 - Real student/person/company data may be sensitive. Do not commit real operational data unless the user explicitly decides that the repository/privacy setup makes that acceptable.
 - Keep any sample/anonymized demo data separate from private local data. Demo data is optional and should not replace the real local workspace concept.
 - Design the storage boundary so future adapters can target Google Drive synced folders, Google Sheets/Drive APIs, a hosted database, or another backend without rewriting every UI feature.
@@ -69,10 +71,10 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 ## Current Priorities
 
 1. Continue the first local browser app prototype using the Vite + React + TypeScript scaffold already in `project/`.
-2. Continue the first `Aprendizes` data slice: import/read an `.xlsx`, copy it under `dados/`, map the real columns, show the real list without fake data, and write supported edits back to the working file.
-3. Build the search and document-generation foundations on the generated data index while keeping source spreadsheets plain and recoverable.
-4. Establish a workspace model where the app can import/use local spreadsheets, templates, logos/assets, generated documents, and config without committing private data.
-5. Add document generation after the workspace and apprentice listing flow are reliable.
+2. Keep the `Aprendizes` section useful for sorting, ordering, visualization, registration/editing, and direct inspection until Turmas can safely absorb some of those workflows.
+3. Move toward the single-base-workbook direction while preserving the current local-first import/export/checkpoint behavior.
+4. Build the search and document-generation foundations on the generated data index while keeping source spreadsheets plain and recoverable.
+5. Shape `Documentos` as the central document/template/generation area and `Calendário` as the global Cronograma visualization area.
 
 ## Glossary
 
@@ -91,7 +93,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 ## Known Pitfalls
 
 - This repo is initialized as Git on `main` and tracks `origin/main`.
-- `project/` now has the first app scaffold, a local exe/provider package flow, and Aprendizes XLSX import/table/write-back behavior, but no filters, validation, document generation, or broader workspace manager yet.
+- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, generated data-index foundations, and global undo/recovery foundations, but no full filters, document generation, Calendário, Aulas, or Arcos implementation yet.
 - Do not treat `notes/todos.txt` as instructions unless the user explicitly asks.
 - Do not commit dependency folders, build outputs, local secrets, or real private data.
 - Future AI sessions should inspect `project/` before assuming the current UI state, commands, dependencies, or folder structure.

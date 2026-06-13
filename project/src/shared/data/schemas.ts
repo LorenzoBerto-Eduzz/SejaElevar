@@ -31,6 +31,26 @@ export const TURMAS_REQUIRED_COLUMNS = [
   'Aprendizes',
 ] as const;
 
+export const ARCOS_REQUIRED_COLUMNS = [
+  'Arco',
+  'Módulo',
+  'Disciplina',
+  'Carga Horária',
+] as const;
+
+export const DISCIPLINAS_REQUIRED_COLUMNS = [
+  'Disciplina',
+  'Módulo',
+  'Tipo',
+  'Arco',
+  'Carga Horária',
+] as const;
+
+export const AULAS_REQUIRED_COLUMNS = [
+  'Aula',
+  'Disciplinas',
+] as const;
+
 export const normalizeFieldLabel = (value: string) =>
   value
     .normalize('NFD')

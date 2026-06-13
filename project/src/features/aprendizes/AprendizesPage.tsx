@@ -24,6 +24,12 @@ import {
   normalizeFieldLabel,
   normalizeColumnsForSchema,
 } from '../../shared/data/schemas';
+import {
+  ensureSheetRecordIds,
+  getPublicColumns,
+  getSheetRecordId,
+  isInternalColumn,
+} from '../../shared/data/stableIds';
 import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
 import {
   getGlobalUndoBoundarySnapshot,
@@ -144,6 +150,7 @@ type ImportedSheet = {
   importedAt: string;
   columns: string[];
   rows: string[][];
+  hasGeneratedRecordIds?: boolean;
 };
 
 type TableViewSettings = {
@@ -677,12 +684,13 @@ export function AprendizesPage({
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
     saveViewSettings((currentViewSettings) => {
-      const knownColumns = new Set(sheet.columns);
+      const publicColumns = getPublicColumns(sheet.columns);
+      const knownColumns = new Set(publicColumns);
       const nextColumnOrder = [
         ...currentViewSettings.columnOrder.filter((column) =>
           knownColumns.has(column),
         ),
-        ...sheet.columns.filter(
+        ...publicColumns.filter(
           (column) => !currentViewSettings.columnOrder.includes(column),
         ),
       ];
@@ -831,12 +839,20 @@ export function AprendizesPage({
       };
       const storedFileName = result.fileName || file.name;
 
-      saveImportedSheet({
+      const importedSheetWithName = {
         ...parsedSheet,
         fileName: storedFileName,
-      }, {
+      };
+
+      saveImportedSheet(importedSheetWithName, {
         resetColumnWidths: true,
       });
+      if (importedSheetWithName.hasGeneratedRecordIds) {
+        void writeSheetSystemMetadataToSourceFile({
+          ...importedSheetWithName,
+          hasGeneratedRecordIds: false,
+        });
+      }
       const nextRecoveryInfo = await fetchRecoveryInfo();
       if (nextRecoveryInfo?.canRecover) {
         pushGlobalBoundaryUndoEntry(
@@ -979,6 +995,13 @@ export function AprendizesPage({
         resetColumnWidths: options.resetColumnWidths,
       });
 
+      if (nextSheet.hasGeneratedRecordIds) {
+        void writeSheetSystemMetadataToSourceFile({
+          ...nextSheet,
+          hasGeneratedRecordIds: false,
+        });
+      }
+
       setImportError('');
       return true;
     } catch (error) {
@@ -1068,13 +1091,20 @@ export function AprendizesPage({
         keptColumnIndexes.map(({ columnIndex }) => normalizeCell(row[columnIndex])),
       )
       .filter((row) => row.some((cell) => cell !== ''));
+    const { sheet, didChange } = ensureSheetRecordIds(
+      {
+        fileName: file.name,
+        sheetName,
+        importedAt: new Date().toISOString(),
+        columns,
+        rows,
+      },
+      APRENDIZES_ENTITY_ID,
+    );
 
     return {
-      fileName: file.name,
-      sheetName,
-      importedAt: new Date().toISOString(),
-      columns,
-      rows,
+      ...sheet,
+      hasGeneratedRecordIds: didChange,
     };
   };
 
@@ -1286,14 +1316,17 @@ export function AprendizesPage({
   };
 
   const orderedColumns = importedSheet
-    ? [
+    ? (() => {
+        const publicColumns = getPublicColumns(importedSheet.columns);
+        return [
         ...viewSettings.columnOrder.filter((column) =>
-          importedSheet.columns.includes(column),
+          publicColumns.includes(column),
         ),
-        ...importedSheet.columns.filter(
+        ...publicColumns.filter(
           (column) => !viewSettings.columnOrder.includes(column),
         ),
-      ]
+      ];
+      })()
     : [];
 
   const cycleColumnSort = (columnName: string) => {
@@ -1505,15 +1538,17 @@ export function AprendizesPage({
 
     const nextColumnOrder = [...columnsWithoutSource];
     nextColumnOrder.splice(targetIndex, 0, sourceColumn);
+    const internalColumns = currentSheet.columns.filter(isInternalColumn);
+    const nextSheetColumns = [...nextColumnOrder, ...internalColumns];
     const nextRows = currentSheet.rows.map((row) =>
-      nextColumnOrder.map((column) => {
+      nextSheetColumns.map((column) => {
         const columnIndex = currentSheet.columns.indexOf(column);
         return columnIndex >= 0 ? row[columnIndex] || '' : '';
       }),
     );
     const nextSheet = {
       ...currentSheet,
-      columns: nextColumnOrder,
+      columns: nextSheetColumns,
       rows: nextRows,
     };
 
@@ -1787,9 +1822,8 @@ export function AprendizesPage({
     }
   };
 
-  const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
+  const writeSheetSystemMetadataToSourceFile = async (sheet: ImportedSheet) => {
     if (!isLocalProviderActiveRef.current) {
-      setImportError('');
       return;
     }
 
@@ -1825,6 +1859,61 @@ export function AprendizesPage({
         type: 'array',
       }) as ArrayBuffer;
 
+      await fetch('/api/aprendizes/file/system', {
+        method: 'PUT',
+        headers: {
+          'content-type':
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+        body: output,
+      });
+    } catch {
+      // Internal ID seeding is repaired on the next successful save/load.
+    }
+  };
+
+  const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
+    if (!isLocalProviderActiveRef.current) {
+      setImportError('');
+      return;
+    }
+
+    try {
+      const { sheet: sheetWithIds } = ensureSheetRecordIds(
+        sheet,
+        APRENDIZES_ENTITY_ID,
+      );
+      const { read, utils, write } = await loadXlsx();
+      const sourceResponse = await fetch('/api/aprendizes/file', {
+        cache: 'no-store',
+      });
+
+      const workbook = sourceResponse.ok
+        ? read(await sourceResponse.arrayBuffer(), {
+            cellDates: true,
+          })
+        : utils.book_new();
+
+      const sheetName =
+        sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
+      const safeSheetName = sheetName.slice(0, 31);
+      const previousWorksheet = workbook.Sheets[safeSheetName];
+      const nextWorksheet = utils.aoa_to_sheet([
+        sheetWithIds.columns,
+        ...sheetWithIds.rows,
+      ]);
+      preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheetWithIds);
+      workbook.Sheets[safeSheetName] = nextWorksheet;
+
+      if (!workbook.SheetNames.includes(safeSheetName)) {
+        workbook.SheetNames.push(safeSheetName);
+      }
+
+      const output = write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      }) as ArrayBuffer;
+
       const saveResponse = await fetch('/api/aprendizes/file', {
         method: 'PUT',
         headers: {
@@ -1841,7 +1930,7 @@ export function AprendizesPage({
       const savedFileName = result.fileName || sheet.fileName;
 
       const savedSheet = {
-        ...sheet,
+        ...sheetWithIds,
         fileName: savedFileName,
       };
 
@@ -1871,7 +1960,10 @@ export function AprendizesPage({
     return sheet.rows[rowIndex]?.[columnIndex] ?? '';
   };
 
-  const getRowActionRef = (rowIndex: number) => `apr#${rowIndex + 1}`;
+  const getRowActionRef = (rowIndex: number) => {
+    const sheet = latestSheetRef.current;
+    return sheet ? getSheetRecordId(sheet, rowIndex, APRENDIZES_ENTITY_ID) : `apr#${rowIndex + 1}`;
+  };
 
   const pushTableUndoEntry = (entry: TableUndoEntry) => {
     if (

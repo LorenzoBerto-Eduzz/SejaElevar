@@ -1,22 +1,18 @@
 export type AppTab =
   | 'aprendizes'
-  | 'turmas'
-  | 'disciplinas'
-  | 'arcos'
-  | 'funcionarios'
-  | 'empresas'
-  | 'salas'
+  | 'documentos'
   | 'calendario'
-  | 'documentos';
+  | 'turmas'
+  | 'aulas'
+  | 'arcos'
+  | 'empresas';
 
 export type NavigationIcon =
   | 'person'
   | 'people'
   | 'book'
   | 'brain'
-  | 'apple'
   | 'building-community'
-  | 'door'
   | 'calendar'
   | 'document';
 
@@ -28,12 +24,10 @@ export type NavigationTab = {
 
 export const appTabs: NavigationTab[] = [
   { id: 'aprendizes', label: 'Aprendizes', icon: 'person' },
-  { id: 'turmas', label: 'Turmas', icon: 'people' },
-  { id: 'disciplinas', label: 'Disciplinas', icon: 'book' },
-  { id: 'arcos', label: 'Arcos', icon: 'brain' },
-  { id: 'funcionarios', label: 'Funcionários', icon: 'apple' },
-  { id: 'empresas', label: 'Empresas', icon: 'building-community' },
-  { id: 'salas', label: 'Salas', icon: 'door' },
-  { id: 'calendario', label: 'Calendário', icon: 'calendar' },
   { id: 'documentos', label: 'Documentos', icon: 'document' },
+  { id: 'calendario', label: 'Calendário', icon: 'calendar' },
+  { id: 'turmas', label: 'Turmas', icon: 'people' },
+  { id: 'aulas', label: 'Aulas', icon: 'book' },
+  { id: 'arcos', label: 'Arcos', icon: 'brain' },
+  { id: 'empresas', label: 'Empresas', icon: 'building-community' },
 ];
