@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { copyLauncherTo, publishLauncher } from './launcher-utils.mjs';
+import { ensureLauncherIn } from './launcher-utils.mjs';
 
 const distDir = 'dist';
 const devDir = 'dev';
@@ -49,7 +49,7 @@ const cleanDevRoot = async () => {
   }
 };
 
-const preservedDevAssetEntries = new Set(['window-settings.json']);
+const preservedDevAssetEntries = new Set(['launcher-fingerprint.json', 'window-settings.json']);
 
 const cleanDevAssets = async () => {
   const devAssetsDir = join(devDir, 'assets');
@@ -121,10 +121,10 @@ const migrateLegacyPlanilhas = async (dadosDir) => {
 };
 
 await writeFile(singleFilePath, packagedHtml, 'utf-8');
-await publishLauncher();
 await cleanDevRoot();
 await cleanDevAssets();
 await cp(join(distDir, 'assets'), join(devDir, 'assets'), { recursive: true });
+await ensureLauncherIn(devDir);
 await mkdir(join(devDir, 'dados'), { recursive: true });
 await migrateLegacyPlanilhas(join(devDir, 'dados'));
 await mkdir(join(devDir, 'modelos'), { recursive: true });
@@ -133,7 +133,6 @@ await rm(join(devDir, 'server.mjs'), { force: true });
 await rm(join(devDir, 'Abrir SejaElevar.cmd'), { force: true });
 await rm(join(devDir, 'SejaElevar.vbs'), { force: true });
 await writeFile(devHtmlPath, packagedHtml, 'utf-8');
-await copyLauncherTo(devDir);
 await writeFile(join(devDir, 'dados', '.gitkeep'), '', 'utf-8');
 await writeFile(join(devDir, 'modelos', '.gitkeep'), '', 'utf-8');
 await writeFile(join(devDir, 'documentos_gerados', '.gitkeep'), '', 'utf-8');
