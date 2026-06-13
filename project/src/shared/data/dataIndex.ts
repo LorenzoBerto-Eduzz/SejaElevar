@@ -6,6 +6,7 @@ import {
   TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from './schemas';
+import { getBaseWorkbookSheetByEntity } from './baseWorkbook';
 import { getPublicColumns, getSheetRecordId, isInternalColumn } from './stableIds';
 
 export const APRENDIZES_ENTITY_ID = 'aprendizes';
@@ -144,7 +145,7 @@ export const buildDataIndexEntity = (
 export const buildAprendizesDataIndexEntity = (sheet: SheetTable) =>
   buildDataIndexEntity(
     APRENDIZES_ENTITY_ID,
-    'Aprendizes',
+    getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.label ?? 'Aprendizes',
     sheet,
     APRENDIZES_REQUIRED_COLUMNS,
   );
@@ -152,7 +153,7 @@ export const buildAprendizesDataIndexEntity = (sheet: SheetTable) =>
 export const buildTurmasDataIndexEntity = (sheet: SheetTable) =>
   buildDataIndexEntity(
     TURMAS_ENTITY_ID,
-    'Turmas',
+    getBaseWorkbookSheetByEntity(TURMAS_ENTITY_ID)?.label ?? 'Turmas',
     sheet,
     TURMAS_REQUIRED_COLUMNS,
   );
@@ -160,7 +161,7 @@ export const buildTurmasDataIndexEntity = (sheet: SheetTable) =>
 export const buildArcosDataIndexEntity = (sheet: SheetTable) =>
   buildDataIndexEntity(
     ARCOS_ENTITY_ID,
-    'Arcos',
+    getBaseWorkbookSheetByEntity(ARCOS_ENTITY_ID)?.label ?? 'Arcos',
     sheet,
     ARCOS_REQUIRED_COLUMNS,
   );
@@ -176,7 +177,7 @@ export const buildDisciplinasDataIndexEntity = (sheet: SheetTable) =>
 export const buildAulasDataIndexEntity = (sheet: SheetTable) =>
   buildDataIndexEntity(
     AULAS_ENTITY_ID,
-    'Aulas',
+    getBaseWorkbookSheetByEntity(AULAS_ENTITY_ID)?.label ?? 'Aulas',
     sheet,
     AULAS_REQUIRED_COLUMNS,
   );

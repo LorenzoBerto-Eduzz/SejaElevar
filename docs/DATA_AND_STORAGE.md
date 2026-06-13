@@ -34,6 +34,12 @@ This gives the worker a simple Google Drive/Google Sheets experience: open one s
 
 The current multi-workbook implementation should be treated as an intermediate local-first implementation, not the ideal final shape. Future refactors should move toward a storage adapter that reads/writes named worksheets inside one active workbook while preserving the app's separate generated entities.
 
+Current migration anchor:
+
+- `project/src/shared/data/baseWorkbook.ts` defines the intended base workbook file name, worksheet tabs, required columns, and which sheets are currently implemented through legacy separate workbook endpoints.
+- `GET /api/base-workbook/schema` exposes the same provider-side intended shape for future import/export and diagnostics.
+- The current storage mode is still `multi-workbook-transition`; do not remove the existing Aprendizes/Turmas endpoints until the UI has been migrated to read/write named worksheets from the unified workbook adapter.
+
 Global app buttons should follow this direction:
 
 - `Importar`: imports/replaces the whole active base workbook.

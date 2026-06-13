@@ -291,6 +291,13 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "GET" && request.Path == "/api/base-workbook/schema")
+            {
+                MarkHeartbeat();
+                await ServeBaseWorkbookSchemaAsync(stream);
+                return;
+            }
+
             if (request.Method == "GET" && request.Path == "/api/aprendizes/file")
             {
                 MarkHeartbeat();
@@ -1730,6 +1737,127 @@ internal static class Program
     private static string GetDataIndexPath(string appFolder)
     {
         return Path.Combine(GetDataSystemFolder(appFolder), "data-index.json");
+    }
+
+    private static async Task ServeBaseWorkbookSchemaAsync(NetworkStream stream)
+    {
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                schemaVersion = 1,
+                intendedFileName = "Base SejaElevar.xlsx",
+                currentStorageMode = "multi-workbook-transition",
+                sheets = new object[]
+                {
+                    new
+                    {
+                        entityId = "aprendizes",
+                        sheetName = "Aprendizes",
+                        label = "Aprendizes",
+                        status = "active-legacy-workbook",
+                        legacyApiBasePath = "/api/aprendizes",
+                        requiredColumns = new[]
+                        {
+                            "Nome",
+                            "Sexo",
+                            "Data de Nascimento",
+                            "Idade",
+                            "Contato",
+                            "E-mail",
+                            "RG",
+                            "CPF",
+                            "Endere\u00e7o",
+                            "Institui\u00e7\u00e3o de Ensino",
+                            "Respons\u00e1vel",
+                            "Contato do Respons\u00e1vel",
+                            "E-mail do Respons\u00e1vel",
+                            "Data de Admiss\u00e3o",
+                            "Data do T\u00e9rmino",
+                            "Arco de Aprendizagem",
+                            "Fun\u00e7\u00e3o",
+                            "Turma",
+                            "Empresa"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "turmas",
+                        sheetName = "Turmas",
+                        label = "Turmas",
+                        status = "active-legacy-workbook",
+                        legacyApiBasePath = "/api/turmas",
+                        requiredColumns = new[]
+                        {
+                            "Turma",
+                            "Dia",
+                            "Per\u00edodo",
+                            "Instrutor",
+                            "Sala",
+                            "Disciplina",
+                            "No. de Aprendizes",
+                            "Aprendizes"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "arcos",
+                        sheetName = "Arcos",
+                        label = "Arcos",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
+                            "Arco",
+                            "M\u00f3dulo",
+                            "Disciplina",
+                            "Carga Hor\u00e1ria"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "empresas",
+                        sheetName = "Empresas",
+                        label = "Empresas",
+                        status = "planned",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = Array.Empty<string>()
+                    },
+                    new
+                    {
+                        entityId = "aulas",
+                        sheetName = "Aulas",
+                        label = "Aulas",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
+                            "Aula",
+                            "Disciplinas"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "cronograma",
+                        sheetName = "Cronograma",
+                        label = "Cronograma",
+                        status = "planned",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = Array.Empty<string>()
+                    },
+                    new
+                    {
+                        entityId = "presencas",
+                        sheetName = "Presencas",
+                        label = "Presencas",
+                        status = "planned",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = Array.Empty<string>()
+                    }
+                }
+            }
+        );
     }
 
     private static async Task ServeDataIndexAsync(NetworkStream stream, string appFolder)
