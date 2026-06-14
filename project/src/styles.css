@@ -1005,6 +1005,10 @@ svg {
   margin-left: 0;
 }
 
+.global-data-toolbar {
+  display: contents;
+}
+
 .square-action {
   display: grid;
   place-items: center;
@@ -1073,23 +1077,18 @@ svg {
 
 .page-modal-backdrop {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 248px;
-  z-index: 20;
+  inset: 0;
+  z-index: 3000;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(7, 20, 34, 0.18);
-}
-
-.app-shell.sidebar-collapsed .page-modal-backdrop {
-  left: 0;
+  background: rgba(7, 20, 34, 0.34);
+  backdrop-filter: blur(4px);
 }
 
 .recovery-dialog {
   position: relative;
+  z-index: 1;
   width: min(660px, 100%);
   border: 1px solid var(--brand-line);
   border-radius: 8px;

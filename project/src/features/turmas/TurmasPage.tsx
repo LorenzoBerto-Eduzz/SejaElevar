@@ -19,9 +19,11 @@ import {
   type DataIndexEntity,
   type SheetTable,
 } from '../../shared/data/dataIndex';
+import { getBaseWorkbookSheetByEntity } from '../../shared/data/baseWorkbook';
 import {
   APRENDIZES_DATA_CHANGED_EVENT,
   GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
@@ -34,7 +36,11 @@ import {
   getPublicColumns,
   getSheetRecordId,
 } from '../../shared/data/stableIds';
-import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
+import {
+  getWorkbookSheet,
+  hasWorkbookSheet,
+} from '../../shared/data/workbookSheets';
+import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -54,6 +60,18 @@ let xlsxModulePromise: Promise<XlsxModule> | null = null;
 const loadXlsx = () => {
   xlsxModulePromise ??= import('xlsx');
   return xlsxModulePromise;
+};
+
+const isUnifiedWorkbookFile = async (file: File) => {
+  const { read } = await loadXlsx();
+  const workbook = read(await file.arrayBuffer(), {
+    cellDates: true,
+  });
+
+  return (
+    hasWorkbookSheet(workbook, APRENDIZES_WORKBOOK_SHEET) &&
+    hasWorkbookSheet(workbook, TURMAS_WORKBOOK_SHEET)
+  );
 };
 
 class MissingRequiredColumnsError extends Error {
@@ -78,6 +96,10 @@ const STUDENTS_COUNT_COLUMN = 'No. de Aprendizes';
 const STUDENTS_LIST_COLUMN = 'Aprendizes';
 const TURMA_COLUMN = 'Turma';
 const NAME_COLUMN = 'Nome';
+const APRENDIZES_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
+const TURMAS_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(TURMAS_ENTITY_ID)?.sheetName ?? 'Turmas';
 const SEX_COLUMN = 'Sexo';
 const BIRTHDATE_COLUMN = 'Data de Nascimento';
 const EMAIL_COLUMN = 'E-mail';
@@ -365,33 +387,6 @@ const buildStudentsSummary = (students: string[]) => {
   return sortedStudents.length > 0 ? sortedStudents.join(', ') : '';
 };
 
-const hasSameSheetData = (leftSheet: SheetTable, rightSheet: SheetTable) => {
-  if (leftSheet.columns.length !== rightSheet.columns.length) {
-    return false;
-  }
-
-  if (
-    leftSheet.columns.some((column, columnIndex) => {
-      return column !== rightSheet.columns[columnIndex];
-    })
-  ) {
-    return false;
-  }
-
-  if (leftSheet.rows.length !== rightSheet.rows.length) {
-    return false;
-  }
-
-  return leftSheet.rows.every((row, rowIndex) => {
-    const rightRow = rightSheet.rows[rowIndex] ?? [];
-
-    return (
-      row.length === rightRow.length &&
-      row.every((cell, columnIndex) => cell === (rightRow[columnIndex] ?? ''))
-    );
-  });
-};
-
 const normalizeWorkbookColumns = (
   rawColumns: string[],
   requiredColumns: readonly string[],
@@ -413,6 +408,7 @@ const readSheetFile = async (
   entity: string,
   requiredColumns: readonly string[],
   options: {
+    preferredSheetName?: string;
     removedColumns?: Set<string>;
   } = {},
 ): Promise<SheetTable> => {
@@ -429,8 +425,10 @@ const readSheetFile = async (
   const workbook = read(await file.arrayBuffer(), {
     cellDates: true,
   });
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = sheetName ? workbook.Sheets[sheetName] : null;
+  const { sheetName, worksheet } = getWorkbookSheet(
+    workbook,
+    options.preferredSheetName ?? workbook.SheetNames[0] ?? '',
+  );
 
   if (!sheetName || !worksheet) {
     throw new Error('missing-sheet');
@@ -574,6 +572,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     null,
   );
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
+  const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [importError, setImportError] = useState('');
   const [invalidImportToast, setInvalidImportToast] = useState('');
@@ -1114,6 +1113,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }, 3000);
   };
 
+  const clearImportMessages = () => {
+    setImportError('');
+    setInvalidImportToast('');
+
+    if (invalidImportToastTimerRef.current !== null) {
+      window.clearTimeout(invalidImportToastTimerRef.current);
+      invalidImportToastTimerRef.current = null;
+    }
+  };
+
   const fetchRecoveryInfo = async () => {
     try {
       const response = await fetch('/api/recovery', {
@@ -1144,16 +1153,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           aprendizesSheet,
           turmaNames,
         );
-        const nextTurmasSheet = withDerivedTurmasValues(
-          turmasSheet,
-          nextStudentsByClass,
-        );
-
-        if (!hasSameSheetData(nextTurmasSheet, turmasSheet)) {
-          await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
-        } else {
-          await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
-        }
+        await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
       }
 
       const response = await fetch('/api/turmas/export', {
@@ -1257,9 +1257,15 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const loadAprendizesProviderFile = async () => {
     try {
-      const response = await fetch('/api/aprendizes/file', {
+      let response = await fetch('/api/aprendizes/file', {
         cache: 'no-store',
       });
+
+      if (response.status === 404) {
+        response = await fetch('/api/base-workbook/file', {
+          cache: 'no-store',
+        });
+      }
 
       if (response.status === 404) {
         const fallbackSheet = await loadAprendizesDataIndexFallback();
@@ -1290,6 +1296,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         APRENDIZES_ENTITY_ID,
         APRENDIZES_REQUIRED_COLUMNS,
         {
+          preferredSheetName: APRENDIZES_WORKBOOK_SHEET,
           removedColumns: REMOVED_APRENDIZES_COLUMNS,
         },
       );
@@ -1326,9 +1333,15 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const loadProviderFile = async (currentAprendizesSheet: SheetTable | null) => {
     try {
-      const response = await fetch('/api/turmas/file', {
+      let response = await fetch('/api/turmas/file', {
         cache: 'no-store',
       });
+
+      if (response.status === 404) {
+        response = await fetch('/api/base-workbook/file', {
+          cache: 'no-store',
+        });
+      }
 
       if (response.status === 404) {
         clearWorkingSheet();
@@ -1352,6 +1365,9 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         file,
         TURMAS_ENTITY_ID,
         TURMAS_REQUIRED_COLUMNS,
+        {
+          preferredSheetName: TURMAS_WORKBOOK_SHEET,
+        },
       );
       const nextSheet = {
         ...parsedSheet,
@@ -1374,7 +1390,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
             hasGeneratedRecordIds: false,
           },
           '/api/turmas/file/system',
-          [STUDENTS_COUNT_COLUMN],
         );
       }
       await fetchRecoveryInfo();
@@ -1389,6 +1404,18 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       }
 
       setImportError('Não foi possível ler a planilha de turmas.');
+    }
+  };
+
+  const syncProviderWorkbooks = async () => {
+    setIsWorkspaceSyncing(true);
+    clearImportMessages();
+
+    try {
+      const nextAprendizesSheet = await loadAprendizesProviderFile();
+      await loadProviderFile(nextAprendizesSheet);
+    } finally {
+      setIsWorkspaceSyncing(false);
     }
   };
 
@@ -1429,6 +1456,14 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   }, [aprendizesSheet, isActive, hasCheckedWorkspace]);
 
   useEffect(() => {
+    if (!isActive || !hasCheckedWorkspace) {
+      return;
+    }
+
+    void syncProviderWorkbooks();
+  }, [isActive, hasCheckedWorkspace]);
+
+  useEffect(() => {
     const syncAprendizesData = () => {
       if (suppressNextAprendizesChangeEventRef.current) {
         suppressNextAprendizesChangeEventRef.current = false;
@@ -1455,10 +1490,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         return;
       }
 
-      void (async () => {
-        const nextAprendizesSheet = await loadAprendizesProviderFile();
-        await loadProviderFile(nextAprendizesSheet);
-      })();
+      void syncProviderWorkbooks();
     };
 
     window.addEventListener(GLOBAL_DATA_CHANGED_EVENT, syncGlobalData);
@@ -1674,21 +1706,28 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
     try {
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
+      const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
       const parsedSheet = await readSheetFile(
         file,
         TURMAS_ENTITY_ID,
         TURMAS_REQUIRED_COLUMNS,
-      );
-      const response = await fetch('/api/turmas/import', {
-        method: 'POST',
-        headers: {
-          'content-type':
-            file.type ||
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'x-file-name': encodeURIComponent(file.name),
+        {
+          preferredSheetName: TURMAS_WORKBOOK_SHEET,
         },
-        body: await file.arrayBuffer(),
-      });
+      );
+      const response = await fetch(
+        shouldImportBaseWorkbook ? '/api/base-workbook/import' : '/api/turmas/import',
+        {
+          method: 'POST',
+          headers: {
+            'content-type':
+              file.type ||
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'x-file-name': encodeURIComponent(file.name),
+          },
+          body: await file.arrayBuffer(),
+        },
+      );
 
       if (!response.ok) {
         throw new Error('import-failed');
@@ -1720,7 +1759,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
             hasGeneratedRecordIds: false,
           },
           '/api/turmas/file/system',
-          [STUDENTS_COUNT_COLUMN],
         );
       }
       const nextRecoveryInfo = await fetchRecoveryInfo();
@@ -1766,7 +1804,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    void importWorkingFile(event.dataTransfer.files?.[0]);
+    window.dispatchEvent(
+      new CustomEvent(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT, {
+        detail: event.dataTransfer.files?.[0],
+      }),
+    );
   };
 
   const toggleTurma = (turmaKey: string) => {
@@ -1961,7 +2003,6 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           sheetName: sheetWithIds.sheetName,
           columns: sheetWithIds.columns,
           rows: sheetWithIds.rows,
-          formulaColumns: [STUDENTS_COUNT_COLUMN],
         }),
       });
 
@@ -1994,17 +2035,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
 
     const nextStudentsByClass = buildStudentsByClass(sheet, turmaNames);
-    const nextTurmasSheet = withDerivedTurmasValues(
-      turmasSheet,
-      nextStudentsByClass,
-    );
-
-    if (hasSameSheetData(nextTurmasSheet, turmasSheet)) {
-      await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
-      return;
-    }
-
-    await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+    await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
   };
 
   const writeAprendizesSheetToSourceFile = async (
@@ -2016,41 +2047,17 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         sheet,
         APRENDIZES_ENTITY_ID,
       );
-      const { read, utils, write } = await loadXlsx();
-      const sourceResponse = await fetch('/api/aprendizes/file', {
-        cache: 'no-store',
-      });
-      const workbook = sourceResponse.ok
-        ? read(await sourceResponse.arrayBuffer(), {
-            cellDates: true,
-          })
-        : utils.book_new();
-      const sheetName =
-        sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
-      const safeSheetName = sheetName.slice(0, 31);
-      const previousWorksheet = workbook.Sheets[safeSheetName];
-      const nextWorksheet = utils.aoa_to_sheet([
-        sheetWithIds.columns,
-        ...sheetWithIds.rows,
-      ]);
-      preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheetWithIds);
-      workbook.Sheets[safeSheetName] = nextWorksheet;
-
-      if (!workbook.SheetNames.includes(safeSheetName)) {
-        workbook.SheetNames.push(safeSheetName);
-      }
-
-      const output = write(workbook, {
-        bookType: 'xlsx',
-        type: 'array',
-      }) as ArrayBuffer;
-      const saveResponse = await fetch('/api/aprendizes/file', {
+      const saveResponse = await fetch('/api/aprendizes/values', {
         method: 'PUT',
         headers: {
-          'content-type':
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'content-type': 'application/json',
         },
-        body: output,
+        body: JSON.stringify({
+          sheetName: sheetWithIds.sheetName,
+          columns: sheetWithIds.columns,
+          rows: sheetWithIds.rows,
+          formulaColumns: [AGE_COLUMN],
+        }),
       });
 
       if (!saveResponse.ok) {
@@ -2567,47 +2574,12 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
             >
               <SquarePlusIcon />
             </button>
-            <button
-              className="square-action"
-              type="button"
-              aria-label="Substituir planilha .xlsx"
-              title="Importar .xlsx"
-              onClick={importFromPicker}
-            >
-              <ImportIcon />
-            </button>
-            <button
-              className={
-                hasWorkingSheet ? 'square-action' : 'square-action disabled'
-              }
-              type="button"
-              aria-label="Exportar dados"
-              title="Exportar Dados"
-              disabled={!hasWorkingSheet}
-              onClick={() => void exportWorkingFile()}
-            >
-              <ExportIcon />
-            </button>
-            <button
-              className={
-                canRecoverBackup
-                  ? 'square-action toolbar-section-start'
-                  : 'square-action toolbar-section-start disabled'
-              }
-              type="button"
-              aria-label="Recuperar dados"
-              title="Recuperar Dados"
-              disabled={!canRecoverBackup}
-              onClick={() => setIsRecoveryDialogOpen(true)}
-            >
-              <RotateClockwiseIcon />
-            </button>
-            <ThemeToggleButton className="toolbar-section-start" />
+            {isActive && <GlobalWorkbookToolbar />}
           </div>
         </div>
       </div>
 
-      {hasCheckedWorkspace && !hasWorkingSheet && (
+      {hasCheckedWorkspace && !isWorkspaceSyncing && !hasWorkingSheet && (
         <div
           className={
             isDragging
@@ -2626,7 +2598,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           <button
             className="primary-action import-empty-action"
             type="button"
-            onClick={importFromPicker}
+            onClick={() =>
+              window.dispatchEvent(
+                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
+              )
+            }
           >
             <ImportIcon />
             Importar .xlsx

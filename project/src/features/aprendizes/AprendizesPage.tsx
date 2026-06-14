@@ -15,9 +15,11 @@ import {
   buildAprendizesDataIndexEntity,
   buildEmptyDataIndexEntity,
 } from '../../shared/data/dataIndex';
+import { getBaseWorkbookSheetByEntity } from '../../shared/data/baseWorkbook';
 import {
   APRENDIZES_DATA_CHANGED_EVENT,
   GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
@@ -30,7 +32,11 @@ import {
   getSheetRecordId,
   isInternalColumn,
 } from '../../shared/data/stableIds';
-import { ThemeToggleButton } from '../../shared/ui/ThemeToggleButton';
+import {
+  getWorkbookSheet,
+  hasWorkbookSheet,
+} from '../../shared/data/workbookSheets';
+import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -68,6 +74,9 @@ const ADMISSION_DATE_COLUMN = 'Data de Admissão';
 const END_DATE_COLUMN = 'Data do Término';
 const CLASS_COLUMN = 'Turma';
 const TURMAS_REQUIRED_COLUMNS = ['Turma'] as const;
+const APRENDIZES_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
+const TURMAS_WORKBOOK_SHEET = 'Turmas';
 const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
@@ -91,6 +100,18 @@ let xlsxModulePromise: Promise<XlsxModule> | null = null;
 const loadXlsx = () => {
   xlsxModulePromise ??= import('xlsx');
   return xlsxModulePromise;
+};
+
+const isUnifiedWorkbookFile = async (file: File) => {
+  const { read } = await loadXlsx();
+  const workbook = read(await file.arrayBuffer(), {
+    cellDates: true,
+  });
+
+  return (
+    hasWorkbookSheet(workbook, APRENDIZES_WORKBOOK_SHEET) &&
+    hasWorkbookSheet(workbook, TURMAS_WORKBOOK_SHEET)
+  );
 };
 
 const readPixelCustomProperty = (
@@ -437,6 +458,7 @@ export function AprendizesPage({
   const [invalidImportToast, setInvalidImportToast] = useState('');
   const [turmaOptions, setTurmaOptions] = useState<string[]>([]);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
+  const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
@@ -525,6 +547,16 @@ export function AprendizesPage({
     }, 3000);
   };
 
+  const clearImportMessages = () => {
+    setImportError('');
+    setInvalidImportToast('');
+
+    if (invalidImportToastTimerRef.current !== null) {
+      window.clearTimeout(invalidImportToastTimerRef.current);
+      invalidImportToastTimerRef.current = null;
+    }
+  };
+
   const isInvalidTurmaValue = (value: string) =>
     turmaOptions.length > 0 &&
     value !== '' &&
@@ -572,8 +604,10 @@ export function AprendizesPage({
     const workbook = read(await file.arrayBuffer(), {
       cellDates: true,
     });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = sheetName ? workbook.Sheets[sheetName] : null;
+    const { sheetName, worksheet } = getWorkbookSheet(
+      workbook,
+      TURMAS_WORKBOOK_SHEET,
+    );
 
     if (!sheetName || !worksheet) {
       return [];
@@ -769,9 +803,15 @@ export function AprendizesPage({
       resetColumnWidths?: boolean;
     } = {},
   ) => {
-    const response = await fetch('/api/aprendizes/file', {
+    let response = await fetch('/api/aprendizes/file', {
       cache: 'no-store',
     });
+
+    if (response.status === 404) {
+      response = await fetch('/api/base-workbook/file', {
+        cache: 'no-store',
+      });
+    }
 
     if (response.status === 404) {
       if (options.clearOnMissing ?? true) {
@@ -786,6 +826,7 @@ export function AprendizesPage({
       throw new Error('read-failed');
     }
 
+    isLocalProviderActiveRef.current = true;
     const rawFileName = response.headers.get('x-file-name') || 'aprendizes.xlsx';
     const fileName = decodeURIComponent(rawFileName);
     const blob = await response.blob();
@@ -818,17 +859,23 @@ export function AprendizesPage({
 
     try {
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
+      const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
       const parsedSheet = await readSheetFile(file);
-      const response = await fetch('/api/aprendizes/import', {
-        method: 'POST',
-        headers: {
-          'content-type':
-            file.type ||
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'x-file-name': encodeURIComponent(file.name),
+      const response = await fetch(
+        shouldImportBaseWorkbook
+          ? '/api/base-workbook/import'
+          : '/api/aprendizes/import',
+        {
+          method: 'POST',
+          headers: {
+            'content-type':
+              file.type ||
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'x-file-name': encodeURIComponent(file.name),
+          },
+          body: await file.arrayBuffer(),
         },
-        body: await file.arrayBuffer(),
-      });
+      );
 
       if (!response.ok) {
         throw new Error('import-failed');
@@ -1038,8 +1085,10 @@ export function AprendizesPage({
     const workbook = read(await file.arrayBuffer(), {
       cellDates: true,
     });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
+    const { sheetName, worksheet } = getWorkbookSheet(
+      workbook,
+      APRENDIZES_WORKBOOK_SHEET,
+    );
 
     if (!sheetName || !worksheet) {
       throw new Error('missing-sheet');
@@ -1173,17 +1222,19 @@ export function AprendizesPage({
 
   useEffect(() => {
     const reloadChangedAprendizesData = (event?: Event) => {
-      if (!isLocalProviderActiveRef.current) {
-        return;
-      }
-
       if (event?.type === GLOBAL_DATA_CHANGED_EVENT) {
         void fetchRecoveryInfo();
       }
 
+      setIsWorkspaceSyncing(true);
+      clearImportMessages();
       void fetchProviderFile({
         clearOnMissing: true,
         resetColumnWidths: false,
+      }).catch(() => {
+        // The next active-tab/provider check can recover from a transient miss.
+      }).finally(() => {
+        setIsWorkspaceSyncing(false);
       });
     };
 
@@ -1207,6 +1258,25 @@ export function AprendizesPage({
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!isActive || !hasCheckedWorkspace) {
+      return;
+    }
+
+    setIsWorkspaceSyncing(true);
+    clearImportMessages();
+    void loadTurmaOptions();
+    void fetchProviderFile({
+      clearOnMissing: true,
+      resetColumnWidths: false,
+    }).catch(() => {
+      // Keep the page stable if the provider is between startup/reload states.
+    }).finally(() => {
+      setIsWorkspaceSyncing(false);
+    });
+    void fetchRecoveryInfo();
+  }, [isActive, hasCheckedWorkspace]);
 
   useEffect(
     () => () => {
@@ -1312,7 +1382,11 @@ export function AprendizesPage({
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    void importWorkingFile(event.dataTransfer.files[0]);
+    window.dispatchEvent(
+      new CustomEvent(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT, {
+        detail: event.dataTransfer.files[0],
+      }),
+    );
   };
 
   const orderedColumns = importedSheet
@@ -1883,44 +1957,17 @@ export function AprendizesPage({
         sheet,
         APRENDIZES_ENTITY_ID,
       );
-      const { read, utils, write } = await loadXlsx();
-      const sourceResponse = await fetch('/api/aprendizes/file', {
-        cache: 'no-store',
-      });
-
-      const workbook = sourceResponse.ok
-        ? read(await sourceResponse.arrayBuffer(), {
-            cellDates: true,
-          })
-        : utils.book_new();
-
-      const sheetName =
-        sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
-      const safeSheetName = sheetName.slice(0, 31);
-      const previousWorksheet = workbook.Sheets[safeSheetName];
-      const nextWorksheet = utils.aoa_to_sheet([
-        sheetWithIds.columns,
-        ...sheetWithIds.rows,
-      ]);
-      preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheetWithIds);
-      workbook.Sheets[safeSheetName] = nextWorksheet;
-
-      if (!workbook.SheetNames.includes(safeSheetName)) {
-        workbook.SheetNames.push(safeSheetName);
-      }
-
-      const output = write(workbook, {
-        bookType: 'xlsx',
-        type: 'array',
-      }) as ArrayBuffer;
-
-      const saveResponse = await fetch('/api/aprendizes/file', {
+      const saveResponse = await fetch('/api/aprendizes/values', {
         method: 'PUT',
         headers: {
-          'content-type':
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'content-type': 'application/json',
         },
-        body: output,
+        body: JSON.stringify({
+          sheetName: sheetWithIds.sheetName,
+          columns: sheetWithIds.columns,
+          rows: sheetWithIds.rows,
+          formulaColumns: [AGE_COLUMN],
+        }),
       });
 
       if (!saveResponse.ok) {
@@ -3741,49 +3788,12 @@ export function AprendizesPage({
             >
               <SquarePlusIcon />
             </button>
-            <button
-              className="square-action"
-              type="button"
-              aria-label="Substituir planilha .xlsx"
-              title="Importar .xlsx"
-              onClick={() => void importFromPicker()}
-            >
-              <ImportIcon />
-            </button>
-            <button
-              className={
-                hasWorkingSheet
-                  ? 'square-action'
-                  : 'square-action disabled'
-              }
-              type="button"
-              aria-label="Exportar dados"
-              title="Exportar Dados"
-              disabled={!hasWorkingSheet}
-              onClick={() => void exportWorkingFile()}
-            >
-              <ExportIcon />
-            </button>
-            <button
-              className={
-                hasWorkingSheet && canRecoverBackup
-                  ? 'square-action toolbar-section-start'
-                  : 'square-action toolbar-section-start disabled'
-              }
-              type="button"
-              aria-label="Recuperar dados"
-              title="Recuperar Dados"
-              disabled={!hasWorkingSheet || !canRecoverBackup}
-              onClick={() => setIsRecoveryDialogOpen(true)}
-            >
-              <RotateClockwiseIcon />
-            </button>
-            <ThemeToggleButton className="toolbar-section-start" />
+            {isActive && <GlobalWorkbookToolbar />}
             </div>
           </div>
       </div>
 
-      {hasCheckedWorkspace && !importedSheet && (
+      {hasCheckedWorkspace && !isWorkspaceSyncing && !importedSheet && (
         <div
           className={
             isDragging
@@ -3802,7 +3812,11 @@ export function AprendizesPage({
           <button
             className="primary-action import-empty-action"
             type="button"
-            onClick={() => void importFromPicker()}
+            onClick={() =>
+              window.dispatchEvent(
+                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
+              )
+            }
           >
             <ImportIcon />
             Importar .xlsx

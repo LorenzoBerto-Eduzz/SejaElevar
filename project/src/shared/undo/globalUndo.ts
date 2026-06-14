@@ -206,11 +206,11 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
 
   if (entry.kind === 'global-import') {
     const fileName = stringifyActionValue(entry.fileName);
-    return `${prefix} importado${fileName ? ` | ${fileName}` : ''}`;
+    return `Dados | importado${fileName ? ` | ${fileName}` : ''}`;
   }
 
   if (entry.kind === 'global-recovery') {
-    return `${prefix} recuperado`;
+    return 'Dados | recuperado';
   }
 
   return `${prefix} ação`;

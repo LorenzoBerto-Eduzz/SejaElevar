@@ -12,10 +12,16 @@ The most important early data source is the apprentices/students spreadsheet. Th
 
 ## Intended Unified Workbook Direction
 
-The preferred data direction is now one active app workbook, not many independent workbook files. The user-facing file should be something like:
+The preferred data direction is now one active app workbook, not many independent workbook files. The user-facing/base file should be something like:
 
 ```text
-Base SejaElevar.xlsx
+DadosElevar.xlsx
+```
+
+When the local provider imports or saves this unified workbook, active runtime copies should use the timestamped pattern:
+
+```text
+DadosElevar_HHmmssddMMyy.xlsx
 ```
 
 Inside that single workbook, each worksheet tab represents one app table/entity:
@@ -38,6 +44,8 @@ Current migration anchor:
 
 - `project/src/shared/data/baseWorkbook.ts` defines the intended base workbook file name, worksheet tabs, required columns, and which sheets are currently implemented through legacy separate workbook endpoints.
 - `GET /api/base-workbook/schema` exposes the same provider-side intended shape for future import/export and diagnostics.
+- `GET /api/base-workbook/file`, `POST /api/base-workbook/import`, `PUT /api/base-workbook/file`, `PUT /api/base-workbook/file/system`, and `POST /api/base-workbook/export` exist as the first provider bridge for the unified workbook. They store active files as `DadosElevar_hhmmssddmmyy.xlsx`.
+- During the transition, the existing Aprendizes/Turmas import buttons detect a selected workbook that contains both `Aprendizes` and `Turmas` worksheet tabs and store it through the base workbook endpoint. Once an active `DadosElevar` workbook exists, it becomes the primary app data source for Aprendizes and Turmas, and global checkpoints should track that one active workbook rather than separate Aprendizes/Turmas files. Those pages prefer their named worksheet when reading a multi-sheet workbook, while still accepting old one-sheet files when no unified workbook is active.
 - The current storage mode is still `multi-workbook-transition`; do not remove the existing Aprendizes/Turmas endpoints until the UI has been migrated to read/write named worksheets from the unified workbook adapter.
 
 Global app buttons should follow this direction:
@@ -61,28 +69,27 @@ Current Aprendizes behavior:
 - Importing asks only for the source `.xlsx` file.
 - The provider copies the selected file directly into `dados/` and immediately names it `Aprendizes_hhmmssddmmyy.xlsx` using system time.
 - Import validates required Aprendizes column labels from `project/src/shared/data/schemas.ts`. Blank cells are valid and extra columns are preserved as custom variables, but missing required labels block import.
-- The app then uses `dados/controle.json` to track the active Aprendizes workbook. Recoverable app-state checkpoints are tracked globally in `dados/controle-global.json` plus `dados/checkpoints/<checkpoint-id>/`. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
+- During the transition, legacy controls such as `dados/controle.json` and `dados/turmas-controle.json` are tolerated only for migration/fallback and should not be recreated when empty. Once `DadosElevar` is active, `dados/sistema/dados-elevar-controle.json` is the primary workbook control. Recoverable app-state checkpoint metadata is tracked globally in `dados/sistema/controle-global.json`, and new unified checkpoints are direct timestamped workbook files under `dados/checkpoints/`, such as `DadosElevar_HHmmssddMMyy.xlsx`. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
 - When a saved edit changes data, the provider writes a fresh timestamped `Aprendizes_hhmmssddmmyy.xlsx` active file so the filename reflects the most recent update. The replaced active file is deleted unless it is the protected backup.
 - Importing when no previous app data exists now records a recoverable empty `before_import` checkpoint. Undoing that first import returns the app to the missing/import-needed state; redoing it restores the imported workbook through the same reversible recovery path.
 - Importing any workbook while app data already exists captures the previous whole-app data state as a global checkpoint and makes recovery immediately available for the state before import.
-- The provider keeps up to three whole-app checkpoint filesets under `dados/checkpoints/`, newest first. Repeated sequential imports in the same launched app session amend the same import checkpoint instead of filling the three checkpoint slots with near-duplicate states, and import metadata tracks whether the UI should describe the recovery as singular or plural. A new edit, recovery, or new launched session breaks that import sequence.
+- The provider keeps up to three whole-app checkpoints under `dados/checkpoints/`, newest first. In the unified workbook path, each non-empty checkpoint is one direct `DadosElevar_HHmmssddMMyy.xlsx` file; old nested checkpoint folders are still tolerated for migration from the earlier multi-workbook fileset model. Repeated sequential imports in the same launched app session amend the same import checkpoint instead of filling the three checkpoint slots with near-duplicate states, and import metadata tracks whether the UI should describe the recovery as singular or plural. A new edit, recovery, or new launched session breaks that import sequence.
 - The first edit after an import over existing data preserves the explicit before-import checkpoint. If the import sequence started from an empty state, the first edit captures the just-imported original workbook state as a normal before-edit checkpoint. Once the same app data chain has been edited in an earlier app session, the first edit in a later session can capture the whole-app state immediately before edits in the current session; later edits in that same session keep it.
-- The root of `dados/` should contain only the current timestamped on-use workbook files plus control/system files. Old workbook files that are not active should be deleted by the provider after import/save/patch/recovery; historical recovery filesets live under `dados/checkpoints/`, not as loose root `.xlsx` backups.
+- The root of `dados/` should contain only the current timestamped on-use workbook file, `.gitkeep`, and the intentional folders `checkpoints/` and `sistema/`. Old workbook files that are not active should be deleted by the provider after import/save/patch/recovery; historical recovery workbooks live under `dados/checkpoints/`, not as loose root `.xlsx` backups. App metadata/control JSON belongs under `dados/sistema/`.
 - Aprendizes cell edits use value-based undo in the UI: a completed cell edit is one undo entry rather than one character at a time. Imports and recoveries are global undo actions. Each import stores the provider checkpoint id for the previous whole-app state, so `Ctrl+Z` can walk backward through imports, recoveries, edits, registrations, and deletions in chronological order.
 
 Current Turmas behavior:
 
-- Linked Turmas edits now touch both sides of the relationship. Assigning an Aprendiz to a Turma updates the Aprendizes active workbook, syncs derived `Aprendizes` and `No. de Aprendizes` values into the active Turmas workbook, rebuilds the generated Aprendizes/Turmas data-index entities, and notifies mounted pages. Recovery is now global, so Turmas uses the same whole-app checkpoint as Aprendizes instead of an independent per-file recovery meaning.
+- Linked Turmas edits now use `Aprendizes.Turma` as the source of truth. Assigning an Aprendiz to a Turma updates the Aprendizes worksheet, rebuilds the generated Aprendizes/Turmas data-index entities, and notifies mounted pages. It should not write duplicated `Aprendizes` or `No. de Aprendizes` values back into the Turmas worksheet. Recovery is now global, so Turmas uses the same whole-app checkpoint as Aprendizes instead of an independent per-file recovery meaning.
 - Turmas value writes go through `/api/turmas/values` and `project/launcher/WorkbookValuePatcher.cs`, an isolated provider helper that patches workbook XML values in place. This keeps `.xlsx` internals out of `Program.cs` and makes future workbook-storage changes easier to replace. The current patcher is best-effort for preserving workbook structure; exact Google Sheets visual styling round-trips are not guaranteed.
 - Turmas is now an active linked-record flow, not just a placeholder table.
-- Import validates required Turmas column labels from `project/src/shared/data/schemas.ts`: `Turma`, `Dia`, `Período`, `Instrutor`, `Sala`, `Disciplina`, `No. de Aprendizes`, and `Aprendizes`. Blank cells are valid and extra columns are preserved.
-- The provider copies the selected workbook directly into `dados/` as `Turmas_hhmmssddmmyy.xlsx` and tracks the active Turmas workbook in `dados/turmas-controle.json`. Older local `dados/turmas.json` metadata can be migrated into the current control file shape.
+- Import validates required Turmas column labels from `project/src/shared/data/schemas.ts`: `Turma`, `Dia`, `Período`, `Instrutor`, and `Sala`. Blank cells are valid and extra columns are preserved. `Disciplina`, `No. de Aprendizes`, and `Aprendizes` are intentionally not required Turmas source columns.
+- Legacy Turmas-only workbooks and controls are still tolerated during migration, but the active direction is a single `DadosElevar_HHmmssddMMyy.xlsx` workbook shared by Turmas and Aprendizes. Empty legacy Turmas controls should not remain in `dados/`.
 - Turmas supports import, export, and provider-side value writes through Turmas-specific provider endpoints. Recovery UI uses the global `/api/recovery` endpoint and whole-app checkpoint metadata.
 - The Turmas page displays imported Turmas as expandable groups. Each group can show the Aprendizes currently assigned to that Turma, using `Aprendizes.Turma` as the preferred relationship source.
 - `+ Adicionar Aprendiz` opens a searchable picker of available Aprendizes and writes the selected Turma value back into the Aprendizes workbook, then refreshes the Aprendizes generated data index and notifies mounted pages through the shared `sejaelevar:aprendizes-data-changed` event.
 - The Turmas student details popup can edit Aprendizes fields from inside the Turmas page. Its `Turma` field uses canonical dropdown matching against active Turmas names, and `Descadastrar Aprendiz` removes the selected Aprendiz row through the normal save/index path.
-- The source workbook is not rewritten during Turmas import. If `No. de Aprendizes` is a Google Sheets formula, the formula remains in the copied `.xlsx`.
-- In the app display and generated data index, `No. de Aprendizes` and `Aprendizes` are derived from linked Aprendizes when Aprendizes data exists. If Aprendizes data is unavailable, `No. de Aprendizes` falls back to counting comma-separated names from the Turmas `Aprendizes` cell.
+- The source workbook is not rewritten during Turmas import. In the app display and generated data index, apprentice membership is derived from linked Aprendizes when Aprendizes data exists. If an old Turmas sheet still contains legacy `No. de Aprendizes` or `Aprendizes` columns, they can be preserved as extra source columns but should not be treated as the relationship source of truth.
 - Importing a workbook whose headers do not match the active tool schema shows a bottom-right red toast for 3 seconds: `Arquivo escolhido não possui os valores necessários`.
 
 ## Generated Data Index
@@ -119,7 +126,7 @@ For Aprendizes and Turmas, each row becomes one record with:
 
 The internal ID column is hidden from the table UI, item popup fields, search text, and public generated fields. It exists so future relationships, document generation, action-history references, and cross-sheet links can survive row reordering, blank names, imported names with typos, and manual spreadsheet edits. When a workbook is imported or loaded without IDs, or with duplicate IDs, the app repairs/generates them and writes the metadata back through a provider system-save endpoint. That system metadata write should not count as a user edit, checkpoint, recovery reason, or undoable action.
 
-The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, registration, deletion, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The Turmas index is rebuilt after active sheet load, import, recovery, save, and apprentice assignment changes; when Aprendizes data exists, the Turmas index uses linked Aprendizes to derive `No. de Aprendizes` and `Aprendizes`. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
+The Aprendizes index is rebuilt after active sheet load, import, recovery, save, cell edit, registration, deletion, and column reorder. If no active workbook exists or a provider read fails as missing, the Aprendizes entity is saved as an empty record set. The Turmas index is rebuilt after active sheet load, import, recovery, save, and apprentice assignment changes; when Aprendizes data exists, the Turmas index can derive apprentice membership from linked Aprendizes without writing duplicated source columns into the Turmas worksheet. The generated index should be treated as disposable working memory that can be rebuilt from source files, not as an independent database.
 
 The local provider writes JSON files as readable UTF-8. PT-BR characters such as `ç`, `ã`, `é`, and `í` should appear normally in `dados/sistema/data-index.json`; if PowerShell displays mojibake, verify the file with a UTF-8-aware editor before assuming the stored data is corrupt.
 
@@ -135,7 +142,7 @@ Examples:
 
 - `Empresa` on an Aprendiz should eventually be a dropdown sourced from registered `Empresas`.
 - `Turma` on an Aprendiz is now a dropdown sourced from registered `Turmas`.
-- `Instrutor`, `Sala`, and `Disciplina` on a Turma should eventually be dropdowns sourced from registered `Funcionários`, configured Sala options, and registered `Disciplinas`.
+- `Instrutor` and `Sala` on a Turma should eventually be dropdowns sourced from configured supporting values. `Disciplina` is no longer a direct Turma source field; discipline coverage belongs to the future Aulas/Arcos/Plano de Ensino flow.
 
 The spreadsheet cells can continue storing the canonical display name, not hidden IDs, so exported files remain easy to read and paste back into Google Sheets. Internally, the app should match imported text by normalizing case, extra spacing, punctuation, and accentuation. For example, an imported value like `Sao Jose` should be able to match the registered option `São José`, after which the app displays/saves/exports the canonical registered spelling.
 
@@ -154,19 +161,17 @@ The current planned Turmas values are:
 - `Período`: selected from period options available for the chosen day.
 - `Instrutor`: linked to registered Funcionários.
 - `Sala`: linked to configured Sala options when that support is implemented; it is not currently a main tab.
-- `Disciplina`: linked to registered Disciplinas.
-- `No. de Aprendizes`: preferably derived by the app from linked Aprendizes, not manually typed.
-- `Aprendizes`: preferably derived/listed by the app from Aprendizes assigned to the Turma, exported as names separated by comma + space.
+`Disciplina`, `No. de Aprendizes`, and `Aprendizes` are not part of the current required Turmas source shape. Disciplina belongs to Aulas/Arcos/Plano de Ensino, and apprentice membership is derived from each Aprendiz's `Turma` value.
 
-For app data consistency, the recommended source of truth for "which apprentices are in a turma" is the `Turma` field on each Aprendiz. The Turmas page can display or export the list/count of Aprendizes under each Turma, but the relationship should normally be maintained by assigning each Aprendiz to a Turma rather than manually duplicating a long name list inside the Turmas source sheet. If an imported Turmas sheet already contains an `Aprendizes` list, the app can use it for display/validation during import, but it should treat conflicts with `Aprendizes.Turma` carefully instead of silently making both sides inconsistent.
+For app data consistency, the source of truth for "which apprentices are in a turma" is the `Turma` field on each Aprendiz. The Turmas page can display the list/count of Aprendizes under each Turma as an app-derived view, but the relationship should be maintained by assigning each Aprendiz to a Turma rather than manually duplicating a long name list inside the Turmas source sheet.
 
 Day/period behavior direction: `Dia` is a dropdown of weekdays or defined day labels. `Período` is a dropdown filtered by the selected `Dia`. Period options do not currently need their own main app tab; they can be configured in a future settings/subtool area, with an affordance to add a new period from the dropdown flow.
 
 ## Global Recovery Checkpoints
 
-`Recuperar Dados` is a whole-app checkpoint, not a per-tab or per-file backup. The provider stores current checkpoint metadata in `dados/controle-global.json` and checkpoint workbooks under `dados/checkpoints/<checkpoint-id>/`.
+`Recuperar Dados` is a whole-app checkpoint, not a per-tab backup. The provider stores current checkpoint metadata in `dados/sistema/controle-global.json`. In the unified workbook path, checkpoint content is a direct workbook file under `dados/checkpoints/`, named with the same `DadosElevar_HHmmssddMMyy.xlsx` pattern. Empty checkpoints are metadata-only and represent no active workbook, mainly for undoing the first import from an empty workspace.
 
-A checkpoint currently contains copies of the active Aprendizes and Turmas workbooks when those workbooks exist. Empty checkpoints are valid and represent no active workbook files, primarily for undoing the first import from an empty workspace. Future data tabs should join this checkpoint through the provider workbook-source list instead of creating independent recovery meanings.
+A checkpoint currently contains the active `DadosElevar` workbook when it exists. Empty checkpoints are valid only while there is active workbook data to recover away from, primarily for undoing the first import from an empty workspace. If no active workbook exists, empty checkpoint metadata should be pruned and the recovery UI should stay disabled. Legacy nested folders containing separate Aprendizes/Turmas files remain readable during migration, but new global checkpoints should be direct unified workbook files.
 
 Pressing `Recuperar Dados` restores the chosen checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible. The recovery popup can list up to three checkpoints, newest first, with friendly labels in the format `HH:mm:ss dd/MM/yyyy`.
 
@@ -215,8 +220,8 @@ A release/export package should use the same structure under `exports/SejaElevar
 
 Suggested meaning:
 
-- `dados/`: spreadsheets and future structured data used/edited by app tools, starting with Aprendizes.
-- `dados/sistema/`: generated app state derived from data files, currently `data-index.json`.
+- `dados/`: the active timestamped `DadosElevar` workbook plus the intentional `checkpoints/` and `sistema/` folders.
+- `dados/sistema/`: generated app state and runtime controls derived from data files, currently `data-index.json`, `dados-elevar-controle.json`, and `controle-global.json` when real data exists.
 - `modelos/`: source document templates.
 - `documentos_gerados/`: output files generated by the app.
 - `assets/`: app-owned/meta assets and future local app state/config files.

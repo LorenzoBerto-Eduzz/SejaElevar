@@ -5,7 +5,8 @@ import {
   TURMAS_REQUIRED_COLUMNS,
 } from './schemas';
 
-export const BASE_WORKBOOK_FILE_NAME = 'Base SejaElevar.xlsx';
+export const BASE_WORKBOOK_FILE_PREFIX = 'DadosElevar';
+export const BASE_WORKBOOK_FILE_NAME = `${BASE_WORKBOOK_FILE_PREFIX}.xlsx`;
 
 export type BaseWorkbookSheetStatus =
   | 'active-legacy-workbook'
@@ -77,4 +78,3 @@ export const BASE_WORKBOOK_SHEETS = [
 
 export const getBaseWorkbookSheetByEntity = (entityId: string) =>
   BASE_WORKBOOK_SHEETS.find((sheet) => sheet.entityId === entityId) ?? null;
-

@@ -1,4 +1,4 @@
-import { ThemeToggleButton } from './ThemeToggleButton';
+import { GlobalWorkbookToolbar } from './GlobalWorkbookToolbar';
 
 type FeaturePlaceholderPageProps = {
   title: string;
@@ -15,7 +15,7 @@ export function FeaturePlaceholderPage({ title }: FeaturePlaceholderPageProps) {
         </div>
         <div className="table-toolbar" aria-label="Ações da página">
           <div className="table-toolbar-track">
-            <ThemeToggleButton />
+            <GlobalWorkbookToolbar />
           </div>
         </div>
       </div>
