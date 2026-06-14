@@ -55,6 +55,8 @@ Global app buttons should follow this direction:
 - `Recuperar Dados`: restores whole-workbook checkpoints.
 - Theme/color controls remain global.
 
+These controls are global app controls, not page-local controls. Their enabled/disabled state and behavior should be identical on every tab because they act on the definitive `DadosElevar` workbook or app theme.
+
 UI tabs do not need to match workbook worksheets 1:1. For example, the `Turmas` page can read both the `Turmas` and `Aprendizes` worksheets to show apprentices grouped by turma, and the `Arcos` page can manage the Disciplinas that live inside the Arcos/plano-de-ensino data.
 
 The current sidebar still keeps `Aprendizes` as a main tab because it is useful for sorting, ordering, visualization, and direct apprentice management. A future Turmas-centered UI may absorb that work only after it can provide those same practical flows. `Documentos` should be a centralized document/template/generation tab rather than a data worksheet mirror. `Calendário` should visualize the global Cronograma. `Funcionários` and `Salas` are supporting/configurable linked values for Cronograma/Aula blocks for now, not main tabs.
@@ -71,8 +73,9 @@ Current Aprendizes behavior:
 - Import validates required Aprendizes column labels from `project/src/shared/data/schemas.ts`. Blank cells are valid and extra columns are preserved as custom variables, but missing required labels block import.
 - During the transition, legacy controls such as `dados/controle.json` and `dados/turmas-controle.json` are tolerated only for migration/fallback and should not be recreated when empty. Once `DadosElevar` is active, `dados/sistema/dados-elevar-controle.json` is the primary workbook control. Recoverable app-state checkpoint metadata is tracked globally in `dados/sistema/controle-global.json`, and new unified checkpoints are direct timestamped workbook files under `dados/checkpoints/`, such as `DadosElevar_HHmmssddMMyy.xlsx`. Manually dropping extra `.xlsx` files into `dados/` should not change the active file unless no control metadata exists and the provider has to recover from existing files.
 - When a saved edit changes data, the provider writes a fresh timestamped `Aprendizes_hhmmssddmmyy.xlsx` active file so the filename reflects the most recent update. The replaced active file is deleted unless it is the protected backup.
-- Importing when no previous app data exists now records a recoverable empty `before_import` checkpoint. Undoing that first import returns the app to the missing/import-needed state; redoing it restores the imported workbook through the same reversible recovery path.
+- Importing when no previous app data exists does not create a recoverable checkpoint. After a true first import, `Recuperar Dados` remains disabled because there is no previous real data state to recover to.
 - Importing any workbook while app data already exists captures the previous whole-app data state as a global checkpoint and makes recovery immediately available for the state before import.
+- The first edit after a fresh first import can capture the just-imported original workbook state as the first meaningful recovery checkpoint.
 - The provider keeps up to three whole-app checkpoints under `dados/checkpoints/`, newest first. In the unified workbook path, each non-empty checkpoint is one direct `DadosElevar_HHmmssddMMyy.xlsx` file; old nested checkpoint folders are still tolerated for migration from the earlier multi-workbook fileset model. Repeated sequential imports in the same launched app session amend the same import checkpoint instead of filling the three checkpoint slots with near-duplicate states, and import metadata tracks whether the UI should describe the recovery as singular or plural. A new edit, recovery, or new launched session breaks that import sequence.
 - The first edit after an import over existing data preserves the explicit before-import checkpoint. If the import sequence started from an empty state, the first edit captures the just-imported original workbook state as a normal before-edit checkpoint. Once the same app data chain has been edited in an earlier app session, the first edit in a later session can capture the whole-app state immediately before edits in the current session; later edits in that same session keep it.
 - The root of `dados/` should contain only the current timestamped on-use workbook file, `.gitkeep`, and the intentional folders `checkpoints/` and `sistema/`. Old workbook files that are not active should be deleted by the provider after import/save/patch/recovery; historical recovery workbooks live under `dados/checkpoints/`, not as loose root `.xlsx` backups. App metadata/control JSON belongs under `dados/sistema/`.
@@ -169,9 +172,9 @@ Day/period behavior direction: `Dia` is a dropdown of weekdays or defined day la
 
 ## Global Recovery Checkpoints
 
-`Recuperar Dados` is a whole-app checkpoint, not a per-tab backup. The provider stores current checkpoint metadata in `dados/sistema/controle-global.json`. In the unified workbook path, checkpoint content is a direct workbook file under `dados/checkpoints/`, named with the same `DadosElevar_HHmmssddMMyy.xlsx` pattern. Empty checkpoints are metadata-only and represent no active workbook, mainly for undoing the first import from an empty workspace.
+`Recuperar Dados` is a whole-app checkpoint, not a per-tab backup. The provider stores current checkpoint metadata in `dados/sistema/controle-global.json`. In the unified workbook path, checkpoint content is a direct workbook file under `dados/checkpoints/`, named with the same `DadosElevar_HHmmssddMMyy.xlsx` pattern. A fresh first import from an empty workspace does not create a recoverable empty checkpoint; recovery stays disabled until a real previous data state exists.
 
-A checkpoint currently contains the active `DadosElevar` workbook when it exists. Empty checkpoints are valid only while there is active workbook data to recover away from, primarily for undoing the first import from an empty workspace. If no active workbook exists, empty checkpoint metadata should be pruned and the recovery UI should stay disabled. Legacy nested folders containing separate Aprendizes/Turmas files remain readable during migration, but new global checkpoints should be direct unified workbook files.
+A checkpoint currently contains the active `DadosElevar` workbook when it exists. Empty checkpoint metadata should be pruned when it does not represent a real recoverable state, and the recovery UI should stay disabled. Legacy nested folders containing separate Aprendizes/Turmas files remain readable during migration, but new global checkpoints should be direct unified workbook files.
 
 Pressing `Recuperar Dados` restores the chosen checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible. The recovery popup can list up to three checkpoints, newest first, with friendly labels in the format `HH:mm:ss dd/MM/yyyy`.
 
@@ -179,8 +182,6 @@ Current normal popup messages are:
 
 - First imported app-data state after its first edit: `Recupere os dados para como estavam quando foram importados pela primeira vez.`
 - Existing app data replaced by a new import: `Recupere os dados para como estavam antes da última importação.`
-- Before the first import from an empty workspace: `Recupere os dados para como estavam antes da primeira importação.`
-- Before consecutive first imports from an empty workspace: `Recupere os dados para como estavam antes das primeiras importações.`
 - Immediately after a recovery: `Recupere os dados para como estavam antes da última recuperação.`
 - A later editing session has just captured the state before its current edits: `Recupere os dados para como estavam antes de edições nesta sessão.`
 - That editing-session checkpoint is viewed after reopening without a newer edit: `Recupere os dados para como estavam antes da última sessão com edições.`
@@ -270,6 +271,14 @@ During normal development, do not rebuild/give `exports/SejaElevar/` unless the 
 ```text
 project/dev/SejaElevar.exe
 ```
+
+When the user asks for `freshdev`, run:
+
+```text
+npm --prefix project run freshdev
+```
+
+This reset is for testing the dev app like a fresh first-use install. It clears active runtime data and generated traces under `project/dev/dados/`, including active `DadosElevar_*.xlsx` files, checkpoint files, workbook control JSON, and generated `data-index.json`, while keeping the required `dados/`, `dados/checkpoints/`, `dados/sistema/`, and `.gitkeep` structure. It also creates a one-shot marker consumed by the next dev app launch to clear browser-side data history: the global undo stack (`sejaelevar.globalUndo.v1`) and the dev action-history overlay (`sejaelevar.dev.actionHistory.v1`). Visual preferences such as dark/light mode, sidebar collapsed state, WebView zoom, and baked layout/color settings should remain unless the user explicitly asks for a full visual reset.
 
 ## Future Sync Direction
 

@@ -770,7 +770,7 @@ svg {
   font-size: 1.08rem;
   font-weight: 800;
   line-height: 1.2;
-  white-space: nowrap;
+  white-space: pre-line;
   pointer-events: none;
 }
 

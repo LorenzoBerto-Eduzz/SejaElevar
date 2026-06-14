@@ -5,11 +5,13 @@ import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
 import { appTabs } from './shared/navigation/tabs';
 import { ActionLogOverlay } from './shared/actionLog/ActionLogOverlay';
+import { resetActionHistory } from './shared/actionLog/actionLog';
 import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
 import {
   configureGlobalUndoNavigation,
   handleGlobalUndoShortcut,
+  resetGlobalUndoHistory,
 } from './shared/undo/globalUndo';
 
 const isLocalAppAddress = () => {
@@ -131,6 +133,40 @@ export function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isProviderReady) {
+      return;
+    }
+
+    let isActive = true;
+
+    const consumeFreshDevReset = async () => {
+      try {
+        const response = await fetch('/api/dev/freshdev-reset', {
+          cache: 'no-store',
+        });
+        const result = response.ok
+          ? ((await response.json()) as { reset?: boolean })
+          : null;
+
+        if (!isActive || !result?.reset) {
+          return;
+        }
+
+        resetGlobalUndoHistory();
+        resetActionHistory();
+      } catch {
+        // The endpoint exists only in the local provider; normal app startup continues.
+      }
+    };
+
+    void consumeFreshDevReset();
+
+    return () => {
+      isActive = false;
+    };
+  }, [isProviderReady]);
 
   useEffect(() => {
     if (!isProviderReady || !isInitialPageReady) {

@@ -4,9 +4,13 @@ import {
   GLOBAL_DATA_CHANGED_EVENT,
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../data/events';
-import { BASE_WORKBOOK_SHEETS } from '../data/baseWorkbook';
-import { getWorkbookSheet } from '../data/workbookSheets';
-import { normalizeColumnsForSchema } from '../data/schemas';
+import {
+  fetchRecoveryInfo,
+  formatWorkbookValidationToast,
+  recoverGlobalData,
+  type RecoveryInfo,
+  validateGlobalWorkbookFile,
+} from '../data/workspaceData';
 import {
   getGlobalUndoBoundarySnapshot,
   pushGlobalBoundaryUndoEntry,
@@ -14,127 +18,29 @@ import {
 } from '../undo/globalUndo';
 import { ThemeToggleButton } from './ThemeToggleButton';
 
-type XlsxModule = typeof import('xlsx');
-type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
-
-type RecoveryReason =
-  | 'before_import'
-  | 'before_edit'
-  | 'before_session_edit'
-  | 'import_original'
-  | 'before_recovery'
-  | 'after_recovery';
-
-type RecoveryInfo = {
-  available: boolean;
-  canRecover: boolean;
-  checkpointId?: string | null;
-  formattedUpdatedAt?: string | null;
-  fileCount?: number | null;
-  importCount?: number | null;
-  reason?: RecoveryReason | null;
-  checkpoints?: Array<{
-    checkpointId?: string | null;
-    canRecover: boolean;
-    formattedUpdatedAt?: string | null;
-    fileCount?: number | null;
-    importCount?: number | null;
-    reason?: RecoveryReason | null;
-  }>;
-};
-
 type GlobalToolbarState = {
   hasWorkbook: boolean;
   recoveryInfo: RecoveryInfo | null;
   hasLoaded: boolean;
 };
 
-const ACTIVE_WORKBOOK_SHEETS = BASE_WORKBOOK_SHEETS.filter(
-  (sheet) => sheet.status === 'active-legacy-workbook',
-);
-
-let xlsxModulePromise: Promise<XlsxModule> | null = null;
 let latestGlobalToolbarState: GlobalToolbarState = {
   hasWorkbook: false,
   recoveryInfo: null,
   hasLoaded: false,
 };
+const globalToolbarStateListeners = new Set<() => void>();
 
-const loadXlsx = () => {
-  xlsxModulePromise ??= import('xlsx');
-  return xlsxModulePromise;
+const setLatestGlobalToolbarState = (state: GlobalToolbarState) => {
+  latestGlobalToolbarState = state;
+  globalToolbarStateListeners.forEach((listener) => listener());
 };
 
-const extractColumns = (
-  utils: XlsxModule['utils'],
-  worksheet: XlsxWorksheet,
-) => {
-  const rows = utils.sheet_to_json<string[]>(worksheet, {
-    header: 1,
-    blankrows: false,
-    defval: '',
-  });
-
-  return (rows[0] ?? []).map((column) => String(column ?? '').trim());
-};
-
-const validateGlobalWorkbookFile = async (file: File) => {
-  const { read, utils } = await loadXlsx();
-  const workbook = read(await file.arrayBuffer(), {
-    cellDates: true,
-  });
-
-  for (const sheetDefinition of ACTIVE_WORKBOOK_SHEETS) {
-    const { worksheet } = getWorkbookSheet(
-      workbook,
-      sheetDefinition.sheetName,
-    );
-
-    if (!worksheet) {
-      throw new Error('missing-required-sheet');
-    }
-
-    const columns = extractColumns(utils, worksheet);
-    const { missingColumns } = normalizeColumnsForSchema(
-      columns,
-      sheetDefinition.requiredColumns,
-    );
-
-    if (missingColumns.length > 0) {
-      throw new Error('missing-required-columns');
-    }
-  }
-};
-
-const fetchRecoveryInfo = async () => {
-  const response = await fetch('/api/recovery', {
-    cache: 'no-store',
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json()) as RecoveryInfo;
-};
-
-const recoverGlobalData = async (checkpointId?: unknown) => {
-  const headers: Record<string, string> =
-    typeof checkpointId === 'string' && checkpointId
-      ? { 'x-checkpoint-id': checkpointId }
-      : {};
-  const response = await fetch('/api/recovery', {
-    method: 'POST',
-    headers,
-  });
-
-  if (!response.ok) {
-    throw new Error('recovery-failed');
-  }
-
-  const result = (await response.json()) as { checkpointId?: string | null };
-  window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
-  return result;
+const subscribeToGlobalToolbarState = (listener: () => void) => {
+  globalToolbarStateListeners.add(listener);
+  return () => {
+    globalToolbarStateListeners.delete(listener);
+  };
 };
 
 const getRecoveryDescription = (info: RecoveryInfo | null) => {
@@ -187,20 +93,29 @@ export function GlobalWorkbookToolbar({
       fetch('/api/base-workbook/file', {
         cache: 'no-store',
       }).catch(() => null),
-      fetchRecoveryInfo().catch(() => null),
+      fetchRecoveryInfo().catch(() => latestGlobalToolbarState.recoveryInfo),
     ]);
 
-    latestGlobalToolbarState = {
-      hasWorkbook: Boolean(fileResponse?.ok),
+    const nextState = {
+      hasWorkbook:
+        fileResponse === null
+          ? latestGlobalToolbarState.hasWorkbook
+          : Boolean(fileResponse.ok),
       recoveryInfo: nextRecoveryInfo,
       hasLoaded: true,
     };
-    setHasWorkbook(latestGlobalToolbarState.hasWorkbook);
-    setRecoveryInfo(latestGlobalToolbarState.recoveryInfo);
+    setLatestGlobalToolbarState(nextState);
+    setHasWorkbook(nextState.hasWorkbook);
+    setRecoveryInfo(nextState.recoveryInfo);
     return nextRecoveryInfo;
   };
 
   useEffect(() => {
+    const unsubscribe = subscribeToGlobalToolbarState(() => {
+      setHasWorkbook(latestGlobalToolbarState.hasWorkbook);
+      setRecoveryInfo(latestGlobalToolbarState.recoveryInfo);
+    });
+
     void refreshGlobalDataState();
 
     const handleGlobalDataChanged = () => {
@@ -235,14 +150,15 @@ export function GlobalWorkbookToolbar({
         GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
         handleImportRequest,
       );
+      unsubscribe();
     };
   }, []);
 
-  const showInvalidImportToast = () => {
+  const showInvalidImportToast = (message?: string) => {
     setInvalidImportToast('');
     window.setTimeout(() => {
       setInvalidImportToast(
-        'Arquivo escolhido n\u00e3o possui os valores necess\u00e1rios',
+        message || 'Arquivo escolhido n\u00e3o possui os valores necess\u00e1rios',
       );
     }, 0);
   };
@@ -252,9 +168,18 @@ export function GlobalWorkbookToolbar({
       return;
     }
 
+    let importSucceeded = false;
+    let previousUndoStack: ReturnType<typeof getGlobalUndoBoundarySnapshot> = [];
+    let result: {
+      fileName?: string;
+      globalCheckpointId?: string | null;
+    } = {};
+    let importedWorkbookFile: File | null = null;
+
     try {
-      const previousUndoStack = getGlobalUndoBoundarySnapshot();
+      previousUndoStack = getGlobalUndoBoundarySnapshot();
       await validateGlobalWorkbookFile(file);
+      const fileBuffer = await file.arrayBuffer();
 
       const response = await fetch('/api/base-workbook/import', {
         method: 'POST',
@@ -264,33 +189,61 @@ export function GlobalWorkbookToolbar({
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'x-file-name': encodeURIComponent(file.name),
         },
-        body: await file.arrayBuffer(),
+        body: fileBuffer,
       });
 
       if (!response.ok) {
         throw new Error('import-failed');
       }
 
-      const result = (await response.json()) as {
+      result = (await response.json()) as {
         fileName?: string;
         globalCheckpointId?: string | null;
       };
-      const nextRecoveryInfo = await refreshGlobalDataState();
-      window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+      importedWorkbookFile = new File(
+        [fileBuffer.slice(0)],
+        result.fileName || file.name,
+        {
+          type:
+            file.type ||
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+      );
+      importSucceeded = true;
+    } catch (error) {
+      showInvalidImportToast(formatWorkbookValidationToast(error));
+      return;
+    }
 
-      if (nextRecoveryInfo?.canRecover) {
-        pushGlobalBoundaryUndoEntry(
-          {
-            originTab: 'aprendizes',
-            kind: 'global-import',
-            checkpointId: result.globalCheckpointId,
+    try {
+      const nextRecoveryInfo = await refreshGlobalDataState();
+
+      window.dispatchEvent(
+        new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+          detail: {
+            file: importedWorkbookFile,
             fileName: result.fileName || file.name,
           },
-          previousUndoStack,
-        );
+        }),
+      );
+
+      if (!nextRecoveryInfo?.canRecover) {
+        return;
       }
+
+      pushGlobalBoundaryUndoEntry(
+        {
+          originTab: 'aprendizes',
+          kind: 'global-import',
+          checkpointId: result.globalCheckpointId,
+          fileName: result.fileName || file.name,
+        },
+        previousUndoStack,
+      );
     } catch {
-      showInvalidImportToast();
+      if (!importSucceeded) {
+        showInvalidImportToast('Não foi possível confirmar a importação.');
+      }
     }
   };
 
@@ -327,6 +280,7 @@ export function GlobalWorkbookToolbar({
 
     try {
       const result = await recoverGlobalData(checkpointId);
+      window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
       if (result.checkpointId) {
         pushGlobalUndoEntry({
           originTab: 'aprendizes',

@@ -28,7 +28,6 @@ import {
 import {
   APRENDIZES_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
-  normalizeColumnsForSchema,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
 import {
@@ -37,9 +36,14 @@ import {
   getSheetRecordId,
 } from '../../shared/data/stableIds';
 import {
-  getWorkbookSheet,
-  hasWorkbookSheet,
-} from '../../shared/data/workbookSheets';
+  MissingRequiredColumnsError,
+  fetchRecoveryInfo as fetchWorkspaceRecoveryInfo,
+  isUnifiedWorkbookFile,
+  loadXlsx,
+  readWorkbookSheetFile,
+  recoverGlobalData as recoverWorkspaceGlobalData,
+  responseToWorkbookFile,
+} from '../../shared/data/workspaceData';
 import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
@@ -54,34 +58,6 @@ import {
 
 type XlsxModule = typeof import('xlsx');
 type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
-
-let xlsxModulePromise: Promise<XlsxModule> | null = null;
-
-const loadXlsx = () => {
-  xlsxModulePromise ??= import('xlsx');
-  return xlsxModulePromise;
-};
-
-const isUnifiedWorkbookFile = async (file: File) => {
-  const { read } = await loadXlsx();
-  const workbook = read(await file.arrayBuffer(), {
-    cellDates: true,
-  });
-
-  return (
-    hasWorkbookSheet(workbook, APRENDIZES_WORKBOOK_SHEET) &&
-    hasWorkbookSheet(workbook, TURMAS_WORKBOOK_SHEET)
-  );
-};
-
-class MissingRequiredColumnsError extends Error {
-  missingColumns: string[];
-
-  constructor(missingColumns: string[]) {
-    super('missing-required-columns');
-    this.missingColumns = missingColumns;
-  }
-}
 
 const normalizeCell = (value: unknown) => String(value ?? '').trim();
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
@@ -387,22 +363,6 @@ const buildStudentsSummary = (students: string[]) => {
   return sortedStudents.length > 0 ? sortedStudents.join(', ') : '';
 };
 
-const normalizeWorkbookColumns = (
-  rawColumns: string[],
-  requiredColumns: readonly string[],
-) => {
-  const { missingColumns, normalizedColumns } = normalizeColumnsForSchema(
-    rawColumns,
-    requiredColumns,
-  );
-
-  if (missingColumns.length > 0) {
-    throw new MissingRequiredColumnsError(missingColumns);
-  }
-
-  return normalizedColumns;
-};
-
 const readSheetFile = async (
   file: File,
   entity: string,
@@ -412,84 +372,12 @@ const readSheetFile = async (
     removedColumns?: Set<string>;
   } = {},
 ): Promise<SheetTable> => {
-  const isXlsx =
-    file.name.toLowerCase().endsWith('.xlsx') ||
-    file.type ===
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-  if (!isXlsx) {
-    throw new Error('invalid-file-type');
-  }
-
-  const { read, utils } = await loadXlsx();
-  const workbook = read(await file.arrayBuffer(), {
-    cellDates: true,
+  return readWorkbookSheetFile(file, {
+    entityId: entity,
+    preferredSheetName: options.preferredSheetName ?? '',
+    removedColumns: options.removedColumns,
+    requiredColumns,
   });
-  const { sheetName, worksheet } = getWorkbookSheet(
-    workbook,
-    options.preferredSheetName ?? workbook.SheetNames[0] ?? '',
-  );
-
-  if (!sheetName || !worksheet) {
-    throw new Error('missing-sheet');
-  }
-
-  const sheetRows = utils.sheet_to_json<unknown[]>(worksheet, {
-    blankrows: false,
-    defval: '',
-    header: 1,
-    raw: false,
-  });
-  const headerIndex = sheetRows.findIndex((row) =>
-    row.some((cell) => normalizeCell(cell) !== ''),
-  );
-
-  if (headerIndex < 0) {
-    throw new Error('empty-sheet');
-  }
-
-  const headerRow = sheetRows[headerIndex];
-  let lastColumnIndex = -1;
-  sheetRows.slice(headerIndex).forEach((row) => {
-    row.forEach((cell, index) => {
-      if (normalizeCell(cell) !== '') {
-        lastColumnIndex = Math.max(lastColumnIndex, index);
-      }
-    });
-  });
-
-  const rawColumns = headerRow
-    .slice(0, lastColumnIndex + 1)
-    .map((cell, index) => normalizeCell(cell) || `Coluna ${index + 1}`);
-  const normalizedColumns = normalizeWorkbookColumns(rawColumns, requiredColumns);
-  const keptColumnIndexes = normalizedColumns
-    .map((column, columnIndex) => ({ column, columnIndex }))
-    .filter(
-      ({ column }) => !options.removedColumns?.has(normalizeFieldLabel(column)),
-    );
-  const columns = keptColumnIndexes.map(({ column }) => column);
-  const rows = sheetRows
-    .slice(headerIndex + 1)
-    .map((row) =>
-      keptColumnIndexes.map(({ columnIndex }) => normalizeCell(row[columnIndex])),
-    )
-    .filter((row) => row.some((cell) => cell !== ''));
-
-  const { sheet, didChange } = ensureSheetRecordIds(
-    {
-      fileName: file.name,
-      sheetName,
-      importedAt: new Date().toISOString(),
-      columns,
-      rows,
-    },
-    entity,
-  );
-
-  return {
-    ...sheet,
-    hasGeneratedRecordIds: didChange,
-  };
 };
 
 const withDerivedTurmasValues = (
@@ -1125,15 +1013,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const fetchRecoveryInfo = async () => {
     try {
-      const response = await fetch('/api/recovery', {
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        throw new Error('backup-info-failed');
-      }
-
-      const info = (await response.json()) as RecoveryInfo;
+      const info = await fetchWorkspaceRecoveryInfo();
       setRecoveryInfo(info);
       return info;
     } catch {
@@ -1180,20 +1060,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   };
 
   const recoverGlobalData = async (checkpointId?: unknown) => {
-    const headers =
-      typeof checkpointId === 'string' && checkpointId
-        ? { 'x-checkpoint-id': checkpointId }
-        : undefined;
-    const response = await fetch('/api/recovery', {
-      method: 'POST',
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error('recover-failed');
-    }
-
-    const result = (await response.json()) as { checkpointId?: string | null };
+    const result = await recoverWorkspaceGlobalData(checkpointId);
     const nextAprendizesSheet = await loadAprendizesProviderFile();
     await loadProviderFile(nextAprendizesSheet);
     await fetchRecoveryInfo();
@@ -1255,14 +1122,84 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
   };
 
+  const applyAprendizesFile = async (file: File) => {
+    const parsedSheet = await readSheetFile(
+      file,
+      APRENDIZES_ENTITY_ID,
+      APRENDIZES_REQUIRED_COLUMNS,
+      {
+        preferredSheetName: APRENDIZES_WORKBOOK_SHEET,
+        removedColumns: REMOVED_APRENDIZES_COLUMNS,
+      },
+    );
+    const nextSheet = {
+      ...parsedSheet,
+      fileName: file.name,
+    };
+
+    setAprendizesSheet(nextSheet);
+    await persistAprendizesDataIndex(nextSheet);
+    if (nextSheet.hasGeneratedRecordIds) {
+      void writeWorkbookSystemMetadataToSourceFile(
+        {
+          ...nextSheet,
+          hasGeneratedRecordIds: false,
+        },
+        '/api/aprendizes/file/system',
+        [AGE_COLUMN],
+      );
+    }
+
+    return nextSheet;
+  };
+
+  const applyTurmasFile = async (
+    file: File,
+    currentAprendizesSheet: SheetTable | null,
+  ) => {
+    const parsedSheet = await readSheetFile(
+      file,
+      TURMAS_ENTITY_ID,
+      TURMAS_REQUIRED_COLUMNS,
+      {
+        preferredSheetName: TURMAS_WORKBOOK_SHEET,
+      },
+    );
+    const nextSheet = {
+      ...parsedSheet,
+      fileName: file.name,
+    };
+    const nextTurmaNames = getUniqueValues(
+      nextSheet.rows.map((row) => getCellValue(nextSheet, row, TURMA_COLUMN)),
+    );
+    const nextStudentsByClass = currentAprendizesSheet
+      ? buildStudentsByClass(currentAprendizesSheet, nextTurmaNames)
+      : undefined;
+
+    setTurmasSheet(nextSheet);
+    setImportError('');
+    await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
+    if (nextSheet.hasGeneratedRecordIds) {
+      void writeWorkbookSystemMetadataToSourceFile(
+        {
+          ...nextSheet,
+          hasGeneratedRecordIds: false,
+        },
+        '/api/turmas/file/system',
+      );
+    }
+    await fetchRecoveryInfo();
+    return nextSheet;
+  };
+
   const loadAprendizesProviderFile = async () => {
     try {
-      let response = await fetch('/api/aprendizes/file', {
+      let response = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
 
       if (response.status === 404) {
-        response = await fetch('/api/base-workbook/file', {
+        response = await fetch('/api/aprendizes/file', {
           cache: 'no-store',
         });
       }
@@ -1283,42 +1220,8 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         throw new Error('read-failed');
       }
 
-      const rawFileName = response.headers.get('x-file-name') || 'aprendizes.xlsx';
-      const fileName = decodeURIComponent(rawFileName);
-      const blob = await response.blob();
-      const file = new File([blob], fileName, {
-        type:
-          blob.type ||
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const parsedSheet = await readSheetFile(
-        file,
-        APRENDIZES_ENTITY_ID,
-        APRENDIZES_REQUIRED_COLUMNS,
-        {
-          preferredSheetName: APRENDIZES_WORKBOOK_SHEET,
-          removedColumns: REMOVED_APRENDIZES_COLUMNS,
-        },
-      );
-      const nextSheet = {
-        ...parsedSheet,
-        fileName,
-      };
-
-      setAprendizesSheet(nextSheet);
-      await persistAprendizesDataIndex(nextSheet);
-      if (nextSheet.hasGeneratedRecordIds) {
-        void writeWorkbookSystemMetadataToSourceFile(
-          {
-            ...nextSheet,
-            hasGeneratedRecordIds: false,
-          },
-          '/api/aprendizes/file/system',
-          [AGE_COLUMN],
-        );
-      }
-
-      return nextSheet;
+      const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
+      return await applyAprendizesFile(file);
     } catch {
       const fallbackSheet = await loadAprendizesDataIndexFallback();
 
@@ -1333,12 +1236,12 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   const loadProviderFile = async (currentAprendizesSheet: SheetTable | null) => {
     try {
-      let response = await fetch('/api/turmas/file', {
+      let response = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
 
       if (response.status === 404) {
-        response = await fetch('/api/base-workbook/file', {
+        response = await fetch('/api/turmas/file', {
           cache: 'no-store',
         });
       }
@@ -1353,52 +1256,12 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         throw new Error('read-failed');
       }
 
-      const rawFileName = response.headers.get('x-file-name') || 'turmas.xlsx';
-      const fileName = decodeURIComponent(rawFileName);
-      const blob = await response.blob();
-      const file = new File([blob], fileName, {
-        type:
-          blob.type ||
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const parsedSheet = await readSheetFile(
-        file,
-        TURMAS_ENTITY_ID,
-        TURMAS_REQUIRED_COLUMNS,
-        {
-          preferredSheetName: TURMAS_WORKBOOK_SHEET,
-        },
-      );
-      const nextSheet = {
-        ...parsedSheet,
-        fileName,
-      };
-      const nextTurmaNames = getUniqueValues(
-        nextSheet.rows.map((row) => getCellValue(nextSheet, row, TURMA_COLUMN)),
-      );
-      const nextStudentsByClass = currentAprendizesSheet
-        ? buildStudentsByClass(currentAprendizesSheet, nextTurmaNames)
-        : undefined;
-
-      setTurmasSheet(nextSheet);
-      setImportError('');
-      await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
-      if (nextSheet.hasGeneratedRecordIds) {
-        void writeWorkbookSystemMetadataToSourceFile(
-          {
-            ...nextSheet,
-            hasGeneratedRecordIds: false,
-          },
-          '/api/turmas/file/system',
-        );
-      }
-      await fetchRecoveryInfo();
-      return nextSheet;
+      const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
+      return await applyTurmasFile(file, currentAprendizesSheet);
     } catch (error) {
       clearWorkingSheet();
 
       if (error instanceof MissingRequiredColumnsError) {
-        showInvalidImportToast();
         setImportError('');
         return null;
       }
@@ -1407,11 +1270,17 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
   };
 
-  const syncProviderWorkbooks = async () => {
+  const syncProviderWorkbooks = async (changedFile?: File | null) => {
     setIsWorkspaceSyncing(true);
     clearImportMessages();
 
     try {
+      if (changedFile) {
+        const nextAprendizesSheet = await applyAprendizesFile(changedFile);
+        await applyTurmasFile(changedFile, nextAprendizesSheet);
+        return;
+      }
+
       const nextAprendizesSheet = await loadAprendizesProviderFile();
       await loadProviderFile(nextAprendizesSheet);
     } finally {
@@ -1485,12 +1354,17 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   }, []);
 
   useEffect(() => {
-    const syncGlobalData = () => {
+    const syncGlobalData = (event: Event) => {
       if (isApplyingUndoRef.current) {
         return;
       }
 
-      void syncProviderWorkbooks();
+      const changedFile =
+        event instanceof CustomEvent && event.detail?.file instanceof File
+          ? event.detail.file
+          : null;
+
+      void syncProviderWorkbooks(changedFile);
     };
 
     window.addEventListener(GLOBAL_DATA_CHANGED_EVENT, syncGlobalData);
@@ -1940,14 +1814,25 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   ) => {
     try {
       const { read, utils, write } = await loadXlsx();
-      const sourceResponse = await fetch(endpoint.replace('/system', ''), {
+      let saveEndpoint = '/api/base-workbook/file/system';
+      let sourceResponse = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
-      const workbook = sourceResponse.ok
-        ? read(await sourceResponse.arrayBuffer(), {
-            cellDates: true,
-          })
-        : utils.book_new();
+
+      if (sourceResponse.status === 404) {
+        saveEndpoint = endpoint;
+        sourceResponse = await fetch(endpoint.replace('/system', ''), {
+          cache: 'no-store',
+        });
+      }
+
+      if (!sourceResponse.ok) {
+        return;
+      }
+
+      const workbook = read(await sourceResponse.arrayBuffer(), {
+        cellDates: true,
+      });
       const sheetName =
         sheet.sheetName || workbook.SheetNames[0] || 'Planilha';
       const safeSheetName = sheetName.slice(0, 31);
@@ -1972,7 +1857,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         type: 'array',
       }) as ArrayBuffer;
 
-      await fetch(endpoint, {
+      await fetch(saveEndpoint, {
         method: 'PUT',
         headers: {
           'content-type':
@@ -3009,7 +2894,16 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         type="file"
         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         onChange={(event) => {
-          void importWorkingFile(event.target.files?.[0]);
+          const selectedFile = event.target.files?.[0];
+
+          if (selectedFile) {
+            window.dispatchEvent(
+              new CustomEvent(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT, {
+                detail: selectedFile,
+              }),
+            );
+          }
+
           event.currentTarget.value = '';
         }}
       />

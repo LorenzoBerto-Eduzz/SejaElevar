@@ -343,6 +343,15 @@ export const replaceGlobalUndoStack = (entries: GlobalUndoEntry[]) => {
   saveGlobalUndoStacks();
 };
 
+export const resetGlobalUndoHistory = () => {
+  undoStack = [];
+  redoStack = [];
+
+  if (canUseStorage()) {
+    window.localStorage.removeItem(GLOBAL_UNDO_STORAGE_KEY);
+  }
+};
+
 const isUndoShortcut = ({
   ctrlKey,
   key,

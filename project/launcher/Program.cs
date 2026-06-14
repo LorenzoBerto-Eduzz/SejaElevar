@@ -261,6 +261,13 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "GET" && request.Path == "/api/dev/freshdev-reset")
+            {
+                MarkHeartbeat();
+                await ConsumeFreshDevResetAsync(stream, appFolder);
+                return;
+            }
+
             if (request.Method == "POST" && request.Path == "/api/app/ready")
             {
                 MarkHeartbeat();
@@ -1018,7 +1025,6 @@ internal static class Program
         var importUndoCheckpointId = CaptureGlobalCheckpoint(
             appFolder,
             BackupReasonBeforeImport,
-            true,
             true
         );
 
@@ -1802,6 +1808,31 @@ internal static class Program
         return Path.Combine(appFolder, "assets");
     }
 
+    private static string GetFreshDevResetMarkerPath(string appFolder)
+    {
+        return Path.Combine(GetAssetsFolder(appFolder), "freshdev-reset.json");
+    }
+
+    private static async Task ConsumeFreshDevResetAsync(NetworkStream stream, string appFolder)
+    {
+        var markerPath = GetFreshDevResetMarkerPath(appFolder);
+        var shouldReset = File.Exists(markerPath);
+
+        if (shouldReset)
+        {
+            try
+            {
+                File.Delete(markerPath);
+            }
+            catch
+            {
+                // The marker is one-shot; if deletion fails, the next launch can try again.
+            }
+        }
+
+        await WriteJsonAsync(stream, 200, new { ok = true, reset = shouldReset });
+    }
+
     private static string GetWorkbookControlPath(string appFolder)
     {
         return Path.Combine(GetDadosFolder(appFolder), "controle.json");
@@ -1831,7 +1862,7 @@ internal static class Program
             return requestedControlPath;
         }
 
-        var baseControl = LoadWorkbookControl(appFolder, baseControlPath, false);
+        var baseControl = LoadWorkbookControl(appFolder, baseControlPath, true);
         var baseWorkbookPath = ResolveWorkbookPath(appFolder, baseControl.OnUseFile);
 
         if (baseWorkbookPath is not null && File.Exists(baseWorkbookPath))
@@ -2231,11 +2262,15 @@ internal static class Program
         var shouldCaptureImportedOriginalBeforeFirstEdit =
             control.LastCheckpointAction == "import" &&
             control.HasEditingHistory != true &&
-            latestCheckpoint is not null &&
-            latestCheckpoint.Reason == BackupReasonBeforeImport &&
-            CountGlobalCheckpointWorkbookFiles(
-                ResolveGlobalCheckpointPath(appFolder, latestCheckpoint.CheckpointId)
-            ) == 0;
+            (
+                latestCheckpoint is null ||
+                (
+                    latestCheckpoint.Reason == BackupReasonBeforeImport &&
+                    CountGlobalCheckpointWorkbookFiles(
+                        ResolveGlobalCheckpointPath(appFolder, latestCheckpoint.CheckpointId)
+                    ) == 0
+                )
+            );
 
         if (
             checkpointMissing ||
@@ -2560,7 +2595,7 @@ internal static class Program
             false
         );
 
-        var baseControl = LoadWorkbookControl(appFolder, baseSource.ControlPath, false);
+        var baseControl = LoadWorkbookControl(appFolder, baseSource.ControlPath, true);
         var baseWorkbookPath = ResolveWorkbookPath(appFolder, baseControl.OnUseFile);
 
         if (baseWorkbookPath is not null && File.Exists(baseWorkbookPath))
@@ -2916,7 +2951,7 @@ internal static class Program
 
         if (control.OnUseFile is null && inferKnownWorkbooks)
         {
-            var knownWorkbooks = GetKnownWorkbookFiles(appFolder)
+            var knownWorkbooks = GetKnownWorkbookFiles(appFolder, controlPath)
                 .Take(2)
                 .ToArray();
 
@@ -3069,7 +3104,10 @@ internal static class Program
         return safeName;
     }
 
-    private static IEnumerable<FileInfo> GetKnownWorkbookFiles(string appFolder)
+    private static IEnumerable<FileInfo> GetKnownWorkbookFiles(
+        string appFolder,
+        string? controlPath = null
+    )
     {
         var dadosFolder = GetDadosFolder(appFolder);
 
@@ -3078,8 +3116,33 @@ internal static class Program
             return Enumerable.Empty<FileInfo>();
         }
 
+        var searchPattern = "Aprendizes*.xlsx";
+
+        if (
+            controlPath is not null &&
+            string.Equals(
+                controlPath,
+                GetBaseWorkbookControlPath(appFolder),
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            searchPattern = "DadosElevar*.xlsx";
+        }
+        else if (
+            controlPath is not null &&
+            string.Equals(
+                controlPath,
+                GetTurmasWorkbookControlPath(appFolder),
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            searchPattern = "Turmas*.xlsx";
+        }
+
         return Directory
-            .GetFiles(dadosFolder, "Aprendizes*.xlsx", SearchOption.TopDirectoryOnly)
+            .GetFiles(dadosFolder, searchPattern, SearchOption.TopDirectoryOnly)
             .Select(path => new FileInfo(path))
             .Where(file => !file.Name.StartsWith("~$", StringComparison.Ordinal))
             .OrderByDescending(file => file.LastWriteTimeUtc);

@@ -78,3 +78,32 @@ export const normalizeColumnsForSchema = (
     normalizedColumns,
   };
 };
+
+export const findSchemaHeaderRowIndex = (
+  rows: readonly unknown[][],
+  requiredColumns: readonly string[],
+) => {
+  const requiredKeys = new Set(requiredColumns.map(normalizeFieldLabel));
+  let bestIndex = -1;
+  let bestScore = 0;
+  let firstNonEmptyIndex = -1;
+
+  rows.forEach((row, rowIndex) => {
+    const columns = row.map((cell) => String(cell ?? '').trim());
+
+    if (firstNonEmptyIndex < 0 && columns.some((column) => column !== '')) {
+      firstNonEmptyIndex = rowIndex;
+    }
+
+    const availableKeys = new Set(columns.map(normalizeFieldLabel));
+    const score = [...requiredKeys].filter((key) => availableKeys.has(key))
+      .length;
+
+    if (score > bestScore) {
+      bestIndex = rowIndex;
+      bestScore = score;
+    }
+  });
+
+  return bestScore > 0 ? bestIndex : firstNonEmptyIndex;
+};

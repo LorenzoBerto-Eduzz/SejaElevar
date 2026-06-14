@@ -23,6 +23,7 @@ import {
 } from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  findSchemaHeaderRowIndex,
   normalizeFieldLabel,
   normalizeColumnsForSchema,
 } from '../../shared/data/schemas';
@@ -34,8 +35,16 @@ import {
 } from '../../shared/data/stableIds';
 import {
   getWorkbookSheet,
-  hasWorkbookSheet,
 } from '../../shared/data/workbookSheets';
+import {
+  MissingRequiredColumnsError,
+  fetchRecoveryInfo as fetchWorkspaceRecoveryInfo,
+  isUnifiedWorkbookFile,
+  loadXlsx,
+  readWorkbookSheetFile,
+  recoverGlobalData as recoverWorkspaceGlobalData,
+  responseToWorkbookFile,
+} from '../../shared/data/workspaceData';
 import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
@@ -94,25 +103,6 @@ const TABLE_HEADER_FONT =
 
 type XlsxModule = typeof import('xlsx');
 type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
-
-let xlsxModulePromise: Promise<XlsxModule> | null = null;
-
-const loadXlsx = () => {
-  xlsxModulePromise ??= import('xlsx');
-  return xlsxModulePromise;
-};
-
-const isUnifiedWorkbookFile = async (file: File) => {
-  const { read } = await loadXlsx();
-  const workbook = read(await file.arrayBuffer(), {
-    cellDates: true,
-  });
-
-  return (
-    hasWorkbookSheet(workbook, APRENDIZES_WORKBOOK_SHEET) &&
-    hasWorkbookSheet(workbook, TURMAS_WORKBOOK_SHEET)
-  );
-};
 
 const readPixelCustomProperty = (
   element: Element,
@@ -265,15 +255,6 @@ type AprendizesPageProps = {
   isActive?: boolean;
   onInitialReady?: () => void;
 };
-
-class MissingRequiredColumnsError extends Error {
-  missingColumns: string[];
-
-  constructor(missingColumns: string[]) {
-    super('missing-required-columns');
-    this.missingColumns = missingColumns;
-  }
-}
 
 const defaultViewSettings: TableViewSettings = {
   columnOrder: [],
@@ -619,8 +600,9 @@ export function AprendizesPage({
       header: 1,
       raw: false,
     });
-    const headerIndex = sheetRows.findIndex((row) =>
-      row.some((cell) => normalizeCell(cell) !== ''),
+    const headerIndex = findSchemaHeaderRowIndex(
+      sheetRows,
+      TURMAS_REQUIRED_COLUMNS,
     );
 
     if (headerIndex < 0) {
@@ -655,23 +637,22 @@ export function AprendizesPage({
 
   const loadTurmaOptions = async () => {
     try {
-      const response = await fetch('/api/turmas/file', {
+      let response = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
+
+      if (response.status === 404) {
+        response = await fetch('/api/turmas/file', {
+          cache: 'no-store',
+        });
+      }
 
       if (!response.ok) {
         setTurmaOptions([]);
         return;
       }
 
-      const rawFileName = response.headers.get('x-file-name') || 'turmas.xlsx';
-      const fileName = decodeURIComponent(rawFileName);
-      const blob = await response.blob();
-      const file = new File([blob], fileName, {
-        type:
-          blob.type ||
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
+      const file = await responseToWorkbookFile(response, 'turmas.xlsx');
 
       setTurmaOptions(await readTurmaOptionsFile(file));
     } catch {
@@ -780,15 +761,7 @@ export function AprendizesPage({
     }
 
     try {
-      const response = await fetch('/api/recovery', {
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        throw new Error('backup-info-failed');
-      }
-
-      const info = (await response.json()) as RecoveryInfo;
+      const info = await fetchWorkspaceRecoveryInfo();
       setRecoveryInfo(info);
       return info;
     } catch {
@@ -800,15 +773,16 @@ export function AprendizesPage({
   const fetchProviderFile = async (
     options: {
       clearOnMissing?: boolean;
+      clearOnInvalid?: boolean;
       resetColumnWidths?: boolean;
     } = {},
   ) => {
-    let response = await fetch('/api/aprendizes/file', {
+    let response = await fetch('/api/base-workbook/file', {
       cache: 'no-store',
     });
 
     if (response.status === 404) {
-      response = await fetch('/api/base-workbook/file', {
+      response = await fetch('/api/aprendizes/file', {
         cache: 'no-store',
       });
     }
@@ -827,14 +801,7 @@ export function AprendizesPage({
     }
 
     isLocalProviderActiveRef.current = true;
-    const rawFileName = response.headers.get('x-file-name') || 'aprendizes.xlsx';
-    const fileName = decodeURIComponent(rawFileName);
-    const blob = await response.blob();
-    const file = new File([blob], fileName, {
-      type:
-        blob.type ||
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
+    const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
 
     const didLoadFile = await selectFile(file, options);
 
@@ -977,20 +944,7 @@ export function AprendizesPage({
   };
 
   const recoverGlobalData = async (checkpointId?: unknown) => {
-    const headers =
-      typeof checkpointId === 'string' && checkpointId
-        ? { 'x-checkpoint-id': checkpointId }
-        : undefined;
-    const response = await fetch('/api/recovery', {
-      method: 'POST',
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error('recover-failed');
-    }
-
-    const result = (await response.json()) as { checkpointId?: string | null };
+    const result = await recoverWorkspaceGlobalData(checkpointId);
     await fetchProviderFile({
       resetColumnWidths: false,
     });
@@ -1028,6 +982,7 @@ export function AprendizesPage({
   const selectFile = async (
     file: File | undefined,
     options: {
+      clearOnInvalid?: boolean;
       resetColumnWidths?: boolean;
     } = {},
   ) => {
@@ -1052,11 +1007,12 @@ export function AprendizesPage({
       setImportError('');
       return true;
     } catch (error) {
-      clearWorkingSheet();
-      void persistAprendizesDataIndex(null);
+      if (options.clearOnInvalid ?? true) {
+        clearWorkingSheet();
+        void persistAprendizesDataIndex(null);
+      }
 
       if (error instanceof MissingRequiredColumnsError) {
-        showInvalidImportToast();
         setImportError('');
         return false;
       }
@@ -1072,89 +1028,12 @@ export function AprendizesPage({
   };
 
   const readSheetFile = async (file: File): Promise<ImportedSheet> => {
-    const isXlsx =
-      file.name.toLowerCase().endsWith('.xlsx') ||
-      file.type ===
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-    if (!isXlsx) {
-      throw new Error('invalid-file-type');
-    }
-
-    const { read, utils } = await loadXlsx();
-    const workbook = read(await file.arrayBuffer(), {
-      cellDates: true,
+    return readWorkbookSheetFile(file, {
+      entityId: APRENDIZES_ENTITY_ID,
+      preferredSheetName: APRENDIZES_WORKBOOK_SHEET,
+      removedColumns: REMOVED_APRENDIZES_COLUMNS,
+      requiredColumns: APRENDIZES_REQUIRED_COLUMNS,
     });
-    const { sheetName, worksheet } = getWorkbookSheet(
-      workbook,
-      APRENDIZES_WORKBOOK_SHEET,
-    );
-
-    if (!sheetName || !worksheet) {
-      throw new Error('missing-sheet');
-    }
-
-    const sheetRows = utils.sheet_to_json<unknown[]>(worksheet, {
-      blankrows: false,
-      defval: '',
-      header: 1,
-      raw: false,
-    });
-    const headerIndex = sheetRows.findIndex((row) =>
-      row.some((cell) => normalizeCell(cell) !== ''),
-    );
-
-    if (headerIndex < 0) {
-      throw new Error('empty-sheet');
-    }
-
-    const headerRow = sheetRows[headerIndex];
-    let lastColumnIndex = -1;
-    sheetRows.slice(headerIndex).forEach((row) => {
-      row.forEach((cell, index) => {
-        if (normalizeCell(cell) !== '') {
-          lastColumnIndex = Math.max(lastColumnIndex, index);
-        }
-      });
-    });
-
-    const rawColumns = headerRow
-      .slice(0, lastColumnIndex + 1)
-      .map((cell, index) => normalizeCell(cell) || `Coluna ${index + 1}`);
-    const { missingColumns, normalizedColumns } =
-      normalizeColumnsForSchema(rawColumns, APRENDIZES_REQUIRED_COLUMNS);
-
-    if (missingColumns.length > 0) {
-      throw new MissingRequiredColumnsError(missingColumns);
-    }
-
-    const keptColumnIndexes = normalizedColumns
-      .map((column, columnIndex) => ({ column, columnIndex }))
-      .filter(
-        ({ column }) => !REMOVED_APRENDIZES_COLUMNS.has(normalizeFieldLabel(column)),
-      );
-    const columns = keptColumnIndexes.map(({ column }) => column);
-    const rows = sheetRows
-      .slice(headerIndex + 1)
-      .map((row) =>
-        keptColumnIndexes.map(({ columnIndex }) => normalizeCell(row[columnIndex])),
-      )
-      .filter((row) => row.some((cell) => cell !== ''));
-    const { sheet, didChange } = ensureSheetRecordIds(
-      {
-        fileName: file.name,
-        sheetName,
-        importedAt: new Date().toISOString(),
-        columns,
-        rows,
-      },
-      APRENDIZES_ENTITY_ID,
-    );
-
-    return {
-      ...sheet,
-      hasGeneratedRecordIds: didChange,
-    };
   };
 
   useEffect(() => {
@@ -1222,16 +1101,36 @@ export function AprendizesPage({
 
   useEffect(() => {
     const reloadChangedAprendizesData = (event?: Event) => {
+      const changedFile =
+        event instanceof CustomEvent && event.detail?.file instanceof File
+          ? event.detail.file
+          : null;
+
       if (event?.type === GLOBAL_DATA_CHANGED_EVENT) {
         void fetchRecoveryInfo();
       }
 
       setIsWorkspaceSyncing(true);
       clearImportMessages();
-      void fetchProviderFile({
-        clearOnMissing: true,
-        resetColumnWidths: false,
-      }).catch(() => {
+      void (async () => {
+        if (changedFile) {
+          const didLoadChangedFile = await selectFile(changedFile, {
+            clearOnInvalid: false,
+            resetColumnWidths: false,
+          });
+
+          if (didLoadChangedFile) {
+            await fetchRecoveryInfo();
+            return;
+          }
+        }
+
+        await fetchProviderFile({
+          clearOnMissing: true,
+          clearOnInvalid: false,
+          resetColumnWidths: false,
+        });
+      })().catch(() => {
         // The next active-tab/provider check can recover from a transient miss.
       }).finally(() => {
         setIsWorkspaceSyncing(false);
@@ -1269,6 +1168,7 @@ export function AprendizesPage({
     void loadTurmaOptions();
     void fetchProviderFile({
       clearOnMissing: true,
+      clearOnInvalid: false,
       resetColumnWidths: false,
     }).catch(() => {
       // Keep the page stable if the provider is between startup/reload states.
@@ -1903,15 +1803,25 @@ export function AprendizesPage({
 
     try {
       const { read, utils, write } = await loadXlsx();
-      const sourceResponse = await fetch('/api/aprendizes/file', {
+      let saveEndpoint = '/api/base-workbook/file/system';
+      let sourceResponse = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
 
-      const workbook = sourceResponse.ok
-        ? read(await sourceResponse.arrayBuffer(), {
-            cellDates: true,
-          })
-        : utils.book_new();
+      if (sourceResponse.status === 404) {
+        saveEndpoint = '/api/aprendizes/file/system';
+        sourceResponse = await fetch('/api/aprendizes/file', {
+          cache: 'no-store',
+        });
+      }
+
+      if (!sourceResponse.ok) {
+        return;
+      }
+
+      const workbook = read(await sourceResponse.arrayBuffer(), {
+        cellDates: true,
+      });
 
       const sheetName =
         sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
@@ -1933,7 +1843,7 @@ export function AprendizesPage({
         type: 'array',
       }) as ArrayBuffer;
 
-      await fetch('/api/aprendizes/file/system', {
+      await fetch(saveEndpoint, {
         method: 'PUT',
         headers: {
           'content-type':
@@ -4275,7 +4185,16 @@ export function AprendizesPage({
         type="file"
         accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         onChange={(event) => {
-          void importWorkingFile(event.target.files?.[0]);
+          const selectedFile = event.target.files?.[0];
+
+          if (selectedFile) {
+            window.dispatchEvent(
+              new CustomEvent(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT, {
+                detail: selectedFile,
+              }),
+            );
+          }
+
           event.currentTarget.value = '';
         }}
       />

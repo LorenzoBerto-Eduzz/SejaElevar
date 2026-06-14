@@ -41,14 +41,16 @@ const readme = `# SejaElevar
 1. Abra esta pasta.
 2. De dois cliques em \`SejaElevar.exe\`.
 3. O app abrira no navegador.
-4. Use o botao \`Importar .xlsx\` dentro da aba Aprendizes.
+4. Use o botao \`Importar .xlsx\` para escolher a planilha de dados.
 
-Observacao: o aplicativo usa a pasta \`dados/\` como local central dos dados. Ao importar ou editar, a planilha em uso e gravada como \`Aprendizes_hhmmssddmmyy.xlsx\`.
+Observacao: o aplicativo usa a pasta \`dados/\` como local central dos dados. Ao importar ou editar, a planilha em uso e gravada como \`DadosElevar_hhmmssddmmyy.xlsx\`.
 
 ## Pastas
 
 - \`assets/\`: arquivos internos do app e futuros arquivos de configuracao/salvamento local.
 - \`dados/\`: planilhas e outros dados usados/editados pelo app.
+- \`dados/checkpoints/\`: versoes de recuperacao dos dados.
+- \`dados/sistema/\`: arquivos internos de controle e indice do app.
 - \`modelos/\`: modelos de documentos usados para geracao.
 - \`documentos_gerados/\`: documentos gerados ou exportados pelo app.
 
@@ -71,6 +73,8 @@ async function exportTo(releaseRoot) {
   await mkdir(releaseRoot, { recursive: true });
   await mkdir(join(releaseRoot, 'assets'), { recursive: true });
   await mkdir(join(releaseRoot, 'dados'), { recursive: true });
+  await mkdir(join(releaseRoot, 'dados', 'checkpoints'), { recursive: true });
+  await mkdir(join(releaseRoot, 'dados', 'sistema'), { recursive: true });
   await mkdir(join(releaseRoot, 'modelos'), { recursive: true });
   await mkdir(join(releaseRoot, 'documentos_gerados'), { recursive: true });
 
@@ -78,6 +82,8 @@ async function exportTo(releaseRoot) {
   await cp(devExePath, join(releaseRoot, 'SejaElevar.exe'));
   await cp(devAssetsPath, join(releaseRoot, 'assets'), { recursive: true });
   await writeFile(join(releaseRoot, 'dados', '.gitkeep'), '', 'utf-8');
+  await writeFile(join(releaseRoot, 'dados', 'checkpoints', '.gitkeep'), '', 'utf-8');
+  await writeFile(join(releaseRoot, 'dados', 'sistema', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'modelos', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'documentos_gerados', '.gitkeep'), '', 'utf-8');
   await writeFile(join(releaseRoot, 'README.md'), readme, 'utf-8');

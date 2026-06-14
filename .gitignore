@@ -27,6 +27,7 @@ project/dev/documentos_gerados/**
 !project/dev/documentos_gerados/
 !project/dev/documentos_gerados/.gitkeep
 project/dev/assets/window-settings.json
+project/dev/assets/freshdev-reset.json
 
 # Generated coworker-facing packages are recreated locally from project/dev/
 exports/

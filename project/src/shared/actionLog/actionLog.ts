@@ -150,3 +150,14 @@ export const subscribeActionLog = (listener: ActionLogListener) => {
     actionLogListeners.delete(listener);
   };
 };
+
+export const resetActionHistory = () => {
+  actionLogEntries = [];
+  nextActionLogId = 1;
+
+  if (canUseStorage()) {
+    window.localStorage.removeItem(ACTION_HISTORY_STORAGE_KEY);
+  }
+
+  notifyActionLogListeners();
+};

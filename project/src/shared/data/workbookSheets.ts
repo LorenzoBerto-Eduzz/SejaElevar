@@ -10,14 +10,15 @@ export const findWorkbookSheetName = (
   preferredSheetName: string,
 ) => {
   const preferredKey = normalizeFieldLabel(preferredSheetName);
-
-  return (
-    workbook.SheetNames.find(
-      (sheetName) => normalizeFieldLabel(sheetName) === preferredKey,
-    ) ??
-    workbook.SheetNames[0] ??
-    null
+  const matchingSheetName = workbook.SheetNames.find(
+    (sheetName) => normalizeFieldLabel(sheetName) === preferredKey,
   );
+
+  if (matchingSheetName) {
+    return matchingSheetName;
+  }
+
+  return workbook.SheetNames.length === 1 ? workbook.SheetNames[0] : null;
 };
 
 export const hasWorkbookSheet = (
