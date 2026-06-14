@@ -936,6 +936,12 @@ svg {
   margin-top: 0;
 }
 
+.recovery-other-backups-label {
+  color: var(--brand-primary);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .primary-action svg {
   width: 22px;
   height: 22px;

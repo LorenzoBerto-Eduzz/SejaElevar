@@ -49,6 +49,7 @@ import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
+  isGlobalUndoInProgress,
   pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
   remapGlobalUndoCheckpointReferences,
@@ -423,6 +424,8 @@ export function AprendizesPage({
   const wasRegistrationModeRef = useRef(false);
   const didSignalInitialReadyRef = useRef(false);
   const registrationDraftRef = useRef<Record<string, string>>({});
+  const suppressNextAprendizesChangeEventRef = useRef(false);
+  const suppressNextGlobalDataChangeEventRef = useRef(false);
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
   const latestSheetRef = useRef<ImportedSheet | null>(importedSheet);
   const isLocalProviderActiveRef = useRef(false);
@@ -485,15 +488,6 @@ export function AprendizesPage({
     viewSettingsRef.current = viewSettings;
   }, [viewSettings]);
 
-  useEffect(() => {
-    if (isActive) {
-      return;
-    }
-
-    setSelectedDetailsRow(null);
-    setIsRegistrationMode(false);
-    applyRowDetailsPanelStyle({});
-  }, [isActive]);
   const saveViewSettings = (
     settings:
       | TableViewSettings
@@ -828,6 +822,7 @@ export function AprendizesPage({
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
       const parsedSheet = await readSheetFile(file);
+      const nextTurmaOptions = await readTurmaOptionsFile(file);
       const response = await fetch(
         shouldImportBaseWorkbook
           ? '/api/base-workbook/import'
@@ -861,6 +856,7 @@ export function AprendizesPage({
       saveImportedSheet(importedSheetWithName, {
         resetColumnWidths: true,
       });
+      setTurmaOptions(nextTurmaOptions);
       if (importedSheetWithName.hasGeneratedRecordIds) {
         void writeSheetSystemMetadataToSourceFile({
           ...importedSheetWithName,
@@ -992,10 +988,12 @@ export function AprendizesPage({
 
     try {
       const nextSheet = await readSheetFile(file);
+      const nextTurmaOptions = await readTurmaOptionsFile(file);
 
       saveImportedSheet(nextSheet, {
         resetColumnWidths: options.resetColumnWidths,
       });
+      setTurmaOptions(nextTurmaOptions);
 
       if (nextSheet.hasGeneratedRecordIds) {
         void writeSheetSystemMetadataToSourceFile({
@@ -1101,13 +1099,36 @@ export function AprendizesPage({
 
   useEffect(() => {
     const reloadChangedAprendizesData = (event?: Event) => {
+      if (
+        event?.type === APRENDIZES_DATA_CHANGED_EVENT &&
+        suppressNextAprendizesChangeEventRef.current
+      ) {
+        suppressNextAprendizesChangeEventRef.current = false;
+        return;
+      }
+
+      if (
+        event?.type === GLOBAL_DATA_CHANGED_EVENT &&
+        suppressNextGlobalDataChangeEventRef.current
+      ) {
+        suppressNextGlobalDataChangeEventRef.current = false;
+        return;
+      }
+
       const changedFile =
         event instanceof CustomEvent && event.detail?.file instanceof File
           ? event.detail.file
           : null;
 
+      if (isGlobalUndoInProgress()) {
+        return;
+      }
+
       if (event?.type === GLOBAL_DATA_CHANGED_EVENT) {
         void fetchRecoveryInfo();
+        if (!changedFile) {
+          void loadTurmaOptions();
+        }
       }
 
       setIsWorkspaceSyncing(true);
@@ -1159,7 +1180,7 @@ export function AprendizesPage({
   }, []);
 
   useEffect(() => {
-    if (!isActive || !hasCheckedWorkspace) {
+    if (!isActive || !hasCheckedWorkspace || isGlobalUndoInProgress()) {
       return;
     }
 
@@ -1894,6 +1915,10 @@ export function AprendizesPage({
       storeImportedSheet(savedSheet);
       void persistAprendizesDataIndex(savedSheet);
       await fetchRecoveryInfo();
+      suppressNextAprendizesChangeEventRef.current = true;
+      suppressNextGlobalDataChangeEventRef.current = true;
+      window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
+      window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
 
       setImportError('');
     } catch {
@@ -2098,6 +2123,25 @@ export function AprendizesPage({
       activeEdit.columnName === columnName
     ) {
       return;
+    }
+
+    if (activeEdit) {
+      const currentSheet = latestSheetRef.current;
+      const currentValue = currentSheet
+        ? getCellValue(currentSheet, activeEdit.rowIndex, activeEdit.columnName)
+        : null;
+      const committedSheet =
+        currentValue === null
+          ? null
+          : commitCellValue(
+              activeEdit.rowIndex,
+              activeEdit.columnName,
+              currentValue,
+            );
+
+      if (committedSheet) {
+        void writeSheetToSourceFile(committedSheet);
+      }
     }
 
     finalizeActiveRegistrationDraftEdit();
@@ -2373,6 +2417,46 @@ export function AprendizesPage({
 
     commitActiveCellEditForUndo();
   };
+
+  const finalizeActiveEditsAndSave = () => {
+    const activeEdit = activeCellEditRef.current;
+
+    if (activeRegistrationEditRef.current) {
+      finalizeActiveRegistrationDraftEdit();
+    }
+
+    if (!activeEdit) {
+      return;
+    }
+
+    const currentSheet = latestSheetRef.current;
+    const currentValue = currentSheet
+      ? getCellValue(currentSheet, activeEdit.rowIndex, activeEdit.columnName)
+      : null;
+    const committedSheet =
+      currentValue === null
+        ? null
+        : commitCellValue(
+            activeEdit.rowIndex,
+            activeEdit.columnName,
+            currentValue,
+          );
+
+    if (committedSheet) {
+      void writeSheetToSourceFile(committedSheet);
+    }
+  };
+
+  useEffect(() => {
+    if (isActive) {
+      return;
+    }
+
+    finalizeActiveEditsAndSave();
+    setSelectedDetailsRow(null);
+    setIsRegistrationMode(false);
+    applyRowDetailsPanelStyle({});
+  }, [isActive]);
 
   const undoRegistrationDraftEdit = (
     undoEntry: RegistrationDraftEditUndoEntry,
@@ -2686,17 +2770,17 @@ export function AprendizesPage({
     return nextSheet;
   };
 
-  const undoLastCellEditAndSave = (entry?: GlobalUndoEntry) => {
+  const undoLastCellEditAndSave = async (entry?: GlobalUndoEntry) => {
     const nextSheet = undoLastCellEdit(entry);
 
     if (nextSheet && nextSheet !== true) {
-      void writeSheetToSourceFile(nextSheet);
+      await writeSheetToSourceFile(nextSheet);
     }
 
     return Boolean(nextSheet);
   };
 
-  const redoCellEdit = (entry: GlobalUndoEntry) => {
+  const redoCellEdit = async (entry: GlobalUndoEntry) => {
     if (!isTableUndoEntry(entry)) {
       return false;
     }
@@ -2770,7 +2854,7 @@ export function AprendizesPage({
         );
         focusFirstRegistrationDetailsField();
       });
-      void writeSheetToSourceFile(nextSheet);
+      await writeSheetToSourceFile(nextSheet);
       return true;
     }
 
@@ -2805,7 +2889,7 @@ export function AprendizesPage({
           ),
         });
       }
-      void writeSheetToSourceFile(nextSheet);
+      await writeSheetToSourceFile(nextSheet);
       return true;
     }
 
@@ -2842,7 +2926,7 @@ export function AprendizesPage({
         focusCell(entry.rowIndex, orderedColumnIndex);
       }
     });
-    void writeSheetToSourceFile(nextSheet);
+    await writeSheetToSourceFile(nextSheet);
     return true;
   };
 

@@ -8,6 +8,7 @@ internal sealed class WorkbookValuePatchRequest
     public List<string>? Columns { get; set; }
     public List<List<string?>>? Rows { get; set; }
     public List<string>? FormulaColumns { get; set; }
+    public bool PatchColumnsOnly { get; set; }
 }
 
 internal static class WorkbookValuePatcher
@@ -73,10 +74,22 @@ internal static class WorkbookValuePatcher
             patchRequest.FormulaColumns ?? [],
             StringComparer.OrdinalIgnoreCase
         );
+        var changed = false;
+
+        if (patchRequest.PatchColumnsOnly)
+        {
+            return PatchWorksheetColumns(
+                sheetData,
+                columns,
+                rows,
+                formulaColumns,
+                sharedStrings
+            );
+        }
+
         var nextRows = new List<List<string?>>();
         nextRows.Add(columns.Cast<string?>().ToList());
         nextRows.AddRange(rows);
-        var changed = false;
         var maxRowIndex = Math.Max(
             nextRows.Count - 1,
             sheetData.Elements(SpreadsheetNamespace + "row")
@@ -105,6 +118,83 @@ internal static class WorkbookValuePatcher
                 var value = rowIndex < nextRows.Count &&
                     columnIndex < nextRows[rowIndex].Count
                     ? nextRows[rowIndex][columnIndex] ?? string.Empty
+                    : string.Empty;
+                var currentValue = GetCellStringValue(cellElement, sharedStrings);
+
+                if (string.Equals(currentValue, value, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                SetCellStringValue(cellElement, value, sharedStrings);
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool PatchWorksheetColumns(
+        XElement sheetData,
+        List<string> columns,
+        List<List<string?>> rows,
+        HashSet<string> formulaColumns,
+        SharedStringTable sharedStrings
+    )
+    {
+        if (columns.Count == 0)
+        {
+            return false;
+        }
+
+        var headerRow = GetOrCreateRowElement(sheetData, 0);
+        var headerIndexByName = headerRow.Elements(SpreadsheetNamespace + "c")
+            .Select(cell => new
+            {
+                ColumnIndex = GetColumnIndexFromReference(cell.Attribute("r")?.Value ?? ""),
+                Name = GetCellStringValue(cell, sharedStrings),
+            })
+            .Where(header => header.ColumnIndex >= 0 && !string.IsNullOrWhiteSpace(header.Name))
+            .GroupBy(header => header.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().ColumnIndex,
+                StringComparer.OrdinalIgnoreCase
+            );
+        var targetColumnIndexes = columns
+            .Select(column =>
+                headerIndexByName.TryGetValue(column, out var columnIndex)
+                    ? columnIndex
+                    : -1
+            )
+            .ToList();
+        var changed = false;
+
+        for (var rowIndex = 0; rowIndex < rows.Count; rowIndex += 1)
+        {
+            var rowElement = GetOrCreateRowElement(sheetData, rowIndex + 1);
+
+            for (var patchColumnIndex = 0; patchColumnIndex < columns.Count; patchColumnIndex += 1)
+            {
+                var targetColumnIndex = targetColumnIndexes[patchColumnIndex];
+
+                if (targetColumnIndex < 0)
+                {
+                    continue;
+                }
+
+                var columnName = columns[patchColumnIndex] ?? string.Empty;
+                var cellReference = GetCellReference(rowIndex + 1, targetColumnIndex);
+                var cellElement = GetOrCreateCellElement(rowElement, cellReference);
+                var hasFormula = cellElement.Element(SpreadsheetNamespace + "f") is not null;
+
+                if (hasFormula && formulaColumns.Contains(columnName))
+                {
+                    continue;
+                }
+
+                var value = patchColumnIndex < rows[rowIndex].Count
+                    ? rows[rowIndex][patchColumnIndex] ?? string.Empty
                     : string.Empty;
                 var currentValue = GetCellStringValue(cellElement, sharedStrings);
 

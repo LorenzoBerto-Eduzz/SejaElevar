@@ -176,7 +176,7 @@ Day/period behavior direction: `Dia` is a dropdown of weekdays or defined day la
 
 A checkpoint currently contains the active `DadosElevar` workbook when it exists. Empty checkpoint metadata should be pruned when it does not represent a real recoverable state, and the recovery UI should stay disabled. Legacy nested folders containing separate Aprendizes/Turmas files remain readable during migration, but new global checkpoints should be direct unified workbook files.
 
-Pressing `Recuperar Dados` restores the chosen checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible. The recovery popup can list up to three checkpoints, newest first, with friendly labels in the format `HH:mm:ss dd/MM/yyyy`.
+Pressing `Recuperar Dados` restores the chosen checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible. The recovery popup can list up to three checkpoints, newest first, with friendly labels in the format `HH:mm:ss dd/MM/yyyy`. Only the newest/top checkpoint should show the explanatory reason text; older entries should be grouped under `Outros backups:` and rely on their timestamps.
 
 Current normal popup messages are:
 

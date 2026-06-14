@@ -352,6 +352,8 @@ export const resetGlobalUndoHistory = () => {
   }
 };
 
+export const isGlobalUndoInProgress = () => isRunningUndo;
+
 const isUndoShortcut = ({
   ctrlKey,
   key,

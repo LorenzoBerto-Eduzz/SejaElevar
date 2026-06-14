@@ -32,6 +32,10 @@ internal static class Program
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+    private static readonly JsonSerializerOptions RequestJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
     private static readonly object HeartbeatLock = new();
     private static DateTime _lastHeartbeatAt = DateTime.UtcNow;
     private static string? _logPath;
@@ -1290,7 +1294,8 @@ internal static class Program
         try
         {
             patchRequest = JsonSerializer.Deserialize<WorkbookValuePatchRequest>(
-                request.Body
+                request.Body,
+                RequestJsonOptions
             );
         }
         catch
@@ -2257,7 +2262,7 @@ internal static class Program
     {
         var control = LoadGlobalCheckpointControl(appFolder);
         var checkpointPath = ResolveGlobalCheckpointPath(appFolder, control.CheckpointId);
-        var checkpointMissing = checkpointPath is null || !Directory.Exists(checkpointPath);
+        var checkpointMissing = !IsGlobalCheckpointLocationAvailable(checkpointPath);
         var latestCheckpoint = control.Checkpoints?.FirstOrDefault();
         var shouldCaptureImportedOriginalBeforeFirstEdit =
             control.LastCheckpointAction == "import" &&

@@ -29,6 +29,7 @@ let latestGlobalToolbarState: GlobalToolbarState = {
   recoveryInfo: null,
   hasLoaded: false,
 };
+let globalToolbarRefreshId = 0;
 const globalToolbarStateListeners = new Set<() => void>();
 
 const setLatestGlobalToolbarState = (state: GlobalToolbarState) => {
@@ -89,6 +90,7 @@ export function GlobalWorkbookToolbar({
   const [invalidImportToast, setInvalidImportToast] = useState('');
 
   const refreshGlobalDataState = async () => {
+    const refreshId = ++globalToolbarRefreshId;
     const [fileResponse, nextRecoveryInfo] = await Promise.all([
       fetch('/api/base-workbook/file', {
         cache: 'no-store',
@@ -100,10 +102,17 @@ export function GlobalWorkbookToolbar({
       hasWorkbook:
         fileResponse === null
           ? latestGlobalToolbarState.hasWorkbook
-          : Boolean(fileResponse.ok),
+          : fileResponse.ok || latestGlobalToolbarState.hasWorkbook,
       recoveryInfo: nextRecoveryInfo,
       hasLoaded: true,
     };
+
+    if (refreshId !== globalToolbarRefreshId) {
+      setHasWorkbook(latestGlobalToolbarState.hasWorkbook);
+      setRecoveryInfo(latestGlobalToolbarState.recoveryInfo);
+      return latestGlobalToolbarState.recoveryInfo;
+    }
+
     setLatestGlobalToolbarState(nextState);
     setHasWorkbook(nextState.hasWorkbook);
     setRecoveryInfo(nextState.recoveryInfo);
@@ -116,7 +125,9 @@ export function GlobalWorkbookToolbar({
       setRecoveryInfo(latestGlobalToolbarState.recoveryInfo);
     });
 
-    void refreshGlobalDataState();
+    if (!latestGlobalToolbarState.hasLoaded) {
+      void refreshGlobalDataState();
+    }
 
     const handleGlobalDataChanged = () => {
       void refreshGlobalDataState();
@@ -308,6 +319,8 @@ export function GlobalWorkbookToolbar({
             },
           ]
         : [];
+  const latestRecoveryCheckpoint = recoveryCheckpoints[0] ?? null;
+  const olderRecoveryCheckpoints = recoveryCheckpoints.slice(1);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const toolbarClassName = className ? `${className} global-data-toolbar` : 'global-data-toolbar';
   const recoveryDialog = isRecoveryDialogOpen ? (
@@ -334,24 +347,50 @@ export function GlobalWorkbookToolbar({
             <CloseIcon />
           </button>
         </div>
-        <p>{getRecoveryDescription(recoveryInfo)}</p>
+        {latestRecoveryCheckpoint ? (
+          <p>{getRecoveryDescription(recoveryInfo)}</p>
+        ) : null}
         <div className="recovery-checkpoint-list">
-          {recoveryCheckpoints.map((checkpoint) => (
+          {latestRecoveryCheckpoint ? (
             <button
               className="primary-action recovery-confirm-action"
               type="button"
-              disabled={!checkpoint.canRecover || isRecoveringBackup}
-              key={checkpoint.checkpointId ?? checkpoint.formattedUpdatedAt}
-              onClick={() => void recoverBackup(checkpoint.checkpointId)}
+              disabled={!latestRecoveryCheckpoint.canRecover || isRecoveringBackup}
+              onClick={() =>
+                void recoverBackup(latestRecoveryCheckpoint.checkpointId)
+              }
             >
               <RotateClockwiseIcon />
               {isRecoveringBackup
                 ? 'Recuperando...'
                 : `Recuperar dados em ${
-                    checkpoint.formattedUpdatedAt || 'checkpoint'
+                    latestRecoveryCheckpoint.formattedUpdatedAt || 'checkpoint'
                   }`}
             </button>
-          ))}
+          ) : null}
+          {olderRecoveryCheckpoints.length > 0 ? (
+            <>
+              <span className="recovery-other-backups-label">
+                Outros backups:
+              </span>
+              {olderRecoveryCheckpoints.map((checkpoint) => (
+                <button
+                  className="primary-action recovery-confirm-action"
+                  type="button"
+                  disabled={!checkpoint.canRecover || isRecoveringBackup}
+                  key={checkpoint.checkpointId ?? checkpoint.formattedUpdatedAt}
+                  onClick={() => void recoverBackup(checkpoint.checkpointId)}
+                >
+                  <RotateClockwiseIcon />
+                  {isRecoveringBackup
+                    ? 'Recuperando...'
+                    : `Recuperar dados em ${
+                        checkpoint.formattedUpdatedAt || 'checkpoint'
+                      }`}
+                </button>
+              ))}
+            </>
+          ) : null}
         </div>
       </div>
     </div>

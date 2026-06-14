@@ -48,6 +48,7 @@ import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
+  isGlobalUndoInProgress,
   pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
   remapGlobalUndoCheckpointReferences,
@@ -131,6 +132,7 @@ type ActiveStudentEdit = {
 
 type SaveAprendizesOptions = {
   applyLocalState?: boolean;
+  patchColumns?: string[];
   syncTurmas?: boolean;
 };
 
@@ -454,6 +456,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const activeStudentEditRef = useRef<ActiveStudentEdit | null>(null);
   const isApplyingUndoRef = useRef(false);
   const suppressNextAprendizesChangeEventRef = useRef(false);
+  const suppressNextGlobalDataChangeEventRef = useRef(false);
   const undoGuardTimerRef = useRef<number | null>(null);
   const [turmasSheet, setTurmasSheet] = useState<SheetTable | null>(null);
   const [aprendizesSheet, setAprendizesSheet] = useState<SheetTable | null>(
@@ -825,7 +828,9 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     activeStudentEditRef.current = null;
 
     if (nextSheet) {
-      void writeAprendizesSheetToSourceFile(nextSheet);
+      void writeAprendizesSheetToSourceFile(nextSheet, {
+        patchColumns: [columnName],
+      });
     }
   };
 
@@ -1314,7 +1319,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   }, [turmasSheet, studentsByClass]);
 
   useEffect(() => {
-    if (!isActive || !hasCheckedWorkspace) {
+    if (!isActive || !hasCheckedWorkspace || isGlobalUndoInProgress()) {
       return;
     }
 
@@ -1325,7 +1330,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   }, [aprendizesSheet, isActive, hasCheckedWorkspace]);
 
   useEffect(() => {
-    if (!isActive || !hasCheckedWorkspace) {
+    if (!isActive || !hasCheckedWorkspace || isGlobalUndoInProgress()) {
       return;
     }
 
@@ -1339,7 +1344,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         return;
       }
 
-      if (isApplyingUndoRef.current) {
+      if (isApplyingUndoRef.current || isGlobalUndoInProgress()) {
         return;
       }
 
@@ -1355,7 +1360,12 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   useEffect(() => {
     const syncGlobalData = (event: Event) => {
-      if (isApplyingUndoRef.current) {
+      if (suppressNextGlobalDataChangeEventRef.current) {
+        suppressNextGlobalDataChangeEventRef.current = false;
+        return;
+      }
+
+      if (isApplyingUndoRef.current || isGlobalUndoInProgress()) {
         return;
       }
 
@@ -1932,6 +1942,24 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         sheet,
         APRENDIZES_ENTITY_ID,
       );
+      const patchColumns = Array.from(
+        new Set(
+          (options.patchColumns ?? []).filter((columnName) =>
+            sheetWithIds.columns.includes(columnName),
+          ),
+        ),
+      );
+      const columnsToSave =
+        patchColumns.length > 0 ? patchColumns : sheetWithIds.columns;
+      const rowsToSave =
+        patchColumns.length > 0
+          ? sheetWithIds.rows.map((row) =>
+              columnsToSave.map((columnName) => {
+                const columnIndex = sheetWithIds.columns.indexOf(columnName);
+                return columnIndex >= 0 ? row[columnIndex] ?? '' : '';
+              }),
+            )
+          : sheetWithIds.rows;
       const saveResponse = await fetch('/api/aprendizes/values', {
         method: 'PUT',
         headers: {
@@ -1939,9 +1967,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         },
         body: JSON.stringify({
           sheetName: sheetWithIds.sheetName,
-          columns: sheetWithIds.columns,
-          rows: sheetWithIds.rows,
+          columns: columnsToSave,
+          rows: rowsToSave,
           formulaColumns: [AGE_COLUMN],
+          patchColumnsOnly: patchColumns.length > 0,
         }),
       });
 
@@ -1963,7 +1992,9 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         await syncTurmasWorkbookFromAprendizes(savedSheet);
       }
       suppressNextAprendizesChangeEventRef.current = true;
+      suppressNextGlobalDataChangeEventRef.current = true;
       window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
+      window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
       setImportError('');
       return savedSheet;
     } catch {
@@ -2019,7 +2050,9 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     }
 
     setAprendizesSheet(canonicalSheet);
-    void writeAprendizesSheetToSourceFile(canonicalSheet);
+    void writeAprendizesSheetToSourceFile(canonicalSheet, {
+      patchColumns: [TURMA_COLUMN],
+    });
   }, [aprendizesSheet, turmaNames]);
 
   const assignStudentToTurma = (studentRowIndex: number, turmaName: string) => {
@@ -2056,7 +2089,9 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       nextValue: turmaName,
     });
     setAprendizesSheet(nextSheet);
-    void writeAprendizesSheetToSourceFile(nextSheet);
+    void writeAprendizesSheetToSourceFile(nextSheet, {
+      patchColumns: [TURMA_COLUMN],
+    });
   };
 
   const closeStudentDetailsPanel = () => {
@@ -2221,19 +2256,24 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     return nextSheet;
   };
 
-  const undoLastActionAndSave = (entry?: GlobalUndoEntry) => {
+  const undoLastActionAndSave = async (entry?: GlobalUndoEntry) => {
     const nextSheet = undoLastAction(entry);
+    const patchColumns =
+      entry && isTableUndoEntry(entry) && entry.kind === 'cell-edit'
+        ? [entry.columnName]
+        : undefined;
 
     if (nextSheet) {
-      void writeAprendizesSheetToSourceFile(nextSheet, {
+      await writeAprendizesSheetToSourceFile(nextSheet, {
         applyLocalState: false,
+        patchColumns,
       });
     }
 
     return Boolean(nextSheet);
   };
 
-  const redoLastActionAndSave = (entry: GlobalUndoEntry) => {
+  const redoLastActionAndSave = async (entry: GlobalUndoEntry) => {
     if (!isTableUndoEntry(entry) || !aprendizesSheet) {
       return false;
     }
@@ -2266,7 +2306,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
             : selectedRowBeforeRedo,
         );
       }
-      void writeAprendizesSheetToSourceFile(nextSheet, {
+      await writeAprendizesSheetToSourceFile(nextSheet, {
         applyLocalState: false,
       });
       return true;
@@ -2293,8 +2333,9 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     };
 
     setAprendizesSheet(nextSheet);
-    void writeAprendizesSheetToSourceFile(nextSheet, {
+    await writeAprendizesSheetToSourceFile(nextSheet, {
       applyLocalState: false,
+      patchColumns: [entry.columnName],
     });
     return true;
   };
