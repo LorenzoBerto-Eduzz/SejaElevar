@@ -1332,6 +1332,46 @@ internal static class Program
             shouldCaptureSessionStart;
         var targetFileName = GetUniqueTimestampedWorkbookName(dadosFolder, entityName);
         var targetPath = Path.Combine(dadosFolder, targetFileName);
+        bool didChange;
+
+
+        try
+        {
+            File.Copy(onUsePath, targetPath, true);
+            didChange = WorkbookValuePatcher.Patch(targetPath, patchRequest);
+        }
+        catch
+        {
+            if (File.Exists(targetPath))
+            {
+                File.Delete(targetPath);
+            }
+
+            await WriteJsonAsync(stream, 500, new { error = "Nao foi possivel gravar a planilha." });
+            return;
+        }
+
+        if (!didChange)
+        {
+            if (File.Exists(targetPath))
+            {
+                File.Delete(targetPath);
+            }
+
+            await WriteJsonAsync(
+                stream,
+                200,
+                new
+                {
+                    ok = true,
+                    noChange = true,
+                    fileName = control.OnUseFile,
+                    onUseFile = control.OnUseFile,
+                    backupFile = control.BackupFile
+                }
+            );
+            return;
+        }
 
         CaptureGlobalCheckpointBeforeEdit(appFolder);
 
@@ -1344,22 +1384,6 @@ internal static class Program
         )
         {
             File.Delete(backupPath);
-        }
-
-        try
-        {
-            File.Copy(onUsePath, targetPath, true);
-            WorkbookValuePatcher.Patch(targetPath, patchRequest);
-        }
-        catch
-        {
-            if (File.Exists(targetPath))
-            {
-                File.Delete(targetPath);
-            }
-
-            await WriteJsonAsync(stream, 500, new { error = "Nao foi possivel gravar a planilha." });
-            return;
         }
 
         if (
@@ -1510,7 +1534,12 @@ internal static class Program
                 var fileCount = CountGlobalCheckpointWorkbookFiles(checkpointPath);
                 var canRecover = entry.RecoveryEnabled == true &&
                     (
-                        IsGlobalCheckpointLocationAvailable(checkpointPath) ||
+                        IsRecoverableGlobalCheckpointDifferentFromActive(
+                            appFolder,
+                            entry,
+                            checkpointPath,
+                            hasActiveWorkbookData
+                        ) ||
                         (entry.IsEmpty == true && hasActiveWorkbookData)
                     );
 
@@ -2240,7 +2269,12 @@ internal static class Program
             control.Reason = BackupReasonBeforeSessionEdit;
         }
 
-        if (control.LastCheckpointAction == "import")
+        var shouldKeepFirstImportMarker =
+            control.LastCheckpointAction == "import" &&
+            control.HasEditingHistory != true &&
+            (control.Checkpoints is null || control.Checkpoints.Count == 0);
+
+        if (control.LastCheckpointAction == "import" && !shouldKeepFirstImportMarker)
         {
             control.LastCheckpointAction = null;
         }
@@ -2283,7 +2317,13 @@ internal static class Program
             shouldCaptureImportedOriginalBeforeFirstEdit
         )
         {
-            CaptureGlobalCheckpoint(appFolder, BackupReasonBeforeEdit, true);
+            CaptureGlobalCheckpoint(
+                appFolder,
+                shouldCaptureImportedOriginalBeforeFirstEdit
+                    ? BackupReasonImportOriginal
+                    : BackupReasonBeforeEdit,
+                true
+            );
             return;
         }
 
@@ -2314,12 +2354,7 @@ internal static class Program
     {
         var control = LoadGlobalCheckpointControl(appFolder);
 
-        if (control.CheckpointId is null)
-        {
-            return;
-        }
-
-        control.RecoveryEnabled = true;
+        control.RecoveryEnabled = control.CheckpointId is not null;
         control.HasEditingHistory = false;
         control.CaptureBackupOnNextSave = false;
         control.LastCheckpointAction = "import";
@@ -2500,6 +2535,102 @@ internal static class Program
                 .EnumerateFiles(checkpointPath, "*.xlsx", SearchOption.TopDirectoryOnly)
                 .Count()
             : 0;
+    }
+
+    private static bool IsRecoverableGlobalCheckpointDifferentFromActive(
+        string appFolder,
+        GlobalCheckpointEntry entry,
+        string? checkpointPath,
+        bool hasActiveWorkbookData
+    )
+    {
+        if (entry.IsEmpty == true)
+        {
+            return hasActiveWorkbookData;
+        }
+
+        if (!IsGlobalCheckpointLocationAvailable(checkpointPath))
+        {
+            return false;
+        }
+
+        var sources = GetWorkbookSources(appFolder);
+        var activeSnapshots = GetActiveWorkbookSnapshots(appFolder, sources)
+            .ToDictionary(snapshot => snapshot.EntityId, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var source in sources)
+        {
+            var checkpointFile = ResolveGlobalCheckpointWorkbookFile(checkpointPath, source);
+            activeSnapshots.TryGetValue(source.EntityId, out var activeSnapshot);
+
+            if (checkpointFile is null || !File.Exists(checkpointFile))
+            {
+                if (activeSnapshot is not null)
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (activeSnapshot is null || !File.Exists(activeSnapshot.Path))
+            {
+                return true;
+            }
+
+            if (!FilesHaveSameContent(activeSnapshot.Path, checkpointFile))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool FilesHaveSameContent(string leftPath, string rightPath)
+    {
+        var leftInfo = new FileInfo(leftPath);
+        var rightInfo = new FileInfo(rightPath);
+
+        if (!leftInfo.Exists || !rightInfo.Exists)
+        {
+            return false;
+        }
+
+        if (leftInfo.Length != rightInfo.Length)
+        {
+            return false;
+        }
+
+        const int BufferSize = 64 * 1024;
+        using var leftStream = File.OpenRead(leftPath);
+        using var rightStream = File.OpenRead(rightPath);
+        var leftBuffer = new byte[BufferSize];
+        var rightBuffer = new byte[BufferSize];
+
+        while (true)
+        {
+            var leftRead = leftStream.Read(leftBuffer, 0, leftBuffer.Length);
+            var rightRead = rightStream.Read(rightBuffer, 0, rightBuffer.Length);
+
+            if (leftRead != rightRead)
+            {
+                return false;
+            }
+
+            if (leftRead == 0)
+            {
+                return true;
+            }
+
+            for (var index = 0; index < leftRead; index += 1)
+            {
+                if (leftBuffer[index] != rightBuffer[index])
+                {
+                    return false;
+                }
+            }
+        }
     }
 
     private static void CleanupInactiveRootWorkbookFiles(string appFolder)

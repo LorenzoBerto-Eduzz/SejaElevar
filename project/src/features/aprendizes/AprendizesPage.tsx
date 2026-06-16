@@ -19,6 +19,7 @@ import { getBaseWorkbookSheetByEntity } from '../../shared/data/baseWorkbook';
 import {
   APRENDIZES_DATA_CHANGED_EVENT,
   GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import {
@@ -70,6 +71,7 @@ const AGE_COLUMN = 'Idade';
 const SEX_COLUMN = 'Sexo';
 const CONTACT_COLUMN = 'Contato';
 const EMAIL_COLUMN = 'E-mail';
+const NAME_COLUMN = 'Nome';
 const RG_COLUMN = 'RG';
 const CPF_COLUMN = 'CPF';
 const ADDRESS_COLUMN = 'Endereço';
@@ -221,6 +223,8 @@ type ActiveRegistrationEdit = {
   columnName: string;
   initialValue: string;
 };
+
+type RowDetailsInputElement = HTMLInputElement | HTMLSelectElement;
 
 type RecoveryReason =
   | 'before_import'
@@ -408,9 +412,10 @@ export function AprendizesPage({
 }: AprendizesPageProps = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cellInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const rowDetailsInputRefs = useRef<Record<string, HTMLInputElement | null>>(
+  const rowDetailsInputRefs = useRef<Record<string, RowDetailsInputElement | null>>(
     {},
   );
+  const pendingDetailsFocusColumnRef = useRef('');
   const cellUndoStackRef = useRef<TableUndoEntry[]>([]);
   const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
   const activeRegistrationEditRef = useRef<ActiveRegistrationEdit | null>(null);
@@ -1919,6 +1924,7 @@ export function AprendizesPage({
       suppressNextGlobalDataChangeEventRef.current = true;
       window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
       window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
 
       setImportError('');
     } catch {
@@ -1947,6 +1953,30 @@ export function AprendizesPage({
     return sheet ? getSheetRecordId(sheet, rowIndex, APRENDIZES_ENTITY_ID) : `apr#${rowIndex + 1}`;
   };
 
+  const getRowActionLabel = (entry: TableUndoEntry) => {
+    if (entry.kind === 'registration-draft-edit') {
+      return 'Cadastro';
+    }
+
+    const sheet = latestSheetRef.current;
+    const nameColumnIndex = sheet?.columns.findIndex(
+      (column) => normalizeFieldLabel(column) === normalizeFieldLabel(NAME_COLUMN),
+    ) ?? -1;
+
+    if (nameColumnIndex < 0) {
+      return getRowActionRef(entry.rowIndex);
+    }
+
+    if (entry.kind === 'row-insert' || entry.kind === 'row-delete') {
+      return entry.rowValues[nameColumnIndex] || getRowActionRef(entry.rowIndex);
+    }
+
+    return (
+      sheet?.rows[entry.rowIndex]?.[nameColumnIndex] ||
+      getRowActionRef(entry.rowIndex)
+    );
+  };
+
   const pushTableUndoEntry = (entry: TableUndoEntry) => {
     if (
       entry.kind === 'cell-edit' &&
@@ -1965,6 +1995,7 @@ export function AprendizesPage({
         entry.kind === 'registration-draft-edit'
           ? 'cadastro'
           : getRowActionRef(entry.rowIndex),
+      itemLabel: getRowActionLabel(entry),
       ...entry,
     });
   };
@@ -2466,7 +2497,9 @@ export function AprendizesPage({
     if (activeInput) {
       activeInput.value = undoEntry.previousValue;
       activeInput.focus();
-      activeInput.select();
+      if (activeInput instanceof HTMLInputElement) {
+        activeInput.select();
+      }
     }
 
     setRegistrationDraftColumnValue(
@@ -2801,7 +2834,9 @@ export function AprendizesPage({
       window.requestAnimationFrame(() => {
         const input = getRegistrationDraftInput(entry.columnName);
         input?.focus();
-        input?.select();
+        if (input instanceof HTMLInputElement) {
+          input.select();
+        }
       });
       return true;
     }
@@ -3065,7 +3100,9 @@ export function AprendizesPage({
 
     if (rowDetailsInput) {
       rowDetailsInput.focus();
-      rowDetailsInput.select();
+      if (rowDetailsInput instanceof HTMLInputElement) {
+        rowDetailsInput.select();
+      }
       return;
     }
 
@@ -3086,7 +3123,38 @@ export function AprendizesPage({
     const input = rowDetailsInputRefs.current[`register-${columnName}`];
 
     input?.focus();
-    input?.select();
+    if (input instanceof HTMLInputElement) {
+      input.select();
+    }
+  };
+
+  const focusRowDetailsField = (
+    rowIndex: number,
+    columnName: string,
+    { openPicker = false }: { openPicker?: boolean } = {},
+  ) => {
+    const input = rowDetailsInputRefs.current[`${rowIndex}-${columnName}`];
+
+    if (!input) {
+      return;
+    }
+
+    input.focus();
+
+    if (input instanceof HTMLInputElement) {
+      input.select();
+      return;
+    }
+
+    if (openPicker) {
+      const select = input as HTMLSelectElement & { showPicker?: () => void };
+
+      try {
+        select.showPicker?.();
+      } catch {
+        // Browser/WebView may block programmatic picker opening; focus remains useful.
+      }
+    }
   };
 
   const focusFirstRegistrationDetailsField = () => {
@@ -3102,6 +3170,23 @@ export function AprendizesPage({
       );
     });
   };
+
+  useEffect(() => {
+    if (!selectedDetailsRow || !pendingDetailsFocusColumnRef.current) {
+      return;
+    }
+
+    const columnName = pendingDetailsFocusColumnRef.current;
+    pendingDetailsFocusColumnRef.current = '';
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() =>
+        focusRowDetailsField(selectedDetailsRow.rowIndex, columnName, {
+          openPicker: columnName === CLASS_COLUMN,
+        }),
+      );
+    });
+  }, [selectedDetailsRow, importedSheet]);
 
   const selectVisualRow = (visualIndex: number) => {
     const nextRow = displayedRows[visualIndex];
@@ -3134,6 +3219,21 @@ export function AprendizesPage({
     if (rowBottom > tableBody.scrollTop + tableBody.clientHeight) {
       tableBody.scrollTop = rowBottom - tableBody.clientHeight;
     }
+  };
+
+  const selectDetailsRowFromTable = (
+    rowIndex: number,
+    visualIndex: number,
+    focusColumnName?: string,
+  ) => {
+    if (focusColumnName && focusColumnName !== AGE_COLUMN) {
+      pendingDetailsFocusColumnRef.current = focusColumnName;
+    } else {
+      pendingDetailsFocusColumnRef.current = '';
+    }
+
+    setIsRegistrationMode(false);
+    setSelectedDetailsRow({ rowIndex, visualIndex });
   };
 
   const handleTableBodyKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -3500,11 +3600,13 @@ export function AprendizesPage({
   const renderTurmaSelect = ({
     ariaLabel,
     className = 'turma-select',
+    inputRef,
     onChange,
     value,
   }: {
     ariaLabel: string;
     className?: string;
+    inputRef?: (element: HTMLSelectElement | null) => void;
     onChange: (event: ChangeEvent<HTMLSelectElement>) => void;
     value: string;
   }) => {
@@ -3523,6 +3625,7 @@ export function AprendizesPage({
           .filter(Boolean)
           .join(' ')}
         value={selectValue}
+        ref={inputRef}
         onChange={onChange}
       >
         <option value="">Sem turma</option>
@@ -3580,6 +3683,9 @@ export function AprendizesPage({
               ariaLabel: `${label} cadastrar aprendiz`,
               className: 'row-details-field-value-input turma-select',
               value,
+              inputRef: (element) => {
+                rowDetailsInputRefs.current[`register-${columnName}`] = element;
+              },
               onChange: (event) =>
                 updateRegistrationDraft(columnName, event.target.value),
             })
@@ -3588,6 +3694,13 @@ export function AprendizesPage({
               ariaLabel: `${label} do aprendiz`,
               className: 'row-details-field-value-input turma-select',
               value,
+              inputRef: (element) => {
+                if (selectedDetailsRow) {
+                  rowDetailsInputRefs.current[
+                    `${selectedDetailsRow.rowIndex}-${columnName}`
+                  ] = element;
+                }
+              },
               onChange: (event) => {
                 if (!selectedDetailsRow) {
                   return;
@@ -3899,8 +4012,7 @@ export function AprendizesPage({
                     }
                     onClick={() => {
                       if (!isEditMode) {
-                        setIsRegistrationMode(false);
-                        setSelectedDetailsRow({ rowIndex, visualIndex });
+                        selectDetailsRowFromTable(rowIndex, visualIndex);
                       }
                     }}
                   >
@@ -3927,6 +4039,18 @@ export function AprendizesPage({
                             .filter(Boolean)
                             .join(' ')}
                           style={getColumnWidthStyle(column)}
+                          onClick={(event) => {
+                            if (isEditMode) {
+                              return;
+                            }
+
+                            event.stopPropagation();
+                            selectDetailsRowFromTable(
+                              rowIndex,
+                              visualIndex,
+                              column,
+                            );
+                          }}
                           onContextMenu={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -4356,7 +4480,7 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da \u00faltima sess\u00e3o com edi\u00e7\u00f5es.';
     case 'import_original':
-      return 'Recupere os dados para como estavam quando foram importados pela primeira vez.';
+      return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
       return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     case 'after_recovery':

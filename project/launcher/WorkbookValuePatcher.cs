@@ -16,7 +16,7 @@ internal static class WorkbookValuePatcher
     private static readonly XNamespace SpreadsheetNamespace =
         "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
-    public static void Patch(string workbookPath, WorkbookValuePatchRequest patchRequest)
+    public static bool Patch(string workbookPath, WorkbookValuePatchRequest patchRequest)
     {
         using var archive = ZipFile.Open(workbookPath, ZipArchiveMode.Update);
         var worksheetEntryPath = GetWorksheetEntryPath(archive, patchRequest.SheetName);
@@ -50,6 +50,7 @@ internal static class WorkbookValuePatcher
         }
 
         SaveSharedStringTable(archive, sharedStrings);
+        return worksheetChanged;
     }
 
     private static bool PatchWorksheetDocument(

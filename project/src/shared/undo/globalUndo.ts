@@ -162,18 +162,31 @@ const tabLabels: Record<AppTab, string> = {
 };
 
 const stringifyActionValue = (value: unknown) => String(value ?? '').trim();
+const HISTORY_FIELD_WIDTH = 16;
 
-const describeHistoryPrefix = (entry: GlobalUndoEntry) => {
-  const tabLabel = tabLabels[entry.originTab] ?? entry.originTab;
+const formatHistoryField = (value: unknown) => {
+  const text = stringifyActionValue(value);
 
-  return `${tabLabel} |`;
+  return text.length > HISTORY_FIELD_WIDTH
+    ? text.slice(0, HISTORY_FIELD_WIDTH)
+    : text.padEnd(HISTORY_FIELD_WIDTH, ' ');
 };
 
-const getEntryItemRef = (entry: GlobalUndoEntry) =>
+const getEntryTabLabel = (entry: GlobalUndoEntry) =>
+  tabLabels[entry.originTab] ?? entry.originTab;
+
+const getEntryItemLabel = (entry: GlobalUndoEntry) =>
+  stringifyActionValue(entry.itemLabel) ||
   stringifyActionValue(entry.itemRef) ||
   stringifyActionValue(entry.recordId) ||
-  stringifyActionValue(entry.itemLabel) ||
   '';
+
+const formatHistoryLine = (
+  tabLabel: unknown,
+  itemLabel: unknown,
+  actionDescription: string,
+) =>
+  `${formatHistoryField(tabLabel)} | ${formatHistoryField(itemLabel)} | ${actionDescription}`;
 
 const describeChangedValue = (entry: GlobalUndoEntry) => {
   const columnName = stringifyActionValue(entry.columnName) || 'valor';
@@ -184,33 +197,33 @@ const describeChangedValue = (entry: GlobalUndoEntry) => {
 };
 
 const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
-  const prefix = describeHistoryPrefix(entry);
-  const itemRef = getEntryItemRef(entry);
-  const itemPart = itemRef ? ` | ${itemRef}` : '';
+  const tabLabel = getEntryTabLabel(entry);
+  const itemLabel = getEntryItemLabel(entry);
+  const prefix = `${formatHistoryField(tabLabel)} | ${formatHistoryField(itemLabel)} |`;
 
   if (entry.kind === 'cell-edit') {
-    return `${prefix} editado${itemPart} | ${describeChangedValue(entry)}`;
+    return formatHistoryLine(tabLabel, itemLabel, describeChangedValue(entry));
   }
 
   if (entry.kind === 'row-insert') {
-    return `${prefix} cadastrado${itemPart}`;
+    return formatHistoryLine(tabLabel, itemLabel, 'cadastrado');
   }
 
   if (entry.kind === 'row-delete') {
-    return `${prefix} descadastrado${itemPart}`;
+    return formatHistoryLine(tabLabel, itemLabel, 'descadastrado');
   }
 
   if (entry.kind === 'registration-draft-edit') {
-    return `${prefix} preenchido${itemPart} | ${describeChangedValue(entry)}`;
+    return formatHistoryLine(tabLabel, itemLabel, describeChangedValue(entry));
   }
 
   if (entry.kind === 'global-import') {
     const fileName = stringifyActionValue(entry.fileName);
-    return `Dados | importado${fileName ? ` | ${fileName}` : ''}`;
+    return formatHistoryLine('Dados', fileName || 'arquivo', 'importado');
   }
 
   if (entry.kind === 'global-recovery') {
-    return 'Dados | recuperado';
+    return formatHistoryLine('Dados', 'backup', 'recuperado');
   }
 
   return `${prefix} ação`;

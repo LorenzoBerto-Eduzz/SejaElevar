@@ -23,6 +23,7 @@ import { getBaseWorkbookSheetByEntity } from '../../shared/data/baseWorkbook';
 import {
   APRENDIZES_DATA_CHANGED_EVENT,
   GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import {
@@ -129,6 +130,8 @@ type ActiveStudentEdit = {
   columnName: string;
   initialValue: string;
 };
+
+type StudentDetailsInputElement = HTMLInputElement | HTMLSelectElement;
 
 type SaveAprendizesOptions = {
   applyLocalState?: boolean;
@@ -458,6 +461,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const suppressNextAprendizesChangeEventRef = useRef(false);
   const suppressNextGlobalDataChangeEventRef = useRef(false);
   const undoGuardTimerRef = useRef<number | null>(null);
+  const studentDetailsInputRefs = useRef<
+    Record<string, StudentDetailsInputElement | null>
+  >({});
+  const pendingStudentDetailsFocusColumnRef = useRef('');
   const [turmasSheet, setTurmasSheet] = useState<SheetTable | null>(null);
   const [aprendizesSheet, setAprendizesSheet] = useState<SheetTable | null>(
     null,
@@ -713,13 +720,45 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       ? getSheetRecordId(aprendizesSheet, rowIndex, APRENDIZES_ENTITY_ID)
       : `apr#${rowIndex + 1}`;
 
+  const getStudentActionLabel = (entry: TableUndoEntry) => {
+    if (!aprendizesSheet) {
+      return getStudentActionRef(entry.rowIndex);
+    }
+
+    const nameColumnIndex = getColumnIndex(aprendizesSheet, NAME_COLUMN);
+
+    if (nameColumnIndex < 0) {
+      return getStudentActionRef(entry.rowIndex);
+    }
+
+    if (entry.kind === 'row-delete') {
+      return entry.rowValues[nameColumnIndex] || getStudentActionRef(entry.rowIndex);
+    }
+
+    return (
+      aprendizesSheet.rows[entry.rowIndex]?.[nameColumnIndex] ||
+      getStudentActionRef(entry.rowIndex)
+    );
+  };
+
   const pushTableUndoEntry = (entry: TableUndoEntry) => {
     undoStackRef.current = [...undoStackRef.current, entry].slice(-1000);
     pushGlobalUndoEntry({
       originTab: 'turmas',
       itemRef: getStudentActionRef(entry.rowIndex),
+      itemLabel: getStudentActionLabel(entry),
       ...entry,
     });
+  };
+
+  const selectStudentFromTable = (rowIndex: number, focusColumnName?: string) => {
+    if (focusColumnName && focusColumnName !== AGE_COLUMN) {
+      pendingStudentDetailsFocusColumnRef.current = focusColumnName;
+    } else {
+      pendingStudentDetailsFocusColumnRef.current = '';
+    }
+
+    setSelectedStudentRowIndex(rowIndex);
   };
 
   const beginStudentEdit = (
@@ -755,6 +794,10 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     const columnIndex = getColumnIndex(aprendizesSheet, columnName);
 
     if (columnIndex < 0) {
+      return null;
+    }
+
+    if ((aprendizesSheet.rows[rowIndex]?.[columnIndex] ?? '') === value) {
       return null;
     }
 
@@ -813,17 +856,26 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       activeEdit?.rowIndex === rowIndex && activeEdit.columnName === columnName
         ? activeEdit.initialValue
         : getStudentCellValue(rowIndex, columnName);
+
+    if (previousValue === value) {
+      activeStudentEditRef.current = null;
+      return null;
+    }
+
     const nextSheet = updateStudentCell(rowIndex, columnName, value);
 
-    if (previousValue !== value) {
-      pushTableUndoEntry({
-        kind: 'cell-edit',
-        rowIndex,
-        columnName,
-        previousValue,
-        nextValue: value,
-      });
+    if (!nextSheet) {
+      activeStudentEditRef.current = null;
+      return null;
     }
+
+    pushTableUndoEntry({
+      kind: 'cell-edit',
+      rowIndex,
+      columnName,
+      previousValue,
+      nextValue: value,
+    });
 
     activeStudentEditRef.current = null;
 
@@ -857,6 +909,55 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     void writeAprendizesSheetToSourceFile(nextSheet);
   };
 
+  const focusStudentDetailsField = (
+    rowIndex: number,
+    columnName: string,
+    { openPicker = false }: { openPicker?: boolean } = {},
+  ) => {
+    const input = studentDetailsInputRefs.current[`${rowIndex}-${columnName}`];
+
+    if (!input) {
+      return;
+    }
+
+    input.focus();
+
+    if (input instanceof HTMLInputElement) {
+      input.select();
+      return;
+    }
+
+    if (openPicker) {
+      const select = input as HTMLSelectElement & { showPicker?: () => void };
+
+      try {
+        select.showPicker?.();
+      } catch {
+        // Browser/WebView may block programmatic picker opening; focus remains useful.
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (
+      selectedStudentRowIndex === null ||
+      !pendingStudentDetailsFocusColumnRef.current
+    ) {
+      return;
+    }
+
+    const columnName = pendingStudentDetailsFocusColumnRef.current;
+    pendingStudentDetailsFocusColumnRef.current = '';
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() =>
+        focusStudentDetailsField(selectedStudentRowIndex, columnName, {
+          openPicker: columnName === TURMA_COLUMN,
+        }),
+      );
+    });
+  }, [selectedStudentRowIndex, aprendizesSheet]);
+
   const renderStudentDetailsField = ({
     className = '',
     columnName,
@@ -887,6 +988,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
           {isTurmaField ? (
             <select
               aria-label={`${label} do aprendiz`}
+              ref={(element) => {
+                if (selectedStudentRowIndex !== null) {
+                  studentDetailsInputRefs.current[
+                    `${selectedStudentRowIndex}-${columnName}`
+                  ] = element;
+                }
+              }}
               className={[
                 'row-details-field-value-input',
                 'turma-select',
@@ -932,6 +1040,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
             <input
               className="row-details-field-value-input"
               aria-label={`${label} do aprendiz`}
+              ref={(element) => {
+                if (selectedStudentRowIndex !== null) {
+                  studentDetailsInputRefs.current[
+                    `${selectedStudentRowIndex}-${columnName}`
+                  ] = element;
+                }
+              }}
               spellCheck={false}
               value={value}
               onFocus={() => {
@@ -1914,6 +2029,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       setTurmasSheet(savedSheet);
       await persistTurmasDataIndex(savedSheet, nextStudentsByClass);
       await fetchRecoveryInfo();
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
       setImportError('');
       return savedSheet;
     } catch {
@@ -1995,6 +2111,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       suppressNextGlobalDataChangeEventRef.current = true;
       window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
       window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
       setImportError('');
       return savedSheet;
     } catch {
@@ -2604,9 +2721,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
                                         : ''
                                     }
                                     key={rowIndex}
-                                    onClick={() =>
-                                      setSelectedStudentRowIndex(rowIndex)
-                                    }
+                                    onClick={() => selectStudentFromTable(rowIndex)}
                                   >
                                     {orderedAprendizColumns.map(
                                       (column, orderedColumnIndex) => {
@@ -2645,6 +2760,13 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
                                             style={getAprendizColumnWidthStyle(
                                               column,
                                             )}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              selectStudentFromTable(
+                                                rowIndex,
+                                                column,
+                                              );
+                                            }}
                                           >
                                             {value}
                                           </td>
@@ -3141,7 +3263,7 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da última sessão com edições.';
     case 'import_original':
-      return 'Recupere os dados para como estavam quando foram importados pela primeira vez.';
+      return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
       return 'Recupere os dados para como estavam antes da última recuperação.';
     case 'after_recovery':

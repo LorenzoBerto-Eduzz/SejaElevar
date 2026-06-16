@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../data/events';
 import {
@@ -61,7 +62,7 @@ const getRecoveryDescription = (info: RecoveryInfo | null) => {
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da \u00faltima sess\u00e3o com edi\u00e7\u00f5es.';
     case 'import_original':
-      return 'Recupere os dados para como estavam quando foram importados pela primeira vez.';
+      return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
       return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     case 'after_recovery':
@@ -132,6 +133,11 @@ export function GlobalWorkbookToolbar({
     const handleGlobalDataChanged = () => {
       void refreshGlobalDataState();
     };
+    const handleGlobalToolbarRefreshRequested = () => {
+      void refreshGlobalDataState();
+      window.setTimeout(() => void refreshGlobalDataState(), 150);
+      window.setTimeout(() => void refreshGlobalDataState(), 600);
+    };
     const handleImportRequest = (event: Event) => {
       const requestedFile =
         event instanceof CustomEvent && event.detail instanceof File
@@ -148,6 +154,10 @@ export function GlobalWorkbookToolbar({
 
     window.addEventListener(GLOBAL_DATA_CHANGED_EVENT, handleGlobalDataChanged);
     window.addEventListener(
+      GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
+      handleGlobalToolbarRefreshRequested,
+    );
+    window.addEventListener(
       GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
       handleImportRequest,
     );
@@ -156,6 +166,10 @@ export function GlobalWorkbookToolbar({
       window.removeEventListener(
         GLOBAL_DATA_CHANGED_EVENT,
         handleGlobalDataChanged,
+      );
+      window.removeEventListener(
+        GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
+        handleGlobalToolbarRefreshRequested,
       );
       window.removeEventListener(
         GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
