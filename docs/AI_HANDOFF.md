@@ -12,6 +12,7 @@ This file is the portable continuity note for AI coding sessions working on this
 - Test command: no dedicated test suite yet; use `npm --prefix project run build:single` as the current verification/build check during normal dev. Use API smoke tests against the local provider when file behavior changes.
 - Remote: `origin` points to `https://github.com/LorenzoBerto-Eduzz/SejaElevar.git`.
 - Git: initialized on `main`, tracking `origin/main`.
+- Git identity guard: `.git-identity` allows only `lorenzo.berto@eduzz.com`. `.githooks/pre-commit` and `.githooks/pre-push` source `.githooks/identity-guard.sh` and block commits/pushes when local `git config user.email` differs. `git config user.name` is intentionally not checked and may vary by device. Every clone should have `git config core.hooksPath .githooks` enabled before gitcheck/gitcheckpoint.
 - The repository is organized as an AI-ready project frame: actual source code in `project/`, durable project memory in `docs/`, user scratch notes in `notes/`, and raw/reference assets in `asset_staging/`.
 - Root `image.png` is intentional. It is used by another portfolio project/repo to display SejaElevar's preview image, so do not move or delete it as stray root clutter unless the user explicitly replaces that portfolio integration.
 - `AGENTS.md` is the boot file for AI sessions.

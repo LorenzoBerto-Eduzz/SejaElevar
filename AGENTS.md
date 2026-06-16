@@ -15,9 +15,10 @@ Use this sequence when starting a fresh AI session, after switching machines, af
 5. Read `docs/TEMPLATE_SETUP.md` if the project still contains template placeholders or setup is being changed.
 6. Read `docs/OWNER_NOTES.md` when changing repo organization, documentation, workflow, or anything that affects how the user understands the project.
 7. Check `git status --short --branch`.
-8. Review recent history with `git log --oneline --decorate --max-count=10`.
-9. Inspect relevant changed files, recent commit diffs, or current project files instead of assuming prior chat context is available.
-10. If this is an ongoing session, compare the latest repo state with your previous understanding and summarize what changed before continuing.
+8. Before any commit or push, check `.git-identity`, `git config user.email`, and `git config core.hooksPath`.
+9. Review recent history with `git log --oneline --decorate --max-count=10`.
+10. Inspect relevant changed files, recent commit diffs, or current project files instead of assuming prior chat context is available.
+11. If this is an ongoing session, compare the latest repo state with your previous understanding and summarize what changed before continuing.
 
 ## Capability And Confusion Safety
 
@@ -39,6 +40,8 @@ Use this sequence when starting a fresh AI session, after switching machines, af
 - `docs/OWNER_NOTES.md` is for the human developer. Update it only when the user asks or when the task is specifically about documentation/workflow guidance.
 - `notes/` is the user's personal/project scratch and tuning area. Do not add to or reorganize `notes/` unless the user explicitly asks.
 - `notes/todos.txt`, when present, is the user's personal scratchpad. Do not treat it as AI instructions unless the user explicitly asks you to read or act on it.
+- `.git-identity` defines the single allowed Git contributor email for this repo.
+- `.githooks/` contains tracked local hooks that block commits/pushes when local Git email differs from `.git-identity`. Each clone should enable it with `git config core.hooksPath .githooks`. `user.name` is not checked and may vary by device.
 
 ## Project Notes
 
@@ -47,6 +50,7 @@ Use this sequence when starting a fresh AI session, after switching machines, af
 - If this repo still has template placeholders, follow the adaptation rules in `docs/TEMPLATE_SETUP.md` before doing project-specific implementation. Preserve the AI memory system while adapting the stack-specific details.
 - `asset_staging/` is kept in Git with a hidden `.keep` placeholder so the empty organizational folder exists on every machine after pull.
 - `local_assets/` is a local-only folder for assets/files that should not be pushed. Do not read, reorganize, or depend on it unless the user explicitly asks.
+- This repo intentionally allows only `lorenzo.berto@eduzz.com` as the Git contributor email. Before gitcheck/gitcheckpoint, verify the local Git email matches `.git-identity`; if it does not, stop and fix/ask instead of committing. The local Git name may vary by device because GitHub contributor attribution is tied to the email/account.
 - Keep generated caches, dependency folders, local secrets, build outputs, and machine-specific files out of Git.
 - Keep code simple, explicit, and easy for the user to read and change. Prefer clear names and small responsibilities over clever abstractions.
 - Keep new systems modular by default. Debug tools, tuning UI, product logic, visuals, data definitions, and integration glue should live in separate files or clearly isolated blocks when practical.
@@ -57,6 +61,7 @@ Use this sequence when starting a fresh AI session, after switching machines, af
 - Do not update project documentation or handoff notes unless the user explicitly asks, or unless the requested task is specifically to change documentation/workflow guidance.
 - When the user asks for `memcheck`, update the appropriate long-term memory docs only. Do not commit or push unless the user also asks for `gitcheckpoint`.
 - When the user asks for `gitcheckpoint` or a "git checkpoint", inspect the worktree, update handoff/project docs only if needed for future AI continuity, commit the current work, and push so another machine can pull and continue.
+- If the Git identity hook blocks a commit or push, do not bypass it. Configure the clone with the identity from `.git-identity` and keep `git config core.hooksPath .githooks` enabled.
 
 ## Root Layout
 
@@ -68,6 +73,8 @@ SejaElevar/
   docs/                  human and AI project memory
   docs/PROJECT_BRIEF.md  project identity and stack summary
   notes/                 user scratch/tuning/planning notes
+  .git-identity          single allowed Git contributor email
+  .githooks/             tracked local Git identity guard hooks
   AGENTS.md              this AI boot file
   .editorconfig          editor formatting defaults
   .gitattributes         Git line-ending and binary-file rules
