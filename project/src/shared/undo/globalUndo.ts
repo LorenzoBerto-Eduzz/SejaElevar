@@ -223,7 +223,13 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
   }
 
   if (entry.kind === 'global-recovery') {
-    return formatHistoryLine('Dados', 'backup', 'recuperado');
+    const recoveredAtLabel =
+      stringifyActionValue(entry.recoveredAtLabel) ||
+      stringifyActionValue(entry.restoredCheckpointId) ||
+      stringifyActionValue(entry.checkpointId) ||
+      'backup';
+
+    return `Recuperou ${recoveredAtLabel}`;
   }
 
   return `${prefix} ação`;

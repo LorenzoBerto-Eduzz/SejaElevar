@@ -1524,6 +1524,11 @@ internal static class Program
         string appFolder
     )
     {
+        await WriteJsonAsync(stream, 200, BuildGlobalRecoveryInfo(appFolder));
+    }
+
+    private static object BuildGlobalRecoveryInfo(string appFolder)
+    {
         var control = LoadGlobalCheckpointControl(appFolder);
         var hasActiveWorkbookData = HasActiveWorkbookData(appFolder);
         var checkpoints = (control.Checkpoints ?? [])
@@ -1560,24 +1565,20 @@ internal static class Program
             .ToList();
         var latestCheckpoint = checkpoints.FirstOrDefault();
 
-        await WriteJsonAsync(
-            stream,
-            200,
-            new
-            {
-                available = checkpoints.Count > 0,
-                canRecover = checkpoints.Any(checkpoint => checkpoint.canRecover),
-                fileName = (string?)null,
-                label = "Dados",
-                checkpointId = latestCheckpoint?.checkpointId,
-                updatedAt = latestCheckpoint?.updatedAt,
-                formattedUpdatedAt = latestCheckpoint?.formattedUpdatedAt,
-                reason = latestCheckpoint?.reason,
-                importCount = latestCheckpoint?.importCount,
-                fileCount = latestCheckpoint?.fileCount,
-                checkpoints
-            }
-        );
+        return new
+        {
+            available = checkpoints.Count > 0,
+            canRecover = checkpoints.Any(checkpoint => checkpoint.canRecover),
+            fileName = (string?)null,
+            label = "Dados",
+            checkpointId = latestCheckpoint?.checkpointId,
+            updatedAt = latestCheckpoint?.updatedAt,
+            formattedUpdatedAt = latestCheckpoint?.formattedUpdatedAt,
+            reason = latestCheckpoint?.reason,
+            importCount = latestCheckpoint?.importCount,
+            fileCount = latestCheckpoint?.fileCount,
+            checkpoints
+        };
     }
 
     private static async Task RecoverGlobalCheckpointAsync(
@@ -1730,7 +1731,9 @@ internal static class Program
                 new
                 {
                     ok = true,
-                    checkpointId = reverseEntry.CheckpointId
+                    checkpointId = reverseEntry.CheckpointId,
+                    hasWorkbook = HasActiveWorkbookData(appFolder),
+                    recoveryInfo = BuildGlobalRecoveryInfo(appFolder)
                 }
             );
         }
@@ -2552,6 +2555,11 @@ internal static class Program
         if (!IsGlobalCheckpointLocationAvailable(checkpointPath))
         {
             return false;
+        }
+
+        if (NormalizeBackupReason(entry.Reason) == BackupReasonBeforeRecovery)
+        {
+            return hasActiveWorkbookData;
         }
 
         var sources = GetWorkbookSources(appFolder);

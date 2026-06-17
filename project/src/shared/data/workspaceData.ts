@@ -352,5 +352,9 @@ export const recoverGlobalData = async (checkpointId?: unknown) => {
     throw new Error('recovery-failed');
   }
 
-  return (await response.json()) as { checkpointId?: string | null };
+  return (await response.json()) as {
+    checkpointId?: string | null;
+    hasWorkbook?: boolean | null;
+    recoveryInfo?: RecoveryInfo | null;
+  };
 };

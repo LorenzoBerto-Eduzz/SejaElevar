@@ -6,6 +6,7 @@ import {
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../data/events';
 import {
+  fetchBaseWorkbookFile,
   fetchRecoveryInfo,
   formatWorkbookValidationToast,
   recoverGlobalData,
@@ -31,6 +32,7 @@ let latestGlobalToolbarState: GlobalToolbarState = {
   hasLoaded: false,
 };
 let globalToolbarRefreshId = 0;
+let preserveActiveToolbarUntil = 0;
 const globalToolbarStateListeners = new Set<() => void>();
 
 const setLatestGlobalToolbarState = (state: GlobalToolbarState) => {
@@ -38,11 +40,35 @@ const setLatestGlobalToolbarState = (state: GlobalToolbarState) => {
   globalToolbarStateListeners.forEach((listener) => listener());
 };
 
+const preserveActiveToolbarState = (milliseconds = 1500) => {
+  preserveActiveToolbarUntil = Math.max(
+    preserveActiveToolbarUntil,
+    Date.now() + milliseconds,
+  );
+};
+
+const shouldPreserveActiveToolbarState = () =>
+  Date.now() < preserveActiveToolbarUntil;
+
 const subscribeToGlobalToolbarState = (listener: () => void) => {
   globalToolbarStateListeners.add(listener);
   return () => {
     globalToolbarStateListeners.delete(listener);
   };
+};
+
+export const useGlobalWorkbookState = () => {
+  const [state, setState] = useState(latestGlobalToolbarState);
+
+  useEffect(
+    () =>
+      subscribeToGlobalToolbarState(() => {
+        setState(latestGlobalToolbarState);
+      }),
+    [],
+  );
+
+  return state;
 };
 
 const getRecoveryDescription = (info: RecoveryInfo | null) => {
@@ -92,18 +118,26 @@ export function GlobalWorkbookToolbar({
 
   const refreshGlobalDataState = async () => {
     const refreshId = ++globalToolbarRefreshId;
-    const [fileResponse, nextRecoveryInfo] = await Promise.all([
+    const [fileResponse, fetchedRecoveryInfo] = await Promise.all([
       fetch('/api/base-workbook/file', {
         cache: 'no-store',
       }).catch(() => null),
       fetchRecoveryInfo().catch(() => latestGlobalToolbarState.recoveryInfo),
     ]);
+    const shouldPreserve = shouldPreserveActiveToolbarState();
+    const nextHasWorkbook =
+      fileResponse === null
+        ? latestGlobalToolbarState.hasWorkbook
+        : fileResponse.ok || latestGlobalToolbarState.hasWorkbook;
+    const nextRecoveryInfo =
+      shouldPreserve &&
+      latestGlobalToolbarState.recoveryInfo?.canRecover &&
+      !fetchedRecoveryInfo?.canRecover
+        ? latestGlobalToolbarState.recoveryInfo
+        : fetchedRecoveryInfo;
 
     const nextState = {
-      hasWorkbook:
-        fileResponse === null
-          ? latestGlobalToolbarState.hasWorkbook
-          : fileResponse.ok || latestGlobalToolbarState.hasWorkbook,
+      hasWorkbook: nextHasWorkbook,
       recoveryInfo: nextRecoveryInfo,
       hasLoaded: true,
     };
@@ -301,20 +335,52 @@ export function GlobalWorkbookToolbar({
       return;
     }
 
+    const recoveredCheckpoint = recoveryCheckpoints.find((checkpoint) =>
+      checkpointId
+        ? checkpoint.checkpointId === checkpointId
+        : checkpoint === latestRecoveryCheckpoint,
+    );
+
+    preserveActiveToolbarState();
     setIsRecoveringBackup(true);
 
     try {
       const result = await recoverGlobalData(checkpointId);
-      window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+      if (typeof result.hasWorkbook === 'boolean' || result.recoveryInfo) {
+        const nextState = {
+          hasWorkbook:
+            typeof result.hasWorkbook === 'boolean'
+              ? result.hasWorkbook
+              : latestGlobalToolbarState.hasWorkbook,
+          recoveryInfo: result.recoveryInfo ?? latestGlobalToolbarState.recoveryInfo,
+          hasLoaded: true,
+        };
+
+        setLatestGlobalToolbarState(nextState);
+        setHasWorkbook(nextState.hasWorkbook);
+        setRecoveryInfo(nextState.recoveryInfo);
+      }
+
+      const recoveredFile = await fetchBaseWorkbookFile().catch(() => null);
+      window.dispatchEvent(
+        new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+          detail: {
+            file: recoveredFile,
+            reason: 'recovery',
+            force: true,
+          },
+        }),
+      );
       if (result.checkpointId) {
         pushGlobalUndoEntry({
           originTab: 'aprendizes',
           kind: 'global-recovery',
           checkpointId: result.checkpointId,
+          recoveredAtLabel: recoveredCheckpoint?.formattedUpdatedAt,
           restoredCheckpointId: checkpointId,
         });
       }
-      await refreshGlobalDataState();
+      window.setTimeout(() => void refreshGlobalDataState(), 100);
       setIsRecoveryDialogOpen(false);
     } finally {
       setIsRecoveringBackup(false);

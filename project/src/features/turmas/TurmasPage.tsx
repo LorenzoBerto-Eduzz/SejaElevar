@@ -45,7 +45,10 @@ import {
   recoverGlobalData as recoverWorkspaceGlobalData,
   responseToWorkbookFile,
 } from '../../shared/data/workspaceData';
-import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
+import {
+  GlobalWorkbookToolbar,
+  useGlobalWorkbookState,
+} from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -444,10 +447,14 @@ const persistAprendizesDataIndex = async (sheet: SheetTable | null) => {
 };
 
 type TurmasPageProps = {
+  canInitialize?: boolean;
   isActive?: boolean;
 };
 
-export function TurmasPage({ isActive = true }: TurmasPageProps) {
+export function TurmasPage({
+  canInitialize = true,
+  isActive = true,
+}: TurmasPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const boardFrameRef = useRef<HTMLDivElement>(null);
   const boardScrollRef = useRef<HTMLDivElement>(null);
@@ -458,6 +465,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const undoStackRef = useRef<TableUndoEntry[]>([]);
   const activeStudentEditRef = useRef<ActiveStudentEdit | null>(null);
   const isApplyingUndoRef = useRef(false);
+  const didInitializeWorkspaceRef = useRef(false);
   const suppressNextAprendizesChangeEventRef = useRef(false);
   const suppressNextGlobalDataChangeEventRef = useRef(false);
   const undoGuardTimerRef = useRef<number | null>(null);
@@ -474,6 +482,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [importError, setImportError] = useState('');
   const [invalidImportToast, setInvalidImportToast] = useState('');
+  const globalWorkbookState = useGlobalWorkbookState();
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
@@ -645,16 +654,8 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
       return [];
     }
 
-    const publicColumns = getPublicColumns(aprendizesSheet.columns);
-    const savedColumns = aprendizesViewSettings.columnOrder.filter((column) =>
-      publicColumns.includes(column),
-    );
-    const remainingColumns = publicColumns.filter(
-      (column) => !savedColumns.includes(column),
-    );
-
-    return [...savedColumns, ...remainingColumns];
-  }, [aprendizesSheet, aprendizesViewSettings.columnOrder]);
+    return getPublicColumns(aprendizesSheet.columns);
+  }, [aprendizesSheet]);
   const studentsByClass = useMemo(
     () =>
       aprendizesSheet
@@ -1409,6 +1410,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   };
 
   useEffect(() => {
+    if (!canInitialize || didInitializeWorkspaceRef.current) {
+      return;
+    }
+
+    didInitializeWorkspaceRef.current = true;
     let isMounted = true;
 
     const loadSavedWorkbooks = async () => {
@@ -1425,7 +1431,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [canInitialize]);
 
   useEffect(() => {
     if (turmasSheet) {
@@ -1475,12 +1481,21 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
 
   useEffect(() => {
     const syncGlobalData = (event: Event) => {
+      const isForcedGlobalDataChange =
+        event instanceof CustomEvent && event.detail?.force === true;
+
       if (suppressNextGlobalDataChangeEventRef.current) {
         suppressNextGlobalDataChangeEventRef.current = false;
-        return;
+
+        if (!isForcedGlobalDataChange) {
+          return;
+        }
       }
 
-      if (isApplyingUndoRef.current || isGlobalUndoInProgress()) {
+      if (
+        (isApplyingUndoRef.current || isGlobalUndoInProgress()) &&
+        !isForcedGlobalDataChange
+      ) {
         return;
       }
 
@@ -2583,6 +2598,11 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
   );
 
   const hasWorkingSheet = Boolean(turmasSheet);
+  const shouldShowEmptyImportState =
+    !hasWorkingSheet &&
+    (globalWorkbookState.hasLoaded
+      ? !globalWorkbookState.hasWorkbook
+      : hasCheckedWorkspace);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const recoveryCheckpoints =
     recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
@@ -2622,7 +2642,7 @@ export function TurmasPage({ isActive = true }: TurmasPageProps) {
         </div>
       </div>
 
-      {hasCheckedWorkspace && !isWorkspaceSyncing && !hasWorkingSheet && (
+      {shouldShowEmptyImportState && (
         <div
           className={
             isDragging

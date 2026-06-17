@@ -1414,9 +1414,10 @@ svg {
   top: 0;
   right: -16px;
   bottom: 0;
-  z-index: 2;
+  z-index: 8;
   width: 32px;
   cursor: col-resize;
+  touch-action: none;
 }
 
 .data-table.editing th {

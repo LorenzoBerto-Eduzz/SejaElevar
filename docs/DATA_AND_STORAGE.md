@@ -57,6 +57,8 @@ Global app buttons should follow this direction:
 
 These controls are global app controls, not page-local controls. Their enabled/disabled state and behavior should be identical on every tab because they act on the definitive `DadosElevar` workbook or app theme.
 
+The global toolbar should avoid transient disabled states during valid data operations. Once the app has confirmed an active `DadosElevar` workbook, `Exportar` should remain enabled unless that workbook is truly removed or missing. During a recovery swap, `Recuperar Dados` should not flash disabled just because an intermediate refresh briefly sees stale provider state; successful recovery responses should include refreshed global recovery metadata, and the frontend should preserve the active toolbar state while the restored workbook settles.
+
 UI tabs do not need to match workbook worksheets 1:1. For example, the `Turmas` page can read both the `Turmas` and `Aprendizes` worksheets to show apprentices grouped by turma, and the `Arcos` page can manage the Disciplinas that live inside the Arcos/plano-de-ensino data.
 
 The current sidebar still keeps `Aprendizes` as a main tab because it is useful for sorting, ordering, visualization, and direct apprentice management. A future Turmas-centered UI may absorb that work only after it can provide those same practical flows. `Documentos` should be a centralized document/template/generation tab rather than a data worksheet mirror. `Calendário` should visualize the global Cronograma. `Funcionários` and `Salas` are supporting/configurable linked values for Cronograma/Aula blocks for now, not main tabs.
@@ -179,6 +181,8 @@ A checkpoint currently contains the active `DadosElevar` workbook when it exists
 Only real data changes should create or unlock a checkpoint. Selecting rows, focusing popup fields, opening dropdowns, blurring unchanged fields, or sending a value patch whose values already match the active workbook must be treated as no-op interaction. The provider should respond successfully to no-change patches without writing a new active workbook, creating a checkpoint, or enabling `Recuperar Dados`.
 
 Pressing `Recuperar Dados` restores the chosen checkpoint files into fresh timestamped active workbook files and stores the previous active app state as the new checkpoint, keeping recovery reversible. The recovery popup can list up to three checkpoints, newest first, with friendly labels in the format `HH:mm:ss dd/MM/yyyy`. Only the newest/top checkpoint should show the explanatory reason text; older entries should be grouped under `Outros backups:` and rely on their timestamps.
+
+Recovery must update all app state immediately, not only after a tab switch. After a global recovery succeeds, the toolbar fetches the restored active base workbook and dispatches a forced `GLOBAL_DATA_CHANGED_EVENT` containing the recovered file and `force: true`. Mounted pages such as Aprendizes and Turmas must process that forced event even if they have a stale "suppress next global event" flag from a previous save, and they should reload their current visible elements from the restored workbook without first clearing to the import or blank state.
 
 Current normal popup messages are:
 

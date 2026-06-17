@@ -46,7 +46,10 @@ import {
   recoverGlobalData as recoverWorkspaceGlobalData,
   responseToWorkbookFile,
 } from '../../shared/data/workspaceData';
-import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
+import {
+  GlobalWorkbookToolbar,
+  useGlobalWorkbookState,
+} from '../../shared/ui/GlobalWorkbookToolbar';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -92,8 +95,8 @@ const TURMAS_WORKBOOK_SHEET = 'Turmas';
 const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
-const STARTUP_FILE_LOAD_ATTEMPTS = 8;
-const STARTUP_FILE_LOAD_RETRY_MS = 250;
+const STARTUP_FILE_LOAD_ATTEMPTS = 2;
+const STARTUP_FILE_LOAD_RETRY_MS = 60;
 
 const delay = (milliseconds: number) =>
   new Promise((resolve) => {
@@ -445,6 +448,7 @@ export function AprendizesPage({
   const [draggedColumn, setDraggedColumn] = useState('');
   const [importError, setImportError] = useState('');
   const [invalidImportToast, setInvalidImportToast] = useState('');
+  const globalWorkbookState = useGlobalWorkbookState();
   const [turmaOptions, setTurmaOptions] = useState<string[]>([]);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
@@ -700,14 +704,7 @@ export function AprendizesPage({
     saveViewSettings((currentViewSettings) => {
       const publicColumns = getPublicColumns(sheet.columns);
       const knownColumns = new Set(publicColumns);
-      const nextColumnOrder = [
-        ...currentViewSettings.columnOrder.filter((column) =>
-          knownColumns.has(column),
-        ),
-        ...publicColumns.filter(
-          (column) => !currentViewSettings.columnOrder.includes(column),
-        ),
-      ];
+      const nextColumnOrder = publicColumns;
       const nextColumnWidths = options.resetColumnWidths
         ? {}
         : Object.fromEntries(
@@ -1104,6 +1101,11 @@ export function AprendizesPage({
 
   useEffect(() => {
     const reloadChangedAprendizesData = (event?: Event) => {
+      const isForcedGlobalDataChange =
+        event?.type === GLOBAL_DATA_CHANGED_EVENT &&
+        event instanceof CustomEvent &&
+        event.detail?.force === true;
+
       if (
         event?.type === APRENDIZES_DATA_CHANGED_EVENT &&
         suppressNextAprendizesChangeEventRef.current
@@ -1117,7 +1119,10 @@ export function AprendizesPage({
         suppressNextGlobalDataChangeEventRef.current
       ) {
         suppressNextGlobalDataChangeEventRef.current = false;
-        return;
+
+        if (!isForcedGlobalDataChange) {
+          return;
+        }
       }
 
       const changedFile =
@@ -1125,7 +1130,7 @@ export function AprendizesPage({
           ? event.detail.file
           : null;
 
-      if (isGlobalUndoInProgress()) {
+      if (isGlobalUndoInProgress() && !isForcedGlobalDataChange) {
         return;
       }
 
@@ -1316,17 +1321,7 @@ export function AprendizesPage({
   };
 
   const orderedColumns = importedSheet
-    ? (() => {
-        const publicColumns = getPublicColumns(importedSheet.columns);
-        return [
-        ...viewSettings.columnOrder.filter((column) =>
-          publicColumns.includes(column),
-        ),
-        ...publicColumns.filter(
-          (column) => !viewSettings.columnOrder.includes(column),
-        ),
-      ];
-      })()
+    ? getPublicColumns(importedSheet.columns)
     : [];
 
   const cycleColumnSort = (columnName: string) => {
@@ -1764,10 +1759,6 @@ export function AprendizesPage({
     event: PointerEvent<HTMLSpanElement>,
     column: string,
   ) => {
-    if (!isEditMode) {
-      return;
-    }
-
     event.preventDefault();
     event.stopPropagation();
 
@@ -3364,6 +3355,11 @@ export function AprendizesPage({
     .filter(Boolean)
     .join(' ');
   const hasWorkingSheet = Boolean(importedSheet);
+  const shouldShowEmptyImportState =
+    !hasWorkingSheet &&
+    (globalWorkbookState.hasLoaded
+      ? !globalWorkbookState.hasWorkbook
+      : hasCheckedWorkspace);
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const recoveryCheckpoints =
     recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
@@ -3900,7 +3896,7 @@ export function AprendizesPage({
           </div>
       </div>
 
-      {hasCheckedWorkspace && !isWorkspaceSyncing && !importedSheet && (
+      {shouldShowEmptyImportState && (
         <div
           className={
             isDragging
@@ -3966,15 +3962,14 @@ export function AprendizesPage({
                       onDragEnd={() => setDraggedColumn('')}
                     >
                       <span className="column-heading-label">{column}</span>
-                      {isEditMode && (
-                        <span
-                          className="column-resize-handle"
-                          aria-hidden="true"
-                          onPointerDown={(event) =>
-                            startColumnResize(event, column)
-                          }
-                        />
-                      )}
+                      <span
+                        className="column-resize-handle"
+                        aria-hidden="true"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) =>
+                          startColumnResize(event, column)
+                        }
+                      />
                     </th>
                   ))}
                   <th className="table-scrollbar-spacer" aria-hidden="true" />
