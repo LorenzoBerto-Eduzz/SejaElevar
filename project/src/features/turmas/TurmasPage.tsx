@@ -464,6 +464,7 @@ export function TurmasPage({
   const invalidImportToastTimerRef = useRef<number | null>(null);
   const undoStackRef = useRef<TableUndoEntry[]>([]);
   const activeStudentEditRef = useRef<ActiveStudentEdit | null>(null);
+  const sourceWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const isApplyingUndoRef = useRef(false);
   const didInitializeWorkspaceRef = useRef(false);
   const suppressNextAprendizesChangeEventRef = useRef(false);
@@ -477,6 +478,8 @@ export function TurmasPage({
   const [aprendizesSheet, setAprendizesSheet] = useState<SheetTable | null>(
     null,
   );
+  const latestTurmasSheetRef = useRef<SheetTable | null>(turmasSheet);
+  const latestAprendizesSheetRef = useRef<SheetTable | null>(aprendizesSheet);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -505,6 +508,14 @@ export function TurmasPage({
     useState<CSSProperties>({});
   const isSyncingStudentsScrollRef = useRef(false);
 
+  useEffect(() => {
+    latestTurmasSheetRef.current = turmasSheet;
+  }, [turmasSheet]);
+
+  useEffect(() => {
+    latestAprendizesSheetRef.current = aprendizesSheet;
+  }, [aprendizesSheet]);
+
   const applyRowDetailsPanelStyle = (nextStyle: CSSProperties) => {
     const currentStyle = rowDetailsPanelStyleRef.current;
     const isSameStyle =
@@ -527,6 +538,7 @@ export function TurmasPage({
       return;
     }
 
+    void commitActiveStudentEditForUndo();
     setSelectedStudentRowIndex(null);
     applyRowDetailsPanelStyle({});
   }, [isActive]);
@@ -708,12 +720,14 @@ export function TurmasPage({
       : '';
 
   const getStudentCellValue = (rowIndex: number, columnName: string) => {
-    if (!aprendizesSheet) {
+    const currentSheet = latestAprendizesSheetRef.current;
+
+    if (!currentSheet) {
       return '';
     }
 
-    const columnIndex = getColumnIndex(aprendizesSheet, columnName);
-    return columnIndex >= 0 ? aprendizesSheet.rows[rowIndex]?.[columnIndex] ?? '' : '';
+    const columnIndex = getColumnIndex(currentSheet, columnName);
+    return columnIndex >= 0 ? currentSheet.rows[rowIndex]?.[columnIndex] ?? '' : '';
   };
 
   const getStudentActionRef = (rowIndex: number) =>
@@ -753,6 +767,10 @@ export function TurmasPage({
   };
 
   const selectStudentFromTable = (rowIndex: number, focusColumnName?: string) => {
+    if (selectedStudentRowIndex !== null && selectedStudentRowIndex !== rowIndex) {
+      void commitActiveStudentEditForUndo();
+    }
+
     if (focusColumnName && focusColumnName !== AGE_COLUMN) {
       pendingStudentDetailsFocusColumnRef.current = focusColumnName;
     } else {
@@ -788,21 +806,23 @@ export function TurmasPage({
     columnName: string,
     value: string,
   ) => {
-    if (!aprendizesSheet) {
+    const currentSheet = latestAprendizesSheetRef.current;
+
+    if (!currentSheet) {
       return null;
     }
 
-    const columnIndex = getColumnIndex(aprendizesSheet, columnName);
+    const columnIndex = getColumnIndex(currentSheet, columnName);
 
     if (columnIndex < 0) {
       return null;
     }
 
-    if ((aprendizesSheet.rows[rowIndex]?.[columnIndex] ?? '') === value) {
+    if ((currentSheet.rows[rowIndex]?.[columnIndex] ?? '') === value) {
       return null;
     }
 
-    const nextRows = aprendizesSheet.rows.map((row, currentRowIndex) => {
+    const nextRows = currentSheet.rows.map((row, currentRowIndex) => {
       if (currentRowIndex !== rowIndex) {
         return row;
       }
@@ -812,39 +832,54 @@ export function TurmasPage({
       return nextRow;
     });
     const nextSheet = {
-      ...aprendizesSheet,
+      ...currentSheet,
       rows: nextRows,
     };
 
+    latestAprendizesSheetRef.current = nextSheet;
     setAprendizesSheet(nextSheet);
     return nextSheet;
   };
 
-  const commitActiveStudentEditForUndo = () => {
+  const flushPendingAprendizesWrites = async () => {
+    await sourceWriteQueueRef.current.catch(() => {
+      // The write path owns its visible error state.
+    });
+  };
+
+  const commitActiveStudentEditForUndo = async () => {
     const activeEdit = activeStudentEditRef.current;
 
-    if (!activeEdit || !aprendizesSheet) {
+    if (!activeEdit || !latestAprendizesSheetRef.current) {
       activeStudentEditRef.current = null;
+      await flushPendingAprendizesWrites();
       return;
     }
 
-    const columnIndex = getColumnIndex(aprendizesSheet, activeEdit.columnName);
-    const nextValue =
+    const currentSheet = latestAprendizesSheetRef.current;
+    const columnIndex = getColumnIndex(currentSheet, activeEdit.columnName);
+    const activeInput =
+      studentDetailsInputRefs.current[
+        `${activeEdit.rowIndex}-${activeEdit.columnName}`
+      ];
+    const savedValue =
       columnIndex >= 0
-        ? aprendizesSheet.rows[activeEdit.rowIndex]?.[columnIndex] ?? ''
+        ? currentSheet.rows[activeEdit.rowIndex]?.[columnIndex] ?? ''
         : activeEdit.initialValue;
+    const nextValue = activeInput?.value ?? savedValue;
 
     if (activeEdit.initialValue !== nextValue) {
-      pushTableUndoEntry({
-        kind: 'cell-edit',
-        rowIndex: activeEdit.rowIndex,
-        columnName: activeEdit.columnName,
-        previousValue: activeEdit.initialValue,
+      await commitStudentCell(
+        activeEdit.rowIndex,
+        activeEdit.columnName,
         nextValue,
-      });
+      );
+      await flushPendingAprendizesWrites();
+      return;
     }
 
     activeStudentEditRef.current = null;
+    await flushPendingAprendizesWrites();
   };
 
   const commitStudentCell = (
@@ -860,14 +895,14 @@ export function TurmasPage({
 
     if (previousValue === value) {
       activeStudentEditRef.current = null;
-      return null;
+      return Promise.resolve(null);
     }
 
     const nextSheet = updateStudentCell(rowIndex, columnName, value);
 
     if (!nextSheet) {
       activeStudentEditRef.current = null;
-      return null;
+      return Promise.resolve(null);
     }
 
     pushTableUndoEntry({
@@ -881,10 +916,12 @@ export function TurmasPage({
     activeStudentEditRef.current = null;
 
     if (nextSheet) {
-      void writeAprendizesSheetToSourceFile(nextSheet, {
+      return writeAprendizesSheetToSourceFile(nextSheet, {
         patchColumns: [columnName],
       });
     }
+
+    return Promise.resolve(null);
   };
 
   const deleteStudentAndSave = (rowIndex: number) => {
@@ -1106,6 +1143,7 @@ export function TurmasPage({
   };
 
   const clearWorkingSheet = () => {
+    latestTurmasSheetRef.current = null;
     setTurmasSheet(null);
   };
 
@@ -1236,6 +1274,7 @@ export function TurmasPage({
         return null;
       }
 
+      latestAprendizesSheetRef.current = fallbackSheet;
       setAprendizesSheet(fallbackSheet);
       return fallbackSheet;
     } catch {
@@ -1258,6 +1297,7 @@ export function TurmasPage({
       fileName: file.name,
     };
 
+    latestAprendizesSheetRef.current = nextSheet;
     setAprendizesSheet(nextSheet);
     await persistAprendizesDataIndex(nextSheet);
     if (nextSheet.hasGeneratedRecordIds) {
@@ -1297,6 +1337,7 @@ export function TurmasPage({
       ? buildStudentsByClass(currentAprendizesSheet, nextTurmaNames)
       : undefined;
 
+    latestTurmasSheetRef.current = nextSheet;
     setTurmasSheet(nextSheet);
     setImportError('');
     await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
@@ -1332,6 +1373,7 @@ export function TurmasPage({
           return fallbackSheet;
         }
 
+        latestAprendizesSheetRef.current = null;
         setAprendizesSheet(null);
         await persistAprendizesDataIndex(null);
         return null;
@@ -1350,6 +1392,7 @@ export function TurmasPage({
         return fallbackSheet;
       }
 
+      latestAprendizesSheetRef.current = null;
       setAprendizesSheet(null);
       return null;
     }
@@ -1446,7 +1489,10 @@ export function TurmasPage({
 
     setAprendizesViewSettings(readAprendizesViewSettings());
     if (!aprendizesSheet) {
-      void loadAprendizesProviderFile();
+      void (async () => {
+        await commitActiveStudentEditForUndo();
+        await loadAprendizesProviderFile();
+      })();
     }
   }, [aprendizesSheet, isActive, hasCheckedWorkspace]);
 
@@ -1504,7 +1550,10 @@ export function TurmasPage({
           ? event.detail.file
           : null;
 
-      void syncProviderWorkbooks(changedFile);
+      void (async () => {
+        await commitActiveStudentEditForUndo();
+        await syncProviderWorkbooks(changedFile);
+      })();
     };
 
     window.addEventListener(GLOBAL_DATA_CHANGED_EVENT, syncGlobalData);
@@ -1763,6 +1812,7 @@ export function TurmasPage({
         ? buildStudentsByClass(aprendizesSheet, nextTurmaNames)
         : undefined;
 
+      latestTurmasSheetRef.current = nextSheet;
       setTurmasSheet(nextSheet);
       setImportError('');
       await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
@@ -2041,6 +2091,7 @@ export function TurmasPage({
         fileName: result.fileName || sheetWithIds.fileName,
       };
 
+      latestTurmasSheetRef.current = savedSheet;
       setTurmasSheet(savedSheet);
       await persistTurmasDataIndex(savedSheet, nextStudentsByClass);
       await fetchRecoveryInfo();
@@ -2056,15 +2107,17 @@ export function TurmasPage({
   };
 
   const syncTurmasWorkbookFromAprendizes = async (sheet: SheetTable) => {
-    if (!turmasSheet) {
+    const currentTurmasSheet = latestTurmasSheetRef.current;
+
+    if (!currentTurmasSheet) {
       return;
     }
 
     const nextStudentsByClass = buildStudentsByClass(sheet, turmaNames);
-    await persistTurmasDataIndex(turmasSheet, nextStudentsByClass);
+    await persistTurmasDataIndex(currentTurmasSheet, nextStudentsByClass);
   };
 
-  const writeAprendizesSheetToSourceFile = async (
+  const performAprendizesSheetSourceWrite = async (
     sheet: SheetTable,
     options: SaveAprendizesOptions = {},
   ) => {
@@ -2116,6 +2169,7 @@ export function TurmasPage({
       };
 
       if (options.applyLocalState !== false) {
+        latestAprendizesSheetRef.current = savedSheet;
         setAprendizesSheet(savedSheet);
       }
       await persistAprendizesDataIndex(savedSheet);
@@ -2134,6 +2188,23 @@ export function TurmasPage({
         'A alteração ficou na tela, mas não foi possível gravar em dados.',
       );
     }
+  };
+
+  const writeAprendizesSheetToSourceFile = (
+    sheet: SheetTable,
+    options: SaveAprendizesOptions = {},
+  ) => {
+    const queuedWrite = sourceWriteQueueRef.current
+      .catch(() => {
+        // The write path owns its visible error state.
+      })
+      .then(() => performAprendizesSheetSourceWrite(sheet, options));
+
+    sourceWriteQueueRef.current = queuedWrite.catch(() => {
+      // Keep the queue alive after a failed write.
+    });
+
+    return queuedWrite;
   };
 
   const canonicalizeAprendizesTurmaValues = (sheet: SheetTable) => {
@@ -2181,6 +2252,7 @@ export function TurmasPage({
       return;
     }
 
+    latestAprendizesSheetRef.current = canonicalSheet;
     setAprendizesSheet(canonicalSheet);
     void writeAprendizesSheetToSourceFile(canonicalSheet, {
       patchColumns: [TURMA_COLUMN],
@@ -2220,6 +2292,7 @@ export function TurmasPage({
       previousValue,
       nextValue: turmaName,
     });
+    latestAprendizesSheetRef.current = nextSheet;
     setAprendizesSheet(nextSheet);
     void writeAprendizesSheetToSourceFile(nextSheet, {
       patchColumns: [TURMA_COLUMN],
@@ -2333,26 +2406,27 @@ export function TurmasPage({
   };
 
   const undoLastAction = (requestedEntry?: GlobalUndoEntry) => {
-    commitActiveStudentEditForUndo();
     protectUndoCommit();
 
     const undoEntry = takeUndoEntry(requestedEntry);
     const selectedRowBeforeUndo = selectedStudentRowIndex;
+    const currentSheet = latestAprendizesSheetRef.current;
 
-    if (!undoEntry || !aprendizesSheet) {
+    if (!undoEntry || !currentSheet) {
       return null;
     }
 
     expandTurmasForUndoEntry(undoEntry);
 
     if (undoEntry.kind === 'row-delete') {
-      const nextRows = [...aprendizesSheet.rows];
+      const nextRows = [...currentSheet.rows];
       nextRows.splice(undoEntry.rowIndex, 0, undoEntry.rowValues);
       const nextSheet = {
-        ...aprendizesSheet,
+        ...currentSheet,
         rows: nextRows,
       };
 
+      latestAprendizesSheetRef.current = nextSheet;
       setAprendizesSheet(nextSheet);
       if (selectedRowBeforeUndo !== null) {
         setSelectedStudentRowIndex(
@@ -2364,13 +2438,13 @@ export function TurmasPage({
       return nextSheet;
     }
 
-    const columnIndex = getColumnIndex(aprendizesSheet, undoEntry.columnName);
+    const columnIndex = getColumnIndex(currentSheet, undoEntry.columnName);
 
-    if (columnIndex < 0 || !aprendizesSheet.rows[undoEntry.rowIndex]) {
+    if (columnIndex < 0 || !currentSheet.rows[undoEntry.rowIndex]) {
       return null;
     }
 
-    const nextRows = aprendizesSheet.rows.map((row, rowIndex) => {
+    const nextRows = currentSheet.rows.map((row, rowIndex) => {
       if (rowIndex !== undoEntry.rowIndex) {
         return row;
       }
@@ -2380,10 +2454,11 @@ export function TurmasPage({
       return nextRow;
     });
     const nextSheet = {
-      ...aprendizesSheet,
+      ...currentSheet,
       rows: nextRows,
     };
 
+    latestAprendizesSheetRef.current = nextSheet;
     setAprendizesSheet(nextSheet);
     return nextSheet;
   };
@@ -2406,7 +2481,9 @@ export function TurmasPage({
   };
 
   const redoLastActionAndSave = async (entry: GlobalUndoEntry) => {
-    if (!isTableUndoEntry(entry) || !aprendizesSheet) {
+    const currentSheet = latestAprendizesSheetRef.current;
+
+    if (!isTableUndoEntry(entry) || !currentSheet) {
       return false;
     }
 
@@ -2415,18 +2492,19 @@ export function TurmasPage({
     expandTurmasForUndoEntry(entry);
 
     if (entry.kind === 'row-delete') {
-      if (!aprendizesSheet.rows[entry.rowIndex]) {
+      if (!currentSheet.rows[entry.rowIndex]) {
         return false;
       }
       const selectedRowBeforeRedo = selectedStudentRowIndex;
 
       const nextSheet = {
-        ...aprendizesSheet,
-        rows: aprendizesSheet.rows.filter(
+        ...currentSheet,
+        rows: currentSheet.rows.filter(
           (_row, currentRowIndex) => currentRowIndex !== entry.rowIndex,
         ),
       };
 
+      latestAprendizesSheetRef.current = nextSheet;
       setAprendizesSheet(nextSheet);
       if (selectedRowBeforeRedo === entry.rowIndex) {
         setSelectedStudentRowIndex(null);
@@ -2444,13 +2522,13 @@ export function TurmasPage({
       return true;
     }
 
-    const columnIndex = getColumnIndex(aprendizesSheet, entry.columnName);
+    const columnIndex = getColumnIndex(currentSheet, entry.columnName);
 
-    if (columnIndex < 0 || !aprendizesSheet.rows[entry.rowIndex]) {
+    if (columnIndex < 0 || !currentSheet.rows[entry.rowIndex]) {
       return false;
     }
 
-    const nextRows = aprendizesSheet.rows.map((row, rowIndex) => {
+    const nextRows = currentSheet.rows.map((row, rowIndex) => {
       if (rowIndex !== entry.rowIndex) {
         return row;
       }
@@ -2460,10 +2538,11 @@ export function TurmasPage({
       return nextRow;
     });
     const nextSheet = {
-      ...aprendizesSheet,
+      ...currentSheet,
       rows: nextRows,
     };
 
+    latestAprendizesSheetRef.current = nextSheet;
     setAprendizesSheet(nextSheet);
     await writeAprendizesSheetToSourceFile(nextSheet, {
       applyLocalState: false,

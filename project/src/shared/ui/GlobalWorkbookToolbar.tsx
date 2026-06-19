@@ -33,6 +33,7 @@ let latestGlobalToolbarState: GlobalToolbarState = {
 };
 let globalToolbarRefreshId = 0;
 let preserveActiveToolbarUntil = 0;
+let recoveryUnavailableConfirmationCount = 0;
 const globalToolbarStateListeners = new Set<() => void>();
 
 const setLatestGlobalToolbarState = (state: GlobalToolbarState) => {
@@ -55,6 +56,63 @@ const subscribeToGlobalToolbarState = (listener: () => void) => {
   return () => {
     globalToolbarStateListeners.delete(listener);
   };
+};
+
+const normalizeRecoveryInfoForToolbar = (
+  info: RecoveryInfo | null | undefined,
+) => {
+  if (!info) {
+    return null;
+  }
+
+  const checkpoints =
+    info.checkpoints?.map((checkpoint) => {
+      const hasWorkbookCheckpoint = (checkpoint.fileCount ?? 0) > 0;
+
+      return {
+        ...checkpoint,
+        canRecover: checkpoint.canRecover || hasWorkbookCheckpoint,
+      };
+    }) ?? [];
+  const canRecover =
+    info.canRecover ||
+    checkpoints.some((checkpoint) => checkpoint.canRecover) ||
+    ((info.fileCount ?? 0) > 0 && Boolean(info.checkpointId));
+
+  return {
+    ...info,
+    canRecover,
+    checkpoints: checkpoints.length > 0 ? checkpoints : info.checkpoints,
+  };
+};
+
+const hasRecoverableCheckpoint = (info: RecoveryInfo | null | undefined) =>
+  Boolean(info?.canRecover);
+
+const chooseStableRecoveryInfo = (
+  fetchedInfo: RecoveryInfo | null | undefined,
+  hasActiveWorkbook: boolean,
+) => {
+  const normalizedInfo = normalizeRecoveryInfoForToolbar(fetchedInfo);
+  const previousInfo = latestGlobalToolbarState.recoveryInfo;
+
+  if (hasRecoverableCheckpoint(normalizedInfo)) {
+    recoveryUnavailableConfirmationCount = 0;
+    return normalizedInfo;
+  }
+
+  if (
+    hasActiveWorkbook &&
+    hasRecoverableCheckpoint(previousInfo) &&
+    (shouldPreserveActiveToolbarState() ||
+      recoveryUnavailableConfirmationCount < 2)
+  ) {
+    recoveryUnavailableConfirmationCount += 1;
+    return previousInfo;
+  }
+
+  recoveryUnavailableConfirmationCount = 0;
+  return normalizedInfo;
 };
 
 export const useGlobalWorkbookState = () => {
@@ -122,19 +180,18 @@ export function GlobalWorkbookToolbar({
       fetch('/api/base-workbook/file', {
         cache: 'no-store',
       }).catch(() => null),
-      fetchRecoveryInfo().catch(() => latestGlobalToolbarState.recoveryInfo),
+      fetchRecoveryInfo()
+        .then(normalizeRecoveryInfoForToolbar)
+        .catch(() => latestGlobalToolbarState.recoveryInfo),
     ]);
-    const shouldPreserve = shouldPreserveActiveToolbarState();
     const nextHasWorkbook =
       fileResponse === null
         ? latestGlobalToolbarState.hasWorkbook
         : fileResponse.ok || latestGlobalToolbarState.hasWorkbook;
-    const nextRecoveryInfo =
-      shouldPreserve &&
-      latestGlobalToolbarState.recoveryInfo?.canRecover &&
-      !fetchedRecoveryInfo?.canRecover
-        ? latestGlobalToolbarState.recoveryInfo
-        : fetchedRecoveryInfo;
+    const nextRecoveryInfo = chooseStableRecoveryInfo(
+      fetchedRecoveryInfo,
+      nextHasWorkbook,
+    );
 
     const nextState = {
       hasWorkbook: nextHasWorkbook,
@@ -168,6 +225,7 @@ export function GlobalWorkbookToolbar({
       void refreshGlobalDataState();
     };
     const handleGlobalToolbarRefreshRequested = () => {
+      preserveActiveToolbarState(2500);
       void refreshGlobalDataState();
       window.setTimeout(() => void refreshGlobalDataState(), 150);
       window.setTimeout(() => void refreshGlobalDataState(), 600);
@@ -352,7 +410,9 @@ export function GlobalWorkbookToolbar({
             typeof result.hasWorkbook === 'boolean'
               ? result.hasWorkbook
               : latestGlobalToolbarState.hasWorkbook,
-          recoveryInfo: result.recoveryInfo ?? latestGlobalToolbarState.recoveryInfo,
+          recoveryInfo:
+            normalizeRecoveryInfoForToolbar(result.recoveryInfo) ??
+            latestGlobalToolbarState.recoveryInfo,
           hasLoaded: true,
         };
 

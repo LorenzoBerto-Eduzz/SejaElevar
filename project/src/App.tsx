@@ -10,6 +10,7 @@ import { AppShell } from './shared/ui/AppShell';
 import { FeaturePlaceholderPage } from './shared/ui/FeaturePlaceholderPage';
 import {
   configureGlobalUndoNavigation,
+  flushActiveGlobalUndoController,
   handleGlobalUndoShortcut,
   resetGlobalUndoHistory,
 } from './shared/undo/globalUndo';
@@ -29,6 +30,17 @@ export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('aprendizes');
   const [isProviderReady, setIsProviderReady] = useState(isLocalAppAddress);
   const [isInitialPageReady, setIsInitialPageReady] = useState(false);
+
+  const changeActiveTab = (tab: AppTab) => {
+    if (tab === activeTab) {
+      return;
+    }
+
+    void (async () => {
+      await flushActiveGlobalUndoController();
+      setActiveTab(tab);
+    })();
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -229,7 +241,7 @@ export function App() {
       brand={appBrand}
       tabs={appTabs}
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={changeActiveTab}
     >
       <ActionLogOverlay />
       <div hidden={activeTab !== 'aprendizes'}>

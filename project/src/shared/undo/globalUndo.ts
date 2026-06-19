@@ -15,7 +15,7 @@ export type GlobalUndoEntry = {
 };
 
 type GlobalUndoController = {
-  beforeUndo?: () => void;
+  beforeUndo?: () => void | Promise<void>;
   undo: (entry: GlobalUndoEntry) => boolean | Promise<boolean>;
   redo?: (entry: GlobalUndoEntry) => boolean | Promise<boolean>;
 };
@@ -373,6 +373,10 @@ export const resetGlobalUndoHistory = () => {
 
 export const isGlobalUndoInProgress = () => isRunningUndo;
 
+export const flushActiveGlobalUndoController = async () => {
+  await controllers.get(getActiveTab())?.beforeUndo?.();
+};
+
 const isUndoShortcut = ({
   ctrlKey,
   key,
@@ -430,7 +434,7 @@ export const runGlobalUndo = async () => {
     return false;
   }
 
-  controllers.get(getActiveTab())?.beforeUndo?.();
+  await flushActiveGlobalUndoController();
 
   const undoEntry = undoStack.at(-1);
 

@@ -422,6 +422,7 @@ export function AprendizesPage({
   const cellUndoStackRef = useRef<TableUndoEntry[]>([]);
   const activeCellEditRef = useRef<ActiveCellEdit | null>(null);
   const activeRegistrationEditRef = useRef<ActiveRegistrationEdit | null>(null);
+  const sourceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const isApplyingUndoRef = useRef(false);
   const undoGuardTimerRef = useRef<number | null>(null);
   const tableHeaderScrollRef = useRef<HTMLDivElement>(null);
@@ -1873,7 +1874,7 @@ export function AprendizesPage({
     }
   };
 
-  const writeSheetToSourceFile = async (sheet: ImportedSheet) => {
+  const performSheetSourceWrite = async (sheet: ImportedSheet) => {
     if (!isLocalProviderActiveRef.current) {
       setImportError('');
       return;
@@ -1923,6 +1924,26 @@ export function AprendizesPage({
         'A alteração ficou na tela, mas não foi possível gravar em dados.',
       );
     }
+  };
+
+  const writeSheetToSourceFile = (sheet: ImportedSheet) => {
+    const queuedWrite = sourceWriteQueueRef.current
+      .catch(() => {
+        // A failed write already surfaced in the UI; keep later saves moving.
+      })
+      .then(() => performSheetSourceWrite(sheet));
+
+    sourceWriteQueueRef.current = queuedWrite.catch(() => {
+      // Keep the queue alive after a failed write.
+    });
+
+    return queuedWrite;
+  };
+
+  const flushPendingSheetWrites = async () => {
+    await sourceWriteQueueRef.current.catch(() => {
+      // The visible error state is handled by the write itself.
+    });
   };
 
   const getCellValue = (
@@ -2440,7 +2461,7 @@ export function AprendizesPage({
     commitActiveCellEditForUndo();
   };
 
-  const finalizeActiveEditsAndSave = () => {
+  const finalizeActiveEditsAndSave = async () => {
     const activeEdit = activeCellEditRef.current;
 
     if (activeRegistrationEditRef.current) {
@@ -2448,13 +2469,19 @@ export function AprendizesPage({
     }
 
     if (!activeEdit) {
+      await flushPendingSheetWrites();
       return;
     }
 
     const currentSheet = latestSheetRef.current;
-    const currentValue = currentSheet
+    const savedValue = currentSheet
       ? getCellValue(currentSheet, activeEdit.rowIndex, activeEdit.columnName)
       : null;
+    const activeInput = getCellEditInput(
+      activeEdit.rowIndex,
+      activeEdit.columnName,
+    );
+    const currentValue = activeInput?.value ?? savedValue;
     const committedSheet =
       currentValue === null
         ? null
@@ -2465,8 +2492,10 @@ export function AprendizesPage({
           );
 
     if (committedSheet) {
-      void writeSheetToSourceFile(committedSheet);
+      await writeSheetToSourceFile(committedSheet);
     }
+
+    await flushPendingSheetWrites();
   };
 
   useEffect(() => {
@@ -2474,7 +2503,7 @@ export function AprendizesPage({
       return;
     }
 
-    finalizeActiveEditsAndSave();
+    void finalizeActiveEditsAndSave();
     setSelectedDetailsRow(null);
     setIsRegistrationMode(false);
     applyRowDetailsPanelStyle({});
@@ -3056,7 +3085,7 @@ export function AprendizesPage({
   useEffect(
     () =>
       registerGlobalUndoController('aprendizes', {
-        beforeUndo: finalizeActiveEditsForUndo,
+        beforeUndo: finalizeActiveEditsAndSave,
         undo: (entry) => {
           if (entry.kind === 'global-import') {
             return undoGlobalBoundaryAction(entry);
