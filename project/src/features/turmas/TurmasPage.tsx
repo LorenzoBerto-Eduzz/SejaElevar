@@ -73,9 +73,34 @@ const TABLE_WIDTH_BUFFER = 6;
 const TABLE_FONT = '12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
 const TABLE_HEADER_FONT =
   '800 12.8px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
+const TURMA_HEADER_TITLE_FONT =
+  '900 16.64px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
+const TURMA_HEADER_DETAIL_FONT =
+  '800 16px Aptos, "Segoe UI Variable", "Segoe UI", sans-serif';
+const TURMA_HEADER_LEFT_PADDING = 22;
+const TURMA_HEADER_RIGHT_PADDING = 30;
+const TURMA_HEADER_ICON_WIDTH = 21;
+const TURMA_HEADER_ICON_GAP = 10;
+const TURMA_HEADER_TITLE_HORIZONTAL_PADDING =
+  TURMA_HEADER_LEFT_PADDING + TURMA_HEADER_RIGHT_PADDING;
+const TURMA_HEADER_DETAIL_HORIZONTAL_PADDING =
+  TURMA_HEADER_LEFT_PADDING +
+  TURMA_HEADER_RIGHT_PADDING +
+  TURMA_HEADER_ICON_WIDTH +
+  TURMA_HEADER_ICON_GAP;
+const TURMA_HEADER_TITLE_MIN_WIDTH = 62;
+const TURMA_HEADER_COUNT_MIN_WIDTH = 44;
+const TURMA_HEADER_DAY_MIN_WIDTH = 54;
+const TURMA_HEADER_PERIOD_MIN_WIDTH = 138;
+const TURMA_HEADER_INSTRUCTOR_MIN_WIDTH = 118;
+const TURMA_HEADER_ROOM_MIN_WIDTH = 72;
 const STUDENTS_COUNT_COLUMN = 'No. de Aprendizes';
 const STUDENTS_LIST_COLUMN = 'Aprendizes';
 const TURMA_COLUMN = 'Turma';
+const TURMA_DAY_COLUMN = 'Dia';
+const TURMA_PERIOD_COLUMN = 'Período';
+const TURMA_INSTRUCTOR_COLUMN = 'Instrutor';
+const TURMA_ROOM_COLUMN = 'Sala';
 const NAME_COLUMN = 'Nome';
 const APRENDIZES_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
@@ -249,6 +274,116 @@ const getColumnIndex = (sheet: SheetTable | null, columnName: string) =>
 const getCellValue = (sheet: SheetTable, row: string[], columnName: string) => {
   const columnIndex = getColumnIndex(sheet, columnName);
   return columnIndex >= 0 ? row[columnIndex] || '' : '';
+};
+
+const getMeasuredFieldWidth = (
+  values: string[],
+  font: string,
+  minimumWidth: number,
+  horizontalPadding: number,
+) =>
+  Math.max(
+    minimumWidth,
+    Math.ceil(
+      values.reduce(
+        (width, value) => Math.max(width, measureTextWidth(value || '-', font)),
+        0,
+      ) + horizontalPadding,
+    ),
+  );
+
+const TURMA_DAY_ABBREVIATIONS = new Map([
+  ['segunda', 'Seg'],
+  ['segunda feira', 'Seg'],
+  ['segunda-feira', 'Seg'],
+  ['seg', 'Seg'],
+  ['terca', 'Ter'],
+  ['terca feira', 'Ter'],
+  ['terca-feira', 'Ter'],
+  ['ter', 'Ter'],
+  ['quarta', 'Qua'],
+  ['quarta feira', 'Qua'],
+  ['quarta-feira', 'Qua'],
+  ['qua', 'Qua'],
+  ['quinta', 'Qui'],
+  ['quinta feira', 'Qui'],
+  ['quinta-feira', 'Qui'],
+  ['qui', 'Qui'],
+  ['sexta', 'Sex'],
+  ['sexta feira', 'Sex'],
+  ['sexta-feira', 'Sex'],
+  ['sex', 'Sex'],
+]);
+
+const formatTurmaDay = (value: string) => {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return '-';
+  }
+
+  return TURMA_DAY_ABBREVIATIONS.get(normalizeFieldLabel(trimmedValue)) ?? trimmedValue;
+};
+
+const formatTimeToken = (hour: string, minute?: string) => {
+  const parsedHour = Number.parseInt(hour, 10);
+
+  if (!Number.isFinite(parsedHour)) {
+    return '';
+  }
+
+  const normalizedHour = String(parsedHour).padStart(2, '0');
+  const normalizedMinute = String(
+    minute && minute.length > 0 ? Number.parseInt(minute, 10) : 0,
+  ).padStart(2, '0');
+
+  return `${normalizedHour}:${normalizedMinute}h`;
+};
+
+const formatTurmaPeriod = (value: string) => {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return '-';
+  }
+
+  const matches = Array.from(
+    trimmedValue.matchAll(/(\d{1,2})(?:(?::|h|H)(\d{2}))?/g),
+  )
+    .map((match) => formatTimeToken(match[1], match[2]))
+    .filter(Boolean);
+
+  if (matches.length >= 2) {
+    return `${matches[0]} - ${matches[1]}`;
+  }
+
+  return trimmedValue;
+};
+
+const getTurmaPeriodStartMinutes = (value: string) => {
+  const firstTimeMatch = value.trim().match(/(\d{1,2})(?:(?::|h|H)(\d{2}))?/);
+
+  if (!firstTimeMatch) {
+    return null;
+  }
+
+  const hour = Number.parseInt(firstTimeMatch[1], 10);
+  const minute = firstTimeMatch[2]
+    ? Number.parseInt(firstTimeMatch[2], 10)
+    : 0;
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return hour * 60 + minute;
 };
 
 const readPixelCustomProperty = (
@@ -550,14 +685,14 @@ export function TurmasPage({
       return;
     }
 
-    const panels = frame.querySelectorAll<HTMLDivElement>(
-      '.turma-students-panel',
+    const scrollTargets = frame.querySelectorAll<HTMLElement>(
+      '.turma-students-panel, .turma-header-details',
     );
 
     isSyncingStudentsScrollRef.current = true;
-    panels.forEach((panel) => {
-      if (panel.scrollLeft !== scrollLeft) {
-        panel.scrollLeft = scrollLeft;
+    scrollTargets.forEach((target) => {
+      if (target.scrollLeft !== scrollLeft) {
+        target.scrollLeft = scrollLeft;
       }
     });
 
@@ -581,18 +716,26 @@ export function TurmasPage({
       return;
     }
 
-    const panels = frame.querySelectorAll<HTMLDivElement>(
-      '.turma-students-panel',
+    const scrollTargets = frame.querySelectorAll<HTMLElement>(
+      '.turma-students-panel, .turma-header-details',
     );
-    const maxScrollWidth = Array.from(panels).reduce(
-      (width, panel) => Math.max(width, panel.scrollWidth),
+    const frameClientWidth = frame.clientWidth;
+    const hasOverflow = Array.from(scrollTargets).some(
+      (target) => target.scrollWidth > target.clientWidth + 1,
+    );
+    const maxSharedWidth = Array.from(scrollTargets).reduce(
+      (width, target) =>
+        Math.max(
+          width,
+          target.scrollWidth + Math.max(0, frameClientWidth - target.clientWidth),
+        ),
       0,
     );
 
-    setSharedHorizontalScrollWidth(maxScrollWidth);
+    setSharedHorizontalScrollWidth(hasOverflow ? maxSharedWidth : 0);
   };
 
-  const handleStudentsPanelScroll = (event: UIEvent<HTMLDivElement>) => {
+  const handleStudentsPanelScroll = (event: UIEvent<HTMLElement>) => {
     if (isSyncingStudentsScrollRef.current) {
       return;
     }
@@ -624,23 +767,29 @@ export function TurmasPage({
       return;
     }
 
-    const firstPanel =
-      boardFrameRef.current?.querySelector<HTMLDivElement>(
-        '.turma-students-panel',
+    const firstScrollableTarget =
+      boardFrameRef.current?.querySelector<HTMLElement>(
+        '.turma-students-panel, .turma-header-details',
       ) ?? null;
 
-    if (!firstPanel) {
+    if (!firstScrollableTarget) {
       return;
     }
 
     event.preventDefault();
     const maxScrollLeft = Math.max(
       0,
-      firstPanel.scrollWidth - firstPanel.clientWidth,
+      sharedHorizontalScrollRef.current
+        ? sharedHorizontalScrollRef.current.scrollWidth -
+            sharedHorizontalScrollRef.current.clientWidth
+        : firstScrollableTarget.scrollWidth - firstScrollableTarget.clientWidth,
     );
+    const currentScrollLeft =
+      sharedHorizontalScrollRef.current?.scrollLeft ??
+      firstScrollableTarget.scrollLeft;
     const nextScrollLeft = Math.max(
       0,
-      Math.min(maxScrollLeft, firstPanel.scrollLeft + horizontalDelta),
+      Math.min(maxScrollLeft, currentScrollLeft + horizontalDelta),
     );
     syncTurmaStudentsHorizontalScroll(nextScrollLeft);
   };
@@ -652,6 +801,77 @@ export function TurmasPage({
           [],
       ),
     [turmasSheet],
+  );
+  const studentsByClass = useMemo(
+    () =>
+      aprendizesSheet
+        ? buildStudentsByClass(aprendizesSheet, turmaNames)
+        : new Map<string, string[]>(),
+    [aprendizesSheet, turmaNames],
+  );
+  const turmaHeaderRows = useMemo(
+    () =>
+      turmasSheet?.rows.map((row, rowIndex) => {
+        const name =
+          getCellValue(turmasSheet, row, TURMA_COLUMN) ||
+          `Turma ${rowIndex + 1}`;
+        const rawPeriod = getCellValue(turmasSheet, row, TURMA_PERIOD_COLUMN);
+        const periodStartMinutes = getTurmaPeriodStartMinutes(rawPeriod);
+
+        return {
+          name,
+          count: String(studentsByClass.get(name)?.length ?? 0),
+          day: formatTurmaDay(getCellValue(turmasSheet, row, TURMA_DAY_COLUMN)),
+          isMorning: periodStartMinutes === null || periodStartMinutes < 12 * 60,
+          period: formatTurmaPeriod(rawPeriod),
+          instructor:
+            getCellValue(turmasSheet, row, TURMA_INSTRUCTOR_COLUMN) || '-',
+          room: getCellValue(turmasSheet, row, TURMA_ROOM_COLUMN) || '-',
+        };
+      }) ?? [],
+    [studentsByClass, turmasSheet],
+  );
+  const turmaHeaderLayoutStyle = useMemo(
+    () =>
+      ({
+        '--turma-header-title-width': `${getMeasuredFieldWidth(
+          turmaHeaderRows.map((row) => row.name),
+          TURMA_HEADER_TITLE_FONT,
+          TURMA_HEADER_TITLE_MIN_WIDTH,
+          TURMA_HEADER_TITLE_HORIZONTAL_PADDING,
+        )}px`,
+        '--turma-header-count-width': `${getMeasuredFieldWidth(
+          turmaHeaderRows.map((row) => row.count),
+          TURMA_HEADER_DETAIL_FONT,
+          TURMA_HEADER_COUNT_MIN_WIDTH,
+          TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
+        )}px`,
+        '--turma-header-day-width': `${getMeasuredFieldWidth(
+          turmaHeaderRows.map((row) => row.day),
+          TURMA_HEADER_DETAIL_FONT,
+          TURMA_HEADER_DAY_MIN_WIDTH,
+          TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
+        )}px`,
+        '--turma-header-period-width': `${getMeasuredFieldWidth(
+          turmaHeaderRows.map((row) => row.period),
+          TURMA_HEADER_DETAIL_FONT,
+          TURMA_HEADER_PERIOD_MIN_WIDTH,
+          TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
+        )}px`,
+        '--turma-header-instructor-width': `${getMeasuredFieldWidth(
+          turmaHeaderRows.map((row) => row.instructor),
+          TURMA_HEADER_DETAIL_FONT,
+          TURMA_HEADER_INSTRUCTOR_MIN_WIDTH,
+          TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
+        )}px`,
+        '--turma-header-room-width': `${getMeasuredFieldWidth(
+          turmaHeaderRows.map((row) => row.room),
+          TURMA_HEADER_DETAIL_FONT,
+          TURMA_HEADER_ROOM_MIN_WIDTH,
+          TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
+        )}px`,
+      }) as CSSProperties,
+    [turmaHeaderRows],
   );
   const turmaColumnIndex = getColumnIndex(aprendizesSheet, TURMA_COLUMN);
   const selectedStudentRow =
@@ -668,13 +888,6 @@ export function TurmasPage({
 
     return getPublicColumns(aprendizesSheet.columns);
   }, [aprendizesSheet]);
-  const studentsByClass = useMemo(
-    () =>
-      aprendizesSheet
-        ? buildStudentsByClass(aprendizesSheet, turmaNames)
-        : new Map<string, string[]>(),
-    [aprendizesSheet, turmaNames],
-  );
 
   const getAutoAprendizColumnWidth = (column: string) => {
     if (!aprendizesSheet) {
@@ -1579,6 +1792,42 @@ export function TurmasPage({
 
   useLayoutEffect(() => {
     updateSharedHorizontalScrollWidth();
+  }, [aprendizesSheet, aprendizesViewSettings, expandedTurmas, turmasSheet]);
+
+  useLayoutEffect(() => {
+    const frame = boardFrameRef.current;
+    let animationFrameId: number | null = null;
+
+    const scheduleSharedScrollWidthUpdate = () => {
+      if (animationFrameId !== null) {
+        return;
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        updateSharedHorizontalScrollWidth();
+      });
+    };
+
+    window.addEventListener('resize', scheduleSharedScrollWidthUpdate);
+
+    let observer: ResizeObserver | null = null;
+
+    if (frame && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(scheduleSharedScrollWidthUpdate);
+      observer.observe(frame);
+    }
+
+    scheduleSharedScrollWidthUpdate();
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
+      observer?.disconnect();
+      window.removeEventListener('resize', scheduleSharedScrollWidthUpdate);
+    };
   }, [aprendizesSheet, aprendizesViewSettings, expandedTurmas, turmasSheet]);
 
   useLayoutEffect(() => {
@@ -2763,9 +3012,11 @@ export function TurmasPage({
               tabIndex={0}
               onWheel={handleBoardWheel}
             >
-              <div className="turmas-board">
+              <div className="turmas-board" style={turmaHeaderLayoutStyle}>
                 {turmasSheet.rows.map((turmaRow, turmaRowIndex) => {
+                  const turmaHeader = turmaHeaderRows[turmaRowIndex];
                   const turmaName =
+                    turmaHeader?.name ||
                     getCellValue(turmasSheet, turmaRow, TURMA_COLUMN) ||
                     `Turma ${turmaRowIndex + 1}`;
                   const turmaKey = `${turmaName}-${turmaRowIndex}`;
@@ -2792,7 +3043,70 @@ export function TurmasPage({
                         aria-expanded={isExpanded}
                         onClick={() => toggleTurma(turmaKey)}
                       >
-                        <span className="turma-header-title">{turmaName}</span>
+                        <span className="turma-header-title">
+                          <span className="turma-header-text">{turmaName}</span>
+                        </span>
+                        <span
+                          className="turma-header-separator turma-header-leading-separator"
+                          aria-hidden="true"
+                        />
+                        <span
+                          className="turma-header-details"
+                          onScroll={handleStudentsPanelScroll}
+                        >
+                          <span className="turma-header-details-track">
+                            <span className="turma-header-detail turma-header-count">
+                              <PeopleIcon />
+                              <span className="turma-header-text">
+                                {turmaHeader?.count ?? '0'}
+                              </span>
+                            </span>
+                            <span
+                              className="turma-header-separator"
+                              aria-hidden="true"
+                            />
+                            <span className="turma-header-detail turma-header-day">
+                              {turmaHeader?.isMorning ? (
+                                <Brightness2Icon />
+                              ) : (
+                                <MoonIcon />
+                              )}
+                              <span className="turma-header-text">
+                                {turmaHeader?.day ?? '-'}
+                              </span>
+                            </span>
+                            <span
+                              className="turma-header-separator"
+                              aria-hidden="true"
+                            />
+                            <span className="turma-header-detail turma-header-period">
+                              <ClockHour4Icon />
+                              <span className="turma-header-text">
+                                {turmaHeader?.period ?? '-'}
+                              </span>
+                            </span>
+                            <span
+                              className="turma-header-separator"
+                              aria-hidden="true"
+                            />
+                            <span className="turma-header-detail turma-header-instructor">
+                              <SchoolIcon />
+                              <span className="turma-header-text">
+                                {turmaHeader?.instructor ?? '-'}
+                              </span>
+                            </span>
+                            <span
+                              className="turma-header-separator"
+                              aria-hidden="true"
+                            />
+                            <span className="turma-header-detail turma-header-room">
+                              <DoorIcon />
+                              <span className="turma-header-text">
+                                {turmaHeader?.room ?? '-'}
+                              </span>
+                            </span>
+                          </span>
+                        </span>
                         <ChevronIcon expanded={isExpanded} />
                       </button>
 
@@ -3388,6 +3702,70 @@ function UserXIcon() {
       <path d="M6 21v-2a4 4 0 0 1 4 -4h3.5" />
       <path d="M15.7 15.9l5.1 5.1" />
       <path d="M20.8 15.9l-5.1 5.1" />
+    </svg>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg className="turma-header-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 7a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" />
+      <path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M21 21v-2a4 4 0 0 0 -3 -3.85" />
+    </svg>
+  );
+}
+
+function Brightness2Icon() {
+  return (
+    <svg
+      className="turma-header-icon turma-header-brightness-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
+      <path d="M6 6h3.5l2.5 -2.5l2.5 2.5h3.5v3.5l2.5 2.5l-2.5 2.5v3.5h-3.5l-2.5 2.5l-2.5 -2.5h-3.5v-3.5l-2.5 -2.5l2.5 -2.5z" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg
+      className="turma-header-icon turma-header-moon-icon mirrored"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  );
+}
+
+function ClockHour4Icon() {
+  return (
+    <svg className="turma-header-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 7v5l3 2" />
+      <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" />
+    </svg>
+  );
+}
+
+function SchoolIcon() {
+  return (
+    <svg className="turma-header-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M22 9l-10 -4l-10 4l10 4l10 -4v6" />
+      <path d="M6 10.6v5.4a6 3 0 0 0 12 0v-5.4" />
+    </svg>
+  );
+}
+
+function DoorIcon() {
+  return (
+    <svg className="turma-header-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 12v.01" />
+      <path d="M3 21h18" />
+      <path d="M5 21v-16a2 2 0 0 1 2 -2h10v18" />
     </svg>
   );
 }
