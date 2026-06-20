@@ -1611,6 +1611,7 @@ svg {
 
 .turma-header-title {
   position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -1637,8 +1638,25 @@ svg {
 }
 
 .turma-header-title:hover::before,
-.turma-header-detail:hover::before {
+.turma-header-title.active::before,
+.turma-header-detail:hover::before,
+.turma-header-detail.active::before {
   background: var(--turma-header-field-hover-background);
+}
+
+.turma-header-inline-input {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  outline: none;
 }
 
 .turma-header-icon {
@@ -1665,6 +1683,14 @@ svg {
 
 .turma-header-moon-icon {
   color: #f28c28;
+}
+
+.dark-mode .turma-header-brightness-icon {
+  color: #a99428;
+}
+
+.dark-mode .turma-header-moon-icon {
+  color: #a85f1b;
 }
 
 .turma-header-text {
@@ -1698,6 +1724,7 @@ svg {
 
 .turma-header-detail {
   position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -1712,6 +1739,7 @@ svg {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .turma-header-count {
@@ -1760,6 +1788,93 @@ svg {
 
 .turma-header-leading-separator {
   justify-self: center;
+}
+
+.turma-header-dropdown {
+  --turma-header-field-hover-background: color-mix(
+    in srgb,
+    var(--brand-primary) 86%,
+    #000 14%
+  );
+  position: fixed;
+  z-index: 80;
+  display: grid;
+  gap: 6px;
+  width: var(--turma-dropdown-width, auto);
+  max-height: min(460px, calc(100vh - 24px));
+  overflow-y: auto;
+  border: 1px solid var(--brand-border);
+  border-radius: 6px;
+  padding: 7px;
+  color: var(--brand-header-text);
+  background: var(--brand-primary);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-primary);
+}
+
+.turma-header-dropdown::-webkit-scrollbar {
+  width: 10px;
+}
+
+.turma-header-dropdown::-webkit-scrollbar-track,
+.turma-header-dropdown::-webkit-scrollbar-corner,
+.turma-header-dropdown::-webkit-scrollbar-button {
+  background: var(--brand-primary);
+}
+
+.turma-header-dropdown::-webkit-scrollbar-button {
+  display: none;
+}
+
+.turma-header-dropdown::-webkit-scrollbar-thumb,
+.turma-header-dropdown::-webkit-scrollbar-thumb:hover {
+  border: 2px solid var(--brand-primary);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.turma-header-dropdown-create {
+  display: grid;
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.turma-header-dropdown-create input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 4px;
+  padding: 7px 8px;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.11);
+  font: inherit;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.turma-header-dropdown-options {
+  display: grid;
+  gap: 4px;
+}
+
+.turma-header-dropdown-options button {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 7px 9px;
+  color: inherit;
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.turma-header-dropdown-options button:hover,
+.turma-header-dropdown-options button:focus-visible {
+  background: var(--turma-header-field-hover-background);
+  outline: none;
 }
 
 .turma-chevron {
@@ -1868,6 +1983,8 @@ svg {
 }
 
 .turma-add-student-cell span {
+  position: sticky;
+  left: 0;
   display: inline-flex;
   align-items: center;
   gap: 0;
@@ -1899,6 +2016,8 @@ svg {
 }
 
 .turma-add-student-picker {
+  position: sticky;
+  left: 0;
   width: 260px;
   max-width: min(260px, 100%);
   height: var(--table-row-height, 30px);

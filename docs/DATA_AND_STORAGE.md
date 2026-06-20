@@ -92,7 +92,7 @@ Current Turmas behavior:
 - Legacy Turmas-only workbooks and controls are still tolerated during migration, but the active direction is a single `DadosElevar_HHmmssddMMyy.xlsx` workbook shared by Turmas and Aprendizes. Empty legacy Turmas controls should not remain in `dados/`.
 - Turmas supports import, export, and provider-side value writes through Turmas-specific provider endpoints. Recovery UI uses the global `/api/recovery` endpoint and whole-app checkpoint metadata.
 - The Turmas page displays imported Turmas as expandable groups. Each group can show the Aprendizes currently assigned to that Turma, using `Aprendizes.Turma` as the preferred relationship source.
-- The Turmas group header is a compact linked-record summary, not a separate editable source yet. It displays the Turma name, derived Aprendizes count, `Dia`, `Período`, `Instrutor`, and `Sala`. Header field widths are calculated from the longest displayed value across all Turmas so separators/icons align row-to-row; the Turma name stays visible while the remaining header fields share the existing Turmas horizontal scrollbar. The header field rectangles currently prepare the visual affordance for future click-to-edit actions, but the source-of-truth remains the workbook fields plus derived Aprendizes relationship.
+- The Turmas group header is a compact linked-record summary. It displays and now edits the Turma name, `Dia`, `Período`, `Instrutor`, and `Sala`, while the Aprendizes count is derived from linked Aprendizes. Header field widths are calculated from the longest displayed value across all Turmas so separators/icons align row-to-row; the Turma name stays visible while the remaining header fields share the existing Turmas horizontal scrollbar. `Dia` uses fixed weekday options. `Período`, `Instrutor`, and `Sala` dropdowns merge values from the current Turmas worksheet with saved reusable options from the optional `Opções` worksheet in the same `DadosElevar` workbook. Creating a new period/instructor/room from the dropdown saves the Turma value through the normal data path and records the reusable option in `Opções`. Header dropdown text fields open with the current field value already loaded so the user can tweak it, and the dropdown height should extend only to the bottom of the content area before using its own internal scrollbar. The `+ Adicionar Aprendiz` row should keep its button/text fixed on the left while the student-list columns scroll horizontally.
 - `+ Adicionar Aprendiz` opens a searchable picker of available Aprendizes and writes the selected Turma value back into the Aprendizes workbook, then refreshes the Aprendizes generated data index and notifies mounted pages through the shared `sejaelevar:aprendizes-data-changed` event.
 - The Turmas student details popup can edit Aprendizes fields from inside the Turmas page. Its `Turma` field uses canonical dropdown matching against active Turmas names, and `Descadastrar Aprendiz` removes the selected Aprendiz row through the normal save/index path.
 - The source workbook is not rewritten during Turmas import. In the app display and generated data index, apprentice membership is derived from linked Aprendizes when Aprendizes data exists. If an old Turmas sheet still contains legacy `No. de Aprendizes` or `Aprendizes` columns, they can be preserved as extra source columns but should not be treated as the relationship source of truth.
@@ -157,6 +157,17 @@ If an imported cell value does not match any registered dropdown option, the app
 This applies both to single-value dropdown fields and to future list fields. When a list field such as `Turmas.Aprendizes` is imported from manually edited sheet text, names should be split by comma + space, matched against registered Aprendizes with the same normalized comparison, canonicalized to the registered student name when matched, and flagged with a warning such as `Não é um aprendiz cadastrado` when unmatched. Repeated names in the same list should be ignored after the first occurrence.
 
 The app should use the generated data index to make these links available to tools such as global search, document generation, and future pages that show related records.
+
+Reusable support options that are useful across records but do not need their own main tab can live inside the same unified `DadosElevar` workbook in an optional worksheet named `Opções`. The current simple shape is two columns:
+
+```text
+Tipo | Valor
+periodo | 08:00h - 12:00h
+sala | Sala 1
+instrutor | Fulano
+```
+
+The `Opções` worksheet is not required for import validation. If it exists, the app uses it as saved dropdown options. If it does not exist, the app can create it when the user creates a reusable option from the UI. Dropdowns should merge saved options from `Opções` with values already in use in source sheets, so active data never disappears from an option list merely because it is not saved as a reusable option. There is no small hard limit such as 30; hundreds of period, room, or instructor options are acceptable for this app scale. Deleting an option should remove only the saved reusable option, not any Turma/Aprendiz cell that currently uses that value.
 
 ## Planned Turmas Data Shape
 

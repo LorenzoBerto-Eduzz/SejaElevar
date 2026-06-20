@@ -5,8 +5,10 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ClipboardEvent,
   type DragEvent,
   type FormEvent,
+  type KeyboardEvent,
   type UIEvent,
   type WheelEvent,
 } from 'react';
@@ -45,6 +47,14 @@ import {
   recoverGlobalData as recoverWorkspaceGlobalData,
   responseToWorkbookFile,
 } from '../../shared/data/workspaceData';
+import {
+  emptyWorkbookOptions,
+  mergeWorkbookOptionValues,
+  persistWorkbookOption,
+  readWorkbookOptions,
+  type WorkbookOptionType,
+  type WorkbookOptions,
+} from '../../shared/data/workbookOptions';
 import {
   GlobalWorkbookToolbar,
   useGlobalWorkbookState,
@@ -157,6 +167,28 @@ type ActiveStudentEdit = {
   rowIndex: number;
   columnName: string;
   initialValue: string;
+};
+
+type TurmaHeaderField =
+  | 'name'
+  | 'count'
+  | 'day'
+  | 'period'
+  | 'instructor'
+  | 'room';
+
+type ActiveTurmaNameEdit = {
+  rowIndex: number;
+  initialValue: string;
+  draftValue: string;
+};
+
+type ActiveTurmaDropdown = {
+  rowIndex: number;
+  field: Exclude<TurmaHeaderField, 'name' | 'count'>;
+  columnName: string;
+  style: CSSProperties;
+  draftValue: string;
 };
 
 type StudentDetailsInputElement = HTMLInputElement | HTMLSelectElement;
@@ -386,6 +418,29 @@ const getTurmaPeriodStartMinutes = (value: string) => {
   return hour * 60 + minute;
 };
 
+const TURMA_DAY_OPTIONS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
+const PERIOD_CURSOR_POSITIONS = [0, 1, 3, 4, 9, 10, 12, 13, 15];
+
+const getPeriodDigits = (value: string) =>
+  Array.from(value.matchAll(/\d/g))
+    .map((match) => match[0])
+    .join('')
+    .slice(0, 8);
+
+const formatPeriodDigits = (digits: string) => {
+  const paddedDigits = digits.padEnd(8, ' ');
+  return `${paddedDigits.slice(0, 2)}:${paddedDigits.slice(2, 4)}h - ${paddedDigits.slice(
+    4,
+    6,
+  )}:${paddedDigits.slice(6, 8)}h`;
+};
+
+const getCommittedPeriodFromDigits = (digits: string) =>
+  digits.length === 8 ? formatPeriodDigits(digits) : '';
+
+const getPeriodCursorPosition = (digitCount: number) =>
+  PERIOD_CURSOR_POSITIONS[Math.max(0, Math.min(digitCount, 8))] ?? 0;
+
 const readPixelCustomProperty = (
   element: Element,
   name: string,
@@ -613,6 +668,8 @@ export function TurmasPage({
   const [aprendizesSheet, setAprendizesSheet] = useState<SheetTable | null>(
     null,
   );
+  const [workbookOptions, setWorkbookOptions] =
+    useState<WorkbookOptions>(emptyWorkbookOptions);
   const latestTurmasSheetRef = useRef<SheetTable | null>(turmasSheet);
   const latestAprendizesSheetRef = useRef<SheetTable | null>(aprendizesSheet);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
@@ -631,6 +688,13 @@ export function TurmasPage({
   const [addStudentSearch, setAddStudentSearch] = useState('');
   const [addStudentDropdownStyle, setAddStudentDropdownStyle] =
     useState<CSSProperties>({});
+  const [activeTurmaNameEdit, setActiveTurmaNameEdit] =
+    useState<ActiveTurmaNameEdit | null>(null);
+  const activeTurmaNameEditRef = useRef<ActiveTurmaNameEdit | null>(null);
+  const [activeTurmaDropdown, setActiveTurmaDropdown] =
+    useState<ActiveTurmaDropdown | null>(null);
+  const activeTurmaDropdownRef = useRef<ActiveTurmaDropdown | null>(null);
+  const turmaPeriodInputRef = useRef<HTMLInputElement | null>(null);
   const [sharedHorizontalScrollWidth, setSharedHorizontalScrollWidth] =
     useState(0);
   const [aprendizesViewSettings, setAprendizesViewSettings] =
@@ -650,6 +714,64 @@ export function TurmasPage({
   useEffect(() => {
     latestAprendizesSheetRef.current = aprendizesSheet;
   }, [aprendizesSheet]);
+
+  useEffect(() => {
+    activeTurmaNameEditRef.current = activeTurmaNameEdit;
+  }, [activeTurmaNameEdit]);
+
+  useEffect(() => {
+    activeTurmaDropdownRef.current = activeTurmaDropdown;
+  }, [activeTurmaDropdown]);
+
+  useLayoutEffect(() => {
+    if (activeTurmaDropdown?.field !== 'period') {
+      return;
+    }
+
+    const cursorPosition = getPeriodCursorPosition(
+      activeTurmaDropdown.draftValue.length,
+    );
+
+    window.requestAnimationFrame(() => {
+      const input = turmaPeriodInputRef.current;
+
+      input?.focus();
+      input?.setSelectionRange(cursorPosition, cursorPosition);
+    });
+  }, [activeTurmaDropdown?.field, activeTurmaDropdown?.draftValue]);
+
+  useEffect(() => {
+    if (!activeTurmaDropdown) {
+      return;
+    }
+
+    const closeDropdownOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      if (
+        target?.closest('.turma-header-dropdown') ||
+        target?.closest('.turma-header-detail')
+      ) {
+        return;
+      }
+
+      const dropdown = activeTurmaDropdownRef.current;
+
+      if (dropdown?.field !== 'day' && dropdown?.draftValue.trim()) {
+        void commitTurmaDropdownDraft();
+        return;
+      }
+
+      activeTurmaDropdownRef.current = null;
+      setActiveTurmaDropdown(null);
+    };
+
+    window.addEventListener('mousedown', closeDropdownOnOutsideClick);
+
+    return () => {
+      window.removeEventListener('mousedown', closeDropdownOnOutsideClick);
+    };
+  }, [activeTurmaDropdown]);
 
   const applyRowDetailsPanelStyle = (nextStyle: CSSProperties) => {
     const currentStyle = rowDetailsPanelStyleRef.current;
@@ -673,6 +795,7 @@ export function TurmasPage({
       return;
     }
 
+    void commitActiveTurmaNameEdit();
     void commitActiveStudentEditForUndo();
     setSelectedStudentRowIndex(null);
     applyRowDetailsPanelStyle({});
@@ -691,8 +814,11 @@ export function TurmasPage({
 
     isSyncingStudentsScrollRef.current = true;
     scrollTargets.forEach((target) => {
-      if (target.scrollLeft !== scrollLeft) {
-        target.scrollLeft = scrollLeft;
+      const canScrollTarget = target.scrollWidth > target.clientWidth + 1;
+      const nextScrollLeft = canScrollTarget ? scrollLeft : 0;
+
+      if (target.scrollLeft !== nextScrollLeft) {
+        target.scrollLeft = nextScrollLeft;
       }
     });
 
@@ -873,6 +999,42 @@ export function TurmasPage({
       }) as CSSProperties,
     [turmaHeaderRows],
   );
+  const periodOptions = useMemo(
+    () =>
+      mergeWorkbookOptionValues(
+        workbookOptions.periodo,
+        getUniqueValues(
+          turmaHeaderRows
+            .map((row) => row.period)
+            .filter((value) => value !== '-'),
+        ),
+      ),
+    [turmaHeaderRows, workbookOptions.periodo],
+  );
+  const instructorOptions = useMemo(
+    () =>
+      mergeWorkbookOptionValues(
+        workbookOptions.instrutor,
+        getUniqueValues(
+          turmaHeaderRows
+            .map((row) => row.instructor)
+            .filter((value) => value !== '-'),
+        ),
+      ),
+    [turmaHeaderRows, workbookOptions.instrutor],
+  );
+  const roomOptions = useMemo(
+    () =>
+      mergeWorkbookOptionValues(
+        workbookOptions.sala,
+        getUniqueValues(
+          turmaHeaderRows
+            .map((row) => row.room)
+            .filter((value) => value !== '-'),
+        ),
+      ),
+    [turmaHeaderRows, workbookOptions.sala],
+  );
   const turmaColumnIndex = getColumnIndex(aprendizesSheet, TURMA_COLUMN);
   const selectedStudentRow =
     selectedStudentRowIndex !== null
@@ -977,6 +1139,43 @@ export function TurmasPage({
       itemLabel: getStudentActionLabel(entry),
       ...entry,
     });
+  };
+
+  const getTurmaActionRef = (rowIndex: number) =>
+    turmasSheet
+      ? getSheetRecordId(turmasSheet, rowIndex, TURMAS_ENTITY_ID)
+      : `tur#${rowIndex + 1}`;
+
+  const getTurmaActionLabel = (
+    rowIndex: number,
+    fallbackValue?: string,
+    sheet: SheetTable | null = latestTurmasSheetRef.current,
+  ) => {
+    if (!sheet) {
+      return fallbackValue || getTurmaActionRef(rowIndex);
+    }
+
+    const turmaName = getCellValue(
+      sheet,
+      sheet.rows[rowIndex] ?? [],
+      TURMA_COLUMN,
+    );
+
+    return turmaName || fallbackValue || getTurmaActionRef(rowIndex);
+  };
+
+  const isTurmaFieldUndoEntry = (
+    entry: GlobalUndoEntry | undefined,
+  ): entry is GlobalUndoEntry & CellEditUndoEntry => {
+    return (
+      Boolean(entry) &&
+      entry?.kind === 'cell-edit' &&
+      entry.entityId === TURMAS_ENTITY_ID &&
+      typeof entry.rowIndex === 'number' &&
+      typeof entry.columnName === 'string' &&
+      typeof entry.previousValue === 'string' &&
+      typeof entry.nextValue === 'string'
+    );
   };
 
   const selectStudentFromTable = (rowIndex: number, focusColumnName?: string) => {
@@ -1095,6 +1294,27 @@ export function TurmasPage({
     await flushPendingAprendizesWrites();
   };
 
+  const commitActiveTurmaNameEdit = async () => {
+    const activeEdit = activeTurmaNameEditRef.current;
+
+    if (!activeEdit) {
+      return;
+    }
+
+    activeTurmaNameEditRef.current = null;
+    setActiveTurmaNameEdit(null);
+
+    if (activeEdit.initialValue === activeEdit.draftValue.trim()) {
+      return;
+    }
+
+    await commitTurmaHeaderField(
+      activeEdit.rowIndex,
+      TURMA_COLUMN,
+      activeEdit.draftValue,
+    );
+  };
+
   const commitStudentCell = (
     rowIndex: number,
     columnName: string,
@@ -1135,6 +1355,139 @@ export function TurmasPage({
     }
 
     return Promise.resolve(null);
+  };
+
+  const getAprendizesSheetWithRenamedTurma = (
+    sheet: SheetTable | null,
+    previousTurmaName: string,
+    nextTurmaName: string,
+  ) => {
+    if (!sheet || previousTurmaName === nextTurmaName) {
+      return null;
+    }
+
+    const turmaColumnIndex = getColumnIndex(sheet, TURMA_COLUMN);
+
+    if (turmaColumnIndex < 0) {
+      return null;
+    }
+
+    let didChange = false;
+    const nextRows = sheet.rows.map((row) => {
+      const value = row[turmaColumnIndex] || '';
+      const shouldUpdate =
+        value === previousTurmaName ||
+        getCanonicalDropdownValue(value, [previousTurmaName]) ===
+          previousTurmaName;
+
+      if (!shouldUpdate) {
+        return row;
+      }
+
+      didChange = true;
+      const nextRow = [...row];
+      nextRow[turmaColumnIndex] = nextTurmaName;
+      return nextRow;
+    });
+
+    return didChange
+      ? {
+          ...sheet,
+          rows: nextRows,
+        }
+      : null;
+  };
+
+  const commitTurmaHeaderField = async (
+    rowIndex: number,
+    columnName: string,
+    value: string,
+    options: { trackUndo?: boolean } = {},
+  ) => {
+    const currentTurmasSheet = latestTurmasSheetRef.current;
+
+    if (!currentTurmasSheet) {
+      return false;
+    }
+
+    const columnIndex = getColumnIndex(currentTurmasSheet, columnName);
+
+    if (columnIndex < 0 || !currentTurmasSheet.rows[rowIndex]) {
+      return false;
+    }
+
+    const previousValue =
+      currentTurmasSheet.rows[rowIndex]?.[columnIndex] ?? '';
+    const nextValue = value.trim();
+
+    if (previousValue === nextValue) {
+      return false;
+    }
+
+    const nextRows = currentTurmasSheet.rows.map((row, currentRowIndex) => {
+      if (currentRowIndex !== rowIndex) {
+        return row;
+      }
+
+      const nextRow = [...row];
+      nextRow[columnIndex] = nextValue;
+      return nextRow;
+    });
+    const nextTurmasSheet = {
+      ...currentTurmasSheet,
+      rows: nextRows,
+    };
+    const nextTurmaNames = getUniqueValues(
+      nextTurmasSheet.rows.map((row) =>
+        getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
+      ),
+    );
+    const renamedAprendizesSheet =
+      columnName === TURMA_COLUMN
+        ? getAprendizesSheetWithRenamedTurma(
+            latestAprendizesSheetRef.current,
+            previousValue,
+            nextValue,
+          )
+        : null;
+    const studentsSourceSheet =
+      renamedAprendizesSheet ?? latestAprendizesSheetRef.current;
+    const nextStudentsByClass = studentsSourceSheet
+      ? buildStudentsByClass(studentsSourceSheet, nextTurmaNames)
+      : undefined;
+
+    if (options.trackUndo !== false) {
+      pushGlobalUndoEntry({
+        originTab: 'turmas',
+        kind: 'cell-edit',
+        entityId: TURMAS_ENTITY_ID,
+        itemRef: getTurmaActionRef(rowIndex),
+        itemLabel: getTurmaActionLabel(rowIndex, previousValue, currentTurmasSheet),
+        rowIndex,
+        columnName,
+        previousValue,
+        nextValue,
+      });
+    }
+
+    latestTurmasSheetRef.current = nextTurmasSheet;
+    setTurmasSheet(nextTurmasSheet);
+
+    if (renamedAprendizesSheet) {
+      latestAprendizesSheetRef.current = renamedAprendizesSheet;
+      setAprendizesSheet(renamedAprendizesSheet);
+    }
+
+    await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+
+    if (renamedAprendizesSheet) {
+      await writeAprendizesSheetToSourceFile(renamedAprendizesSheet, {
+        patchColumns: [TURMA_COLUMN],
+        syncTurmas: false,
+      });
+    }
+
+    return true;
   };
 
   const deleteStudentAndSave = (rowIndex: number) => {
@@ -1358,6 +1711,7 @@ export function TurmasPage({
   const clearWorkingSheet = () => {
     latestTurmasSheetRef.current = null;
     setTurmasSheet(null);
+    setWorkbookOptions(emptyWorkbookOptions());
   };
 
   const showInvalidImportToast = () => {
@@ -1531,14 +1885,12 @@ export function TurmasPage({
     file: File,
     currentAprendizesSheet: SheetTable | null,
   ) => {
-    const parsedSheet = await readSheetFile(
-      file,
-      TURMAS_ENTITY_ID,
-      TURMAS_REQUIRED_COLUMNS,
-      {
+    const [parsedSheet, nextWorkbookOptions] = await Promise.all([
+      readSheetFile(file, TURMAS_ENTITY_ID, TURMAS_REQUIRED_COLUMNS, {
         preferredSheetName: TURMAS_WORKBOOK_SHEET,
-      },
-    );
+      }),
+      readWorkbookOptions(file),
+    ]);
     const nextSheet = {
       ...parsedSheet,
       fileName: file.name,
@@ -1552,6 +1904,7 @@ export function TurmasPage({
 
     latestTurmasSheetRef.current = nextSheet;
     setTurmasSheet(nextSheet);
+    setWorkbookOptions(nextWorkbookOptions);
     setImportError('');
     await persistTurmasDataIndex(nextSheet, nextStudentsByClass);
     if (nextSheet.hasGeneratedRecordIds) {
@@ -2559,6 +2912,284 @@ export function TurmasPage({
     setAddStudentSearch('');
   };
 
+  const getTurmaDropdownOptions = (field: ActiveTurmaDropdown['field']) => {
+    if (field === 'day') {
+      return TURMA_DAY_OPTIONS;
+    }
+
+    if (field === 'period') {
+      return periodOptions;
+    }
+
+    if (field === 'instructor') {
+      return instructorOptions;
+    }
+
+    return roomOptions;
+  };
+
+  const getTurmaDropdownColumn = (field: ActiveTurmaDropdown['field']) => {
+    if (field === 'day') {
+      return TURMA_DAY_COLUMN;
+    }
+
+    if (field === 'period') {
+      return TURMA_PERIOD_COLUMN;
+    }
+
+    if (field === 'instructor') {
+      return TURMA_INSTRUCTOR_COLUMN;
+    }
+
+    return TURMA_ROOM_COLUMN;
+  };
+
+  const getWorkbookOptionTypeForTurmaDropdown = (
+    field: ActiveTurmaDropdown['field'],
+  ): WorkbookOptionType | null => {
+    if (field === 'period') {
+      return 'periodo';
+    }
+
+    if (field === 'instructor') {
+      return 'instrutor';
+    }
+
+    if (field === 'room') {
+      return 'sala';
+    }
+
+    return null;
+  };
+
+  const rememberWorkbookOption = async (
+    field: ActiveTurmaDropdown['field'],
+    value: string,
+  ) => {
+    const type = getWorkbookOptionTypeForTurmaDropdown(field);
+    const normalizedValue = value.trim();
+
+    if (!type || !normalizedValue) {
+      return;
+    }
+
+    setWorkbookOptions((currentOptions) => ({
+      ...currentOptions,
+      [type]: mergeWorkbookOptionValues(currentOptions[type], [normalizedValue]),
+    }));
+
+    try {
+      await persistWorkbookOption(type, normalizedValue);
+    } catch {
+      // The Turma field save is the source of truth. Option persistence can be
+      // retried by creating/keeping the value in the workbook later.
+    }
+  };
+
+  const openTurmaDropdown = (
+    rowIndex: number,
+    field: ActiveTurmaDropdown['field'],
+    anchorElement: HTMLElement,
+  ) => {
+    const columnName = getTurmaDropdownColumn(field);
+    const currentSheet = latestTurmasSheetRef.current;
+    const currentValue =
+      currentSheet?.rows[rowIndex] && currentSheet
+        ? getCellValue(currentSheet, currentSheet.rows[rowIndex], columnName)
+        : '';
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const frameBottom =
+      boardFrameRef.current?.getBoundingClientRect().bottom ?? window.innerHeight;
+    const maxDropdownHeight = Math.max(
+      120,
+      Math.round(frameBottom - anchorRect.bottom - 12),
+    );
+
+    const nextDropdown: ActiveTurmaDropdown = {
+      rowIndex,
+      field,
+      columnName,
+      draftValue: field === 'period' ? getPeriodDigits(currentValue) : currentValue,
+      style: {
+        left: Math.round(anchorRect.left),
+        top: Math.round(anchorRect.bottom + 4),
+        width: Math.round(anchorRect.width),
+        maxHeight: maxDropdownHeight,
+      },
+    };
+
+    activeTurmaDropdownRef.current = nextDropdown;
+    setActiveTurmaDropdown(nextDropdown);
+  };
+
+  const selectTurmaDropdownValue = async (
+    dropdown: ActiveTurmaDropdown,
+    value: string,
+  ) => {
+    activeTurmaDropdownRef.current = null;
+    setActiveTurmaDropdown(null);
+    const didCommit = await commitTurmaHeaderField(
+      dropdown.rowIndex,
+      dropdown.columnName,
+      value,
+    );
+
+    if (didCommit) {
+      await rememberWorkbookOption(dropdown.field, value);
+    }
+  };
+
+  const commitTurmaDropdownDraft = async () => {
+    const dropdown = activeTurmaDropdownRef.current;
+
+    if (!dropdown) {
+      return;
+    }
+
+    const nextValue =
+      dropdown.field === 'period'
+        ? getCommittedPeriodFromDigits(dropdown.draftValue)
+        : dropdown.draftValue.trim();
+
+    activeTurmaDropdownRef.current = null;
+    setActiveTurmaDropdown(null);
+
+    if (!nextValue) {
+      return;
+    }
+
+    const didCommit = await commitTurmaHeaderField(
+      dropdown.rowIndex,
+      dropdown.columnName,
+      nextValue,
+    );
+
+    if (didCommit) {
+      await rememberWorkbookOption(dropdown.field, nextValue);
+    }
+  };
+
+  const updateTurmaDropdownDraft = (value: string) => {
+    const nextDraftValue =
+      activeTurmaDropdownRef.current?.field === 'period'
+        ? getPeriodDigits(value)
+        : value;
+
+    setActiveTurmaDropdown((currentDropdown) => {
+      if (!currentDropdown) {
+        return currentDropdown;
+      }
+
+      return {
+        ...currentDropdown,
+        draftValue:
+          currentDropdown.field === 'period'
+            ? getPeriodDigits(value)
+            : nextDraftValue,
+      };
+    });
+    activeTurmaDropdownRef.current = activeTurmaDropdownRef.current
+      ? {
+          ...activeTurmaDropdownRef.current,
+          draftValue: nextDraftValue,
+        }
+      : null;
+
+    if (activeTurmaDropdownRef.current?.field === 'period') {
+      const cursorPosition = getPeriodCursorPosition(nextDraftValue.length);
+      window.requestAnimationFrame(() => {
+        turmaPeriodInputRef.current?.setSelectionRange(
+          cursorPosition,
+          cursorPosition,
+        );
+      });
+    }
+  };
+
+  const startTurmaNameEdit = (rowIndex: number, value: string) => {
+    void commitActiveTurmaNameEdit();
+    activeTurmaDropdownRef.current = null;
+    setActiveTurmaDropdown(null);
+    setActiveTurmaNameEdit({
+      rowIndex,
+      initialValue: value,
+      draftValue: value,
+    });
+  };
+
+  const handleTurmaNameKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void commitActiveTurmaNameEdit();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      activeTurmaNameEditRef.current = null;
+      setActiveTurmaNameEdit(null);
+    }
+  };
+
+  const handleTurmaDropdownKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    const dropdown = activeTurmaDropdownRef.current;
+
+    if (dropdown?.field === 'period') {
+      if (/^\d$/.test(event.key)) {
+        event.preventDefault();
+
+        if (dropdown.draftValue.length < 8) {
+          updateTurmaDropdownDraft(dropdown.draftValue + event.key);
+        }
+
+        return;
+      }
+
+      if (event.key === 'Backspace') {
+        event.preventDefault();
+        updateTurmaDropdownDraft(dropdown.draftValue.slice(0, -1));
+        return;
+      }
+
+      if (event.key === 'Delete') {
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void commitTurmaDropdownDraft();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      activeTurmaDropdownRef.current = null;
+      setActiveTurmaDropdown(null);
+    }
+  };
+
+  const handleTurmaPeriodPaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const dropdown = activeTurmaDropdownRef.current;
+
+    if (dropdown?.field !== 'period') {
+      return;
+    }
+
+    event.preventDefault();
+    updateTurmaDropdownDraft(
+      (dropdown.draftValue + getPeriodDigits(event.clipboardData.getData('text'))).slice(
+        0,
+        8,
+      ),
+    );
+  };
+
   const protectUndoCommit = () => {
     isApplyingUndoRef.current = true;
 
@@ -2858,6 +3489,32 @@ export function TurmasPage({
     }
   };
 
+  const undoTurmaHeaderEditAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isTurmaFieldUndoEntry(entry)) {
+      return false;
+    }
+
+    return commitTurmaHeaderField(
+      entry.rowIndex,
+      entry.columnName,
+      entry.previousValue,
+      { trackUndo: false },
+    );
+  };
+
+  const redoTurmaHeaderEditAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isTurmaFieldUndoEntry(entry)) {
+      return false;
+    }
+
+    return commitTurmaHeaderField(
+      entry.rowIndex,
+      entry.columnName,
+      entry.nextValue,
+      { trackUndo: false },
+    );
+  };
+
   const runUndoShortcut = (
     event: Pick<
       KeyboardEvent,
@@ -2898,7 +3555,10 @@ export function TurmasPage({
   useEffect(
     () =>
       registerGlobalUndoController('turmas', {
-        beforeUndo: commitActiveStudentEditForUndo,
+        beforeUndo: async () => {
+          await commitActiveTurmaNameEdit();
+          await commitActiveStudentEditForUndo();
+        },
         undo: (entry) => {
           if (entry.kind === 'global-import') {
             return undoGlobalBoundaryAction(entry);
@@ -2906,6 +3566,10 @@ export function TurmasPage({
 
           if (entry.kind === 'global-recovery') {
             return undoGlobalRecoveryAction(entry);
+          }
+
+          if (isTurmaFieldUndoEntry(entry)) {
+            return undoTurmaHeaderEditAndSave(entry);
           }
 
           return undoLastActionAndSave(entry);
@@ -2919,10 +3583,14 @@ export function TurmasPage({
             return redoGlobalRecoveryAction(entry);
           }
 
+          if (isTurmaFieldUndoEntry(entry)) {
+            return redoTurmaHeaderEditAndSave(entry);
+          }
+
           return redoLastActionAndSave(entry);
         },
       }),
-    [aprendizesSheet, selectedStudentRowIndex],
+    [aprendizesSheet, selectedStudentRowIndex, turmasSheet],
   );
 
   const hasWorkingSheet = Boolean(turmasSheet);
@@ -3043,8 +3711,42 @@ export function TurmasPage({
                         aria-expanded={isExpanded}
                         onClick={() => toggleTurma(turmaKey)}
                       >
-                        <span className="turma-header-title">
-                          <span className="turma-header-text">{turmaName}</span>
+                        <span
+                          className={
+                            activeTurmaNameEdit?.rowIndex === turmaRowIndex
+                              ? 'turma-header-title active'
+                              : 'turma-header-title'
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (activeTurmaNameEdit?.rowIndex !== turmaRowIndex) {
+                              startTurmaNameEdit(turmaRowIndex, turmaName);
+                            }
+                          }}
+                        >
+                          {activeTurmaNameEdit?.rowIndex === turmaRowIndex ? (
+                            <input
+                              className="turma-header-inline-input"
+                              autoFocus
+                              value={activeTurmaNameEdit.draftValue}
+                              onBlur={() => void commitActiveTurmaNameEdit()}
+                              onChange={(event) => {
+                                const nextEdit = {
+                                  ...activeTurmaNameEdit,
+                                  draftValue: event.target.value,
+                                };
+
+                                activeTurmaNameEditRef.current = nextEdit;
+                                setActiveTurmaNameEdit(nextEdit);
+                              }}
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={handleTurmaNameKeyDown}
+                            />
+                          ) : (
+                            <span className="turma-header-text">
+                              {turmaName}
+                            </span>
+                          )}
                         </span>
                         <span
                           className="turma-header-separator turma-header-leading-separator"
@@ -3055,7 +3757,13 @@ export function TurmasPage({
                           onScroll={handleStudentsPanelScroll}
                         >
                           <span className="turma-header-details-track">
-                            <span className="turma-header-detail turma-header-count">
+                            <span
+                              className="turma-header-detail turma-header-count"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleTurma(turmaKey);
+                              }}
+                            >
                               <PeopleIcon />
                               <span className="turma-header-text">
                                 {turmaHeader?.count ?? '0'}
@@ -3065,7 +3773,22 @@ export function TurmasPage({
                               className="turma-header-separator"
                               aria-hidden="true"
                             />
-                            <span className="turma-header-detail turma-header-day">
+                            <span
+                              className={
+                                activeTurmaDropdown?.rowIndex === turmaRowIndex &&
+                                activeTurmaDropdown.field === 'day'
+                                  ? 'turma-header-detail turma-header-day active'
+                                  : 'turma-header-detail turma-header-day'
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTurmaDropdown(
+                                  turmaRowIndex,
+                                  'day',
+                                  event.currentTarget,
+                                );
+                              }}
+                            >
                               {turmaHeader?.isMorning ? (
                                 <Brightness2Icon />
                               ) : (
@@ -3079,7 +3802,22 @@ export function TurmasPage({
                               className="turma-header-separator"
                               aria-hidden="true"
                             />
-                            <span className="turma-header-detail turma-header-period">
+                            <span
+                              className={
+                                activeTurmaDropdown?.rowIndex === turmaRowIndex &&
+                                activeTurmaDropdown.field === 'period'
+                                  ? 'turma-header-detail turma-header-period active'
+                                  : 'turma-header-detail turma-header-period'
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTurmaDropdown(
+                                  turmaRowIndex,
+                                  'period',
+                                  event.currentTarget,
+                                );
+                              }}
+                            >
                               <ClockHour4Icon />
                               <span className="turma-header-text">
                                 {turmaHeader?.period ?? '-'}
@@ -3089,7 +3827,22 @@ export function TurmasPage({
                               className="turma-header-separator"
                               aria-hidden="true"
                             />
-                            <span className="turma-header-detail turma-header-instructor">
+                            <span
+                              className={
+                                activeTurmaDropdown?.rowIndex === turmaRowIndex &&
+                                activeTurmaDropdown.field === 'instructor'
+                                  ? 'turma-header-detail turma-header-instructor active'
+                                  : 'turma-header-detail turma-header-instructor'
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTurmaDropdown(
+                                  turmaRowIndex,
+                                  'instructor',
+                                  event.currentTarget,
+                                );
+                              }}
+                            >
                               <SchoolIcon />
                               <span className="turma-header-text">
                                 {turmaHeader?.instructor ?? '-'}
@@ -3099,12 +3852,31 @@ export function TurmasPage({
                               className="turma-header-separator"
                               aria-hidden="true"
                             />
-                            <span className="turma-header-detail turma-header-room">
+                            <span
+                              className={
+                                activeTurmaDropdown?.rowIndex === turmaRowIndex &&
+                                activeTurmaDropdown.field === 'room'
+                                  ? 'turma-header-detail turma-header-room active'
+                                  : 'turma-header-detail turma-header-room'
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTurmaDropdown(
+                                  turmaRowIndex,
+                                  'room',
+                                  event.currentTarget,
+                                );
+                              }}
+                            >
                               <DoorIcon />
                               <span className="turma-header-text">
                                 {turmaHeader?.room ?? '-'}
                               </span>
                             </span>
+                            <span
+                              className="turma-header-separator"
+                              aria-hidden="true"
+                            />
                           </span>
                         </span>
                         <ChevronIcon expanded={isExpanded} />
@@ -3306,6 +4078,69 @@ export function TurmasPage({
                   className="turmas-shared-horizontal-scroll-spacer"
                   style={{ width: sharedHorizontalScrollWidth }}
                 />
+              </div>
+            )}
+            {activeTurmaDropdown && (
+              <div
+                className="turma-header-dropdown"
+                style={activeTurmaDropdown.style}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                {activeTurmaDropdown.field !== 'day' && (
+                  <label className="turma-header-dropdown-create">
+                    <input
+                      ref={
+                        activeTurmaDropdown.field === 'period'
+                          ? turmaPeriodInputRef
+                          : null
+                      }
+                      autoFocus
+                      value={
+                        activeTurmaDropdown.field === 'period'
+                          ? formatPeriodDigits(activeTurmaDropdown.draftValue)
+                          : activeTurmaDropdown.draftValue
+                      }
+                      onBlur={() => void commitTurmaDropdownDraft()}
+                      onChange={(event) =>
+                        updateTurmaDropdownDraft(event.target.value)
+                      }
+                      onClick={() => {
+                        if (activeTurmaDropdown.field !== 'period') {
+                          return;
+                        }
+
+                        const cursorPosition = getPeriodCursorPosition(
+                          activeTurmaDropdown.draftValue.length,
+                        );
+                        turmaPeriodInputRef.current?.setSelectionRange(
+                          cursorPosition,
+                          cursorPosition,
+                        );
+                      }}
+                      onKeyDown={handleTurmaDropdownKeyDown}
+                      onPaste={handleTurmaPeriodPaste}
+                    />
+                  </label>
+                )}
+                <div className="turma-header-dropdown-options">
+                  {getTurmaDropdownOptions(activeTurmaDropdown.field).map(
+                    (option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() =>
+                          void selectTurmaDropdownValue(
+                            activeTurmaDropdown,
+                            option,
+                          )
+                        }
+                      >
+                        {option}
+                      </button>
+                    ),
+                  )}
+                </div>
               </div>
             )}
             {shouldShowStudentDetailsPanel &&
