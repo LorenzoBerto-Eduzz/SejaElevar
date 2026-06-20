@@ -9,6 +9,7 @@ import {
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
+  type PointerEvent,
   type UIEvent,
   type WheelEvent,
 } from 'react';
@@ -76,6 +77,13 @@ type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
 
 const normalizeCell = (value: unknown) => String(value ?? '').trim();
 const APRENDIZES_VIEW_STORAGE_KEY = 'sejaelevar.aprendizes.view.v1';
+const TURMAS_SCHEDULE_MONTH_STORAGE_KEY =
+  'sejaelevar.turmas.scheduleMonth.v1';
+const TURMAS_EXPANDED_SPLIT_STORAGE_KEY =
+  'sejaelevar.turmas.expandedSplit.v1';
+const DEFAULT_TURMAS_EXPANDED_SPLIT_PERCENT = 50;
+const MIN_TURMAS_EXPANDED_SPLIT_PERCENT = 28;
+const MAX_TURMAS_EXPANDED_SPLIT_PERCENT = 72;
 const DEFAULT_COLUMN_WIDTH = 96;
 const MIN_COLUMN_WIDTH = 34;
 const TABLE_HORIZONTAL_PADDING = 10;
@@ -463,6 +471,28 @@ const TURMA_DAY_OPTIONS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
 const TURMA_DAY_ORDER = new Map(
   TURMA_DAY_OPTIONS.map((day, index) => [normalizeFieldLabel(day), index]),
 );
+const TURMA_WEEKDAY_INDEX = new Map([
+  ['segunda', 1],
+  ['segunda feira', 1],
+  ['segunda-feira', 1],
+  ['seg', 1],
+  ['terca', 2],
+  ['terca feira', 2],
+  ['terca-feira', 2],
+  ['ter', 2],
+  ['quarta', 3],
+  ['quarta feira', 3],
+  ['quarta-feira', 3],
+  ['qua', 3],
+  ['quinta', 4],
+  ['quinta feira', 4],
+  ['quinta-feira', 4],
+  ['qui', 4],
+  ['sexta', 5],
+  ['sexta feira', 5],
+  ['sexta-feira', 5],
+  ['sex', 5],
+]);
 const PERIOD_CURSOR_POSITIONS = [0, 1, 3, 4, 9, 10, 12, 13, 15];
 
 const isPeriodDigitAllowed = (digit: string, digitIndex: number) => {
@@ -515,6 +545,129 @@ const getCommittedPeriodFromDigits = (digits: string) =>
 
 const getPeriodCursorPosition = (digitCount: number) =>
   PERIOD_CURSOR_POSITIONS[Math.max(0, Math.min(digitCount, 8))] ?? 0;
+
+const getStoredScheduleMonth = () => {
+  const fallbackMonth = new Date();
+  fallbackMonth.setDate(1);
+  fallbackMonth.setHours(0, 0, 0, 0);
+
+  if (typeof window === 'undefined') {
+    return fallbackMonth;
+  }
+
+  const storedMonth = window.localStorage.getItem(
+    TURMAS_SCHEDULE_MONTH_STORAGE_KEY,
+  );
+  const storedMatch = storedMonth?.match(/^(\d{4})-(\d{2})$/);
+
+  if (!storedMatch) {
+    return fallbackMonth;
+  }
+
+  const year = Number.parseInt(storedMatch[1], 10);
+  const monthIndex = Number.parseInt(storedMatch[2], 10) - 1;
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(monthIndex) ||
+    monthIndex < 0 ||
+    monthIndex > 11
+  ) {
+    return fallbackMonth;
+  }
+
+  return new Date(year, monthIndex, 1);
+};
+
+const getStoredScheduleMonthKey = (month: Date) =>
+  `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+
+const shiftScheduleMonth = (month: Date, offset: number) =>
+  new Date(month.getFullYear(), month.getMonth() + offset, 1);
+
+const formatScheduleMonthShort = (month: Date) =>
+  `${['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][
+    month.getMonth()
+  ]}/${String(month.getFullYear()).slice(-2)}`;
+
+const formatScheduleDate = (date: Date) =>
+  date.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+  });
+
+const clampTurmasExpandedSplit = (value: number) =>
+  Math.max(
+    MIN_TURMAS_EXPANDED_SPLIT_PERCENT,
+    Math.min(MAX_TURMAS_EXPANDED_SPLIT_PERCENT, value),
+  );
+
+const readTurmasExpandedSplitPercent = () => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_TURMAS_EXPANDED_SPLIT_PERCENT;
+  }
+
+  const savedValue = Number.parseFloat(
+    window.localStorage.getItem(TURMAS_EXPANDED_SPLIT_STORAGE_KEY) || '',
+  );
+
+  return Number.isFinite(savedValue)
+    ? clampTurmasExpandedSplit(savedValue)
+    : DEFAULT_TURMAS_EXPANDED_SPLIT_PERCENT;
+};
+
+const getTurmaWeekdayIndex = (value: string) =>
+  TURMA_WEEKDAY_INDEX.get(normalizeFieldLabel(value)) ?? null;
+
+const getScheduleDatesForWeekday = (month: Date, weekdayIndex: number) => {
+  const dates: Date[] = [];
+  const cursor = new Date(month.getFullYear(), month.getMonth(), 1);
+
+  while (cursor.getMonth() === month.getMonth()) {
+    if (cursor.getDay() === weekdayIndex) {
+      dates.push(new Date(cursor));
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+};
+
+const getTurmaPeriodRange = (value: string) => {
+  const startMinutes = getTurmaPeriodStartMinutes(value);
+  const endMinutes = getTurmaPeriodEndMinutes(value);
+
+  if (
+    startMinutes === null ||
+    endMinutes === null ||
+    endMinutes <= startMinutes
+  ) {
+    return null;
+  }
+
+  return {
+    startMinutes,
+    endMinutes,
+  };
+};
+
+const getScheduleTimeSlots = (startMinutes: number, endMinutes: number) => {
+  const slots: number[] = [];
+
+  for (let minutes = startMinutes; minutes <= endMinutes; minutes += 15) {
+    slots.push(minutes);
+  }
+
+  return slots;
+};
+
+const formatMinutesAsTime = (minutes: number) => {
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};
 
 const readPixelCustomProperty = (
   element: Element,
@@ -724,7 +877,7 @@ export function TurmasPage({
   const boardFrameRef = useRef<HTMLDivElement>(null);
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const sharedHorizontalScrollRef = useRef<HTMLDivElement>(null);
-  const addStudentCellRef = useRef<HTMLTableCellElement>(null);
+  const addStudentCellRef = useRef<HTMLDivElement>(null);
   const addStudentOptionsRef = useRef<HTMLDivElement>(null);
   const invalidImportToastTimerRef = useRef<number | null>(null);
   const undoStackRef = useRef<TableUndoEntry[]>([]);
@@ -764,6 +917,10 @@ export function TurmasPage({
     rowIndex: number;
     turmaName: string;
   } | null>(null);
+  const [scheduleMonth, setScheduleMonth] = useState(getStoredScheduleMonth);
+  const [expandedSplitPercent, setExpandedSplitPercent] = useState(
+    readTurmasExpandedSplitPercent,
+  );
   const [activeAddTurmaKey, setActiveAddTurmaKey] = useState('');
   const [addStudentSearch, setAddStudentSearch] = useState('');
   const [addStudentDropdownStyle, setAddStudentDropdownStyle] =
@@ -802,6 +959,20 @@ export function TurmasPage({
   useEffect(() => {
     activeTurmaDropdownRef.current = activeTurmaDropdown;
   }, [activeTurmaDropdown]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      TURMAS_SCHEDULE_MONTH_STORAGE_KEY,
+      getStoredScheduleMonthKey(scheduleMonth),
+    );
+  }, [scheduleMonth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      TURMAS_EXPANDED_SPLIT_STORAGE_KEY,
+      String(expandedSplitPercent),
+    );
+  }, [expandedSplitPercent]);
 
   useLayoutEffect(() => {
     if (activeTurmaDropdown?.field !== 'period') {
@@ -959,6 +1130,42 @@ export function TurmasPage({
     }
 
     syncTurmaStudentsHorizontalScroll(event.currentTarget.scrollLeft);
+  };
+
+  const startExpandedSplitResize = (event: PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+
+    const container = event.currentTarget.closest('.turma-expanded-content');
+
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    const updateSplitFromPointer = (clientX: number) => {
+      const rect = container.getBoundingClientRect();
+
+      if (rect.width <= 0) {
+        return;
+      }
+
+      const nextPercent = ((clientX - rect.left) / rect.width) * 100;
+      setExpandedSplitPercent(clampTurmasExpandedSplit(nextPercent));
+    };
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+      updateSplitFromPointer(moveEvent.clientX);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('pointercancel', stopResize);
+    };
+
+    updateSplitFromPointer(event.clientX);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
   };
 
   const handleBoardWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -4205,6 +4412,137 @@ export function TurmasPage({
           ]
         : [];
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
+  const scheduleMonthLabel = formatScheduleMonthShort(scheduleMonth);
+
+  const renderTurmaSchedulePanel = (
+    turmaDayValue: string,
+    turmaPeriodValue: string,
+  ) => {
+    const weekdayIndex = getTurmaWeekdayIndex(turmaDayValue);
+    const periodRange = getTurmaPeriodRange(turmaPeriodValue);
+
+    if (weekdayIndex === null || !periodRange) {
+      return (
+        <section
+          className="turma-schedule-panel turma-schedule-panel-empty"
+          aria-label="Cronograma da turma"
+        >
+          <div className="turma-schedule-empty-state">
+            Defina dia e periodo para visualizar o cronograma.
+          </div>
+        </section>
+      );
+    }
+
+    const scheduleDates = getScheduleDatesForWeekday(
+      scheduleMonth,
+      weekdayIndex,
+    );
+    const timeSlots = getScheduleTimeSlots(
+      periodRange.startMinutes,
+      periodRange.endMinutes,
+    );
+    const gridStyle = {
+      '--turma-schedule-date-count': Math.max(1, scheduleDates.length),
+    } as CSSProperties;
+
+    return (
+      <section className="turma-schedule-panel" aria-label="Cronograma da turma">
+        <div className="turma-schedule-grid" style={gridStyle}>
+          <div className="turma-schedule-corner">
+            <div className="turma-schedule-month-controls">
+              <span>{scheduleMonthLabel}</span>
+            </div>
+          </div>
+          {scheduleDates.map((date, dateIndex) => (
+            <div
+              className={
+                dateIndex === scheduleDates.length - 1
+                  ? 'turma-schedule-date-header last'
+                  : 'turma-schedule-date-header'
+              }
+              key={date.toISOString()}
+            >
+              {dateIndex === 0 && (
+                <button
+                  className="turma-schedule-nav-button turma-schedule-nav-button-previous"
+                  type="button"
+                  aria-label="Mes anterior"
+                  onClick={() =>
+                    setScheduleMonth((currentMonth) =>
+                      shiftScheduleMonth(currentMonth, -1),
+                    )
+                  }
+                >
+                  <ChevronIcon expanded={false} />
+                </button>
+              )}
+              <span>{formatScheduleDate(date)}</span>
+              {dateIndex === scheduleDates.length - 1 && (
+                <button
+                  className="turma-schedule-nav-button turma-schedule-nav-button-next"
+                  type="button"
+                  aria-label="Proximo mes"
+                  onClick={() =>
+                    setScheduleMonth((currentMonth) =>
+                      shiftScheduleMonth(currentMonth, 1),
+                    )
+                  }
+                >
+                  <ChevronIcon expanded={false} />
+                </button>
+              )}
+            </div>
+          ))}
+          {timeSlots.map((slotMinutes) => {
+            const isInsidePeriod = slotMinutes <= periodRange.endMinutes;
+            const isMajorSlot = slotMinutes % 30 === 0;
+            const isPeriodStartSlot = slotMinutes === periodRange.startMinutes;
+            const isFirstScheduleSlot = slotMinutes === periodRange.startMinutes;
+            const scheduleLineClass = isInsidePeriod && isMajorSlot && !isPeriodStartSlot
+              ? 'major'
+              : isInsidePeriod && !isMajorSlot
+                ? 'quarter'
+                : '';
+
+            return (
+              <div className="turma-schedule-row" key={slotMinutes}>
+                <div
+                  className={
+                    ['turma-schedule-time-label', scheduleLineClass]
+                      .concat(isFirstScheduleSlot ? ['first-slot'] : [])
+                      .filter(Boolean)
+                      .join(' ')
+                  }
+                >
+                  {isInsidePeriod && isMajorSlot ? (
+                    <span>{formatMinutesAsTime(slotMinutes)}</span>
+                  ) : (
+                    ''
+                  )}
+                </div>
+                {scheduleDates.map((date, dateIndex) => (
+                  <div
+                    className={
+                      [
+                        'turma-schedule-slot',
+                        scheduleLineClass,
+                        isFirstScheduleSlot ? 'first-slot' : '',
+                        dateIndex === scheduleDates.length - 1 ? 'last' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                    }
+                    key={`${date.toISOString()}-${slotMinutes}`}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <section className="feature-page" aria-labelledby="turmas-title">
@@ -4593,7 +4931,12 @@ export function TurmasPage({
                             </>
                           ) : (
                             <>
-                              <ChevronIcon expanded={isExpanded} />
+                              <span
+                                className="turma-header-arrow-slot"
+                                aria-hidden="true"
+                              >
+                                <ChevronIcon expanded={isExpanded} />
+                              </span>
                               <button
                                 className="turma-header-action-button turma-header-delete-button"
                                 type="button"
@@ -4618,180 +4961,204 @@ export function TurmasPage({
 
                       {isExpanded && (
                         <div
-                          className="turma-students-panel"
-                          onScroll={handleStudentsPanelScroll}
+                          className="turma-expanded-content"
+                          style={
+                            {
+                              '--turma-expanded-left': `${expandedSplitPercent}%`,
+                            } as CSSProperties
+                          }
                         >
-                          {aprendizesSheet ? (
-                            <table className="data-table turma-students-table">
-                              <colgroup>
-                                {orderedAprendizColumns.map((column) => (
-                                  <col
-                                    key={column}
-                                    style={getAprendizColumnWidthStyle(column)}
-                                  />
-                                ))}
-                              </colgroup>
-                              <tbody>
-                                {assignedStudents.map(({ row, rowIndex }) => (
-                                  <tr
-                                    className={
-                                      selectedStudentRowIndex === rowIndex
-                                        ? 'row-details-selected'
-                                        : ''
-                                    }
-                                    key={rowIndex}
-                                    onClick={() => selectStudentFromTable(rowIndex)}
-                                  >
-                                    {orderedAprendizColumns.map(
-                                      (column, orderedColumnIndex) => {
-                                        const sourceColumnIndex =
-                                          aprendizesSheet.columns.indexOf(column);
-                                        const value =
-                                          sourceColumnIndex >= 0
-                                            ? row[sourceColumnIndex] || ''
-                                            : '';
-                                        const isTurmaColumn =
-                                          normalizeFieldLabel(column) ===
-                                          normalizeFieldLabel(TURMA_COLUMN);
-                                        const isInvalidTurma =
-                                          isTurmaColumn &&
-                                          value !== '' &&
-                                          getCanonicalDropdownValue(
-                                            value,
-                                            turmaNames,
-                                          ) === null;
-
-                                        return (
-                                          <td
-                                            className={
-                                              [
-                                                orderedColumnIndex === 0
-                                                  ? 'pinned-column'
-                                                  : '',
-                                                isInvalidTurma
-                                                  ? 'invalid-dropdown-cell'
-                                                  : '',
-                                              ]
-                                                .filter(Boolean)
-                                                .join(' ')
-                                            }
-                                            key={`${rowIndex}-${column}`}
-                                            style={getAprendizColumnWidthStyle(
-                                              column,
-                                            )}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              selectStudentFromTable(
-                                                rowIndex,
-                                                column,
-                                              );
-                                            }}
-                                          >
-                                            {value}
-                                          </td>
-                                        );
-                                      },
-                                    )}
-                                  </tr>
-                                ))}
-                                <tr className="turma-add-student-row">
-                                  <td
-                                    className={
-                                      activeAddTurmaKey === turmaKey
-                                        ? 'turma-add-student-cell active'
-                                        : 'turma-add-student-cell'
-                                    }
-                                    colSpan={orderedAprendizColumns.length}
-                                    ref={
-                                      activeAddTurmaKey === turmaKey
-                                        ? addStudentCellRef
-                                        : null
-                                    }
-                                    onClick={() => {
-                                      if (activeAddTurmaKey !== turmaKey) {
-                                        openAddStudentPicker(turmaKey);
+                          <div
+                            className="turma-students-panel"
+                            onScroll={handleStudentsPanelScroll}
+                          >
+                            {aprendizesSheet ? (
+                              <>
+                              <table className="data-table turma-students-table">
+                                <colgroup>
+                                  {orderedAprendizColumns.map((column) => (
+                                    <col
+                                      key={column}
+                                      style={getAprendizColumnWidthStyle(column)}
+                                    />
+                                  ))}
+                                </colgroup>
+                                <tbody>
+                                  {assignedStudents.map(({ row, rowIndex }) => (
+                                    <tr
+                                      className={
+                                        selectedStudentRowIndex === rowIndex
+                                          ? 'row-details-selected'
+                                          : ''
                                       }
-                                    }}
-                                  >
-                                    {activeAddTurmaKey === turmaKey ? (
-                                      <div
-                                        className="turma-add-student-picker"
-                                        onBlur={(event) => {
-                                          const nextFocusedElement =
-                                            event.relatedTarget;
+                                      key={rowIndex}
+                                      onClick={() => selectStudentFromTable(rowIndex)}
+                                    >
+                                      {orderedAprendizColumns.map(
+                                        (column, orderedColumnIndex) => {
+                                          const sourceColumnIndex =
+                                            aprendizesSheet.columns.indexOf(column);
+                                          const value =
+                                            sourceColumnIndex >= 0
+                                              ? row[sourceColumnIndex] || ''
+                                              : '';
+                                          const isTurmaColumn =
+                                            normalizeFieldLabel(column) ===
+                                            normalizeFieldLabel(TURMA_COLUMN);
+                                          const isInvalidTurma =
+                                            isTurmaColumn &&
+                                            value !== '' &&
+                                            getCanonicalDropdownValue(
+                                              value,
+                                              turmaNames,
+                                            ) === null;
 
-                                          if (
-                                            nextFocusedElement instanceof Node &&
-                                            event.currentTarget.contains(
-                                              nextFocusedElement,
-                                            )
-                                          ) {
-                                            return;
-                                          }
-
-                                          setActiveAddTurmaKey('');
-                                          setAddStudentSearch('');
-                                        }}
-                                      >
-                                        <input
-                                          autoFocus
-                                          aria-label="Buscar aprendiz"
-                                          value={addStudentSearch}
-                                          onChange={(event) =>
-                                            setAddStudentSearch(
-                                              event.target.value,
-                                            )
-                                          }
-                                          onKeyDown={(event) => {
-                                            if (event.key === 'Escape') {
-                                              setActiveAddTurmaKey('');
-                                              setAddStudentSearch('');
-                                            }
-                                          }}
-                                        />
-                                        <div
-                                          className="turma-add-student-options"
-                                          ref={addStudentOptionsRef}
-                                          style={addStudentDropdownStyle}
-                                        >
-                                          {filterAvailableStudents(
-                                            availableStudents,
-                                            aprendizesSheet,
-                                            addStudentSearch,
-                                          ).map(({ row, rowIndex }) => (
-                                            <button
-                                              key={rowIndex}
-                                              type="button"
-                                              onMouseDown={(event) =>
-                                                event.preventDefault()
+                                          return (
+                                            <td
+                                              className={
+                                                [
+                                                  orderedColumnIndex === 0
+                                                    ? 'pinned-column'
+                                                    : '',
+                                                  isInvalidTurma
+                                                    ? 'invalid-dropdown-cell'
+                                                    : '',
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join(' ')
                                               }
-                                              onClick={() =>
-                                                handleAddStudentToTurma(
-                                                  turmaName,
+                                              key={`${rowIndex}-${column}`}
+                                              style={getAprendizColumnWidthStyle(
+                                                column,
+                                              )}
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                selectStudentFromTable(
                                                   rowIndex,
-                                                )
-                                              }
+                                                  column,
+                                                );
+                                              }}
                                             >
-                                              {getCellValue(
-                                                aprendizesSheet,
-                                                row,
-                                                NAME_COLUMN,
-                                              ) || `Aprendiz ${rowIndex + 1}`}
-                                            </button>
-                                          ))}
-                                        </div>
+                                              {value}
+                                            </td>
+                                          );
+                                        },
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              <div
+                                className={
+                                  activeAddTurmaKey === turmaKey
+                                    ? 'turma-add-student-row turma-add-student-row-active'
+                                    : 'turma-add-student-row'
+                                }
+                              >
+                                <div
+                                  className={
+                                    activeAddTurmaKey === turmaKey
+                                      ? 'turma-add-student-cell active'
+                                      : 'turma-add-student-cell'
+                                  }
+                                  ref={
+                                    activeAddTurmaKey === turmaKey
+                                      ? addStudentCellRef
+                                      : null
+                                  }
+                                  onClick={() => {
+                                    if (activeAddTurmaKey !== turmaKey) {
+                                      openAddStudentPicker(turmaKey);
+                                    }
+                                  }}
+                                >
+                                  {activeAddTurmaKey === turmaKey ? (
+                                    <div
+                                      className="turma-add-student-picker"
+                                      onBlur={(event) => {
+                                        const nextFocusedElement =
+                                          event.relatedTarget;
+
+                                        if (
+                                          nextFocusedElement instanceof Node &&
+                                          event.currentTarget.contains(
+                                            nextFocusedElement,
+                                          )
+                                        ) {
+                                          return;
+                                        }
+
+                                        setActiveAddTurmaKey('');
+                                        setAddStudentSearch('');
+                                      }}
+                                    >
+                                      <input
+                                        autoFocus
+                                        aria-label="Buscar aprendiz"
+                                        value={addStudentSearch}
+                                        onChange={(event) =>
+                                          setAddStudentSearch(event.target.value)
+                                        }
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Escape') {
+                                            setActiveAddTurmaKey('');
+                                            setAddStudentSearch('');
+                                          }
+                                        }}
+                                      />
+                                      <div
+                                        className="turma-add-student-options"
+                                        ref={addStudentOptionsRef}
+                                        style={addStudentDropdownStyle}
+                                      >
+                                        {filterAvailableStudents(
+                                          availableStudents,
+                                          aprendizesSheet,
+                                          addStudentSearch,
+                                        ).map(({ row, rowIndex }) => (
+                                          <button
+                                            key={rowIndex}
+                                            type="button"
+                                            onMouseDown={(event) =>
+                                              event.preventDefault()
+                                            }
+                                            onClick={() =>
+                                              handleAddStudentToTurma(
+                                                turmaName,
+                                                rowIndex,
+                                              )
+                                            }
+                                          >
+                                            {getCellValue(
+                                              aprendizesSheet,
+                                              row,
+                                              NAME_COLUMN,
+                                            ) || `Aprendiz ${rowIndex + 1}`}
+                                          </button>
+                                        ))}
                                       </div>
-                                    ) : (
-                                      <span>+ Adicionar Aprendiz</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div className="turma-empty-students">
-                              Nenhuma planilha de aprendizes encontrada.
-                            </div>
+                                    </div>
+                                  ) : (
+                                    <span>+ Adicionar Aprendiz</span>
+                                  )}
+                                </div>
+                              </div>
+                              </>
+                            ) : (
+                              <div className="turma-empty-students">
+                                Nenhuma planilha de aprendizes encontrada.
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            className="turma-expanded-resize-handle"
+                            type="button"
+                            aria-label="Redimensionar lista e cronograma"
+                            onPointerDown={startExpandedSplitResize}
+                          />
+                          {renderTurmaSchedulePanel(
+                            getCellValue(turmasSheet, turmaRow, TURMA_DAY_COLUMN),
+                            getCellValue(turmasSheet, turmaRow, TURMA_PERIOD_COLUMN),
                           )}
                         </div>
                       )}
@@ -5073,7 +5440,7 @@ export function TurmasPage({
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="recovery-dialog-header">
-              <h2 id="turma-delete-dialog-title">Confirmar aÃ§Ã£o</h2>
+              <h2 id="turma-delete-dialog-title">Confirmar ação</h2>
               <button
                 className="dialog-close-button"
                 type="button"
@@ -5084,7 +5451,7 @@ export function TurmasPage({
               </button>
             </div>
             <p>
-              VocÃª estÃ¡ prestes a deletar a turma{' '}
+              Você está prestes a deletar a turma{' '}
               {turmaDeleteConfirmation.turmaName || 'sem nome'}.
             </p>
             <button

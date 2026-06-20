@@ -99,6 +99,11 @@ Current Turmas behavior:
 - The source workbook is not rewritten during Turmas import. In the app display and generated data index, apprentice membership is derived from linked Aprendizes when Aprendizes data exists. If an old Turmas sheet still contains legacy `No. de Aprendizes` or `Aprendizes` columns, they can be preserved as extra source columns but should not be treated as the relationship source of truth.
 - Importing a workbook whose headers do not match the active tool schema shows a bottom-right red toast for 3 seconds: `Arquivo escolhido não possui os valores necessários`.
 
+Expanded Turmas timetable visual/storage note:
+
+- The expanded Turma body is a split work surface. The left side shows assigned Aprendizes and owns vertical scrolling when the list is longer than the available space. The right side is a filtered timetable preview for that Turma's `Dia` and `PerÃ­odo`; it should not have independent vertical scrolling.
+- The timetable currently renders true 15-minute rows aligned to the Aprendizes row height, with a small visual tail after the period end. It intentionally does not render 5-minute rows. Future Aula/Cronograma blocks should snap to thirds of a 15-minute row for 5-minute movement/resizing.
+
 ## Generated Data Index
 
 The `.xlsx` files remain the source of truth. The app also maintains a generated internal index for search, document generation, and future cross-tool variable lookup.

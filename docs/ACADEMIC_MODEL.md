@@ -83,6 +83,16 @@ The Turma timetable should be based on:
 - the Turma's start/end time range
 - 15-minute snapping for block placement/resizing
 
+Current UI direction for the Turma expanded body:
+
+- The expanded Turma body is split into a left Aprendizes list and a right Turma timetable preview.
+- The divider between those two areas is draggable in dev and persists the chosen percentage locally; approved values can be baked into source later.
+- The left list is the assigned-Aprendizes view, with `+ Adicionar Aprendiz` behaving like the fixed bottom row for that list.
+- The right timetable is currently only the visual/planning surface for future Aula/Cronograma blocks. It is not yet storing scheduled blocks.
+- The timetable header shows the selected month/year and the dates for the Turma's selected weekday in that month.
+- The timetable visual grid renders real 15-minute rows aligned to the Aprendizes row height. It intentionally does not render 5-minute DOM/visual rows; future block movement/resizing should snap to thirds inside each 15-minute row to represent 5-minute increments.
+- Timetable vertical scrolling should not be used. The expanded body should grow to fit the Turma's configured period plus a small visual tail after the end time, while the left Aprendizes list can scroll vertically when many Aprendizes are assigned.
+
 For now a Turma is expected to have one weekday. The model should remain open to multiple weekdays later, where the same control could allow multiple checked days and the timetable could show multiple columns.
 
 ## Global Cronograma

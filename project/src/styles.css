@@ -1542,13 +1542,14 @@ svg {
 
 .turmas-board {
   display: grid;
-  gap: 20px;
+  gap: 30px;
   width: 100%;
   min-width: 100%;
   padding: 0;
 }
 
 .turma-group {
+  position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
@@ -1560,6 +1561,7 @@ svg {
 }
 
 .turma-group:has(.turma-add-student-cell.active) {
+  z-index: 40;
   border-bottom-left-radius: 0;
 }
 
@@ -1570,7 +1572,7 @@ svg {
 }
 
 .turma-group.expanded {
-  margin-bottom: 20px;
+  margin-bottom: 30px;
 }
 
 .turma-group-header {
@@ -1816,6 +1818,14 @@ svg {
   cursor: pointer;
 }
 
+.turma-header-arrow-slot {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+}
+
 .turma-header-action-button svg {
   width: 23px;
   height: 23px;
@@ -1863,6 +1873,17 @@ svg {
 .turma-delete-confirm-action:focus-visible {
   background: var(--brand-delete-hint);
   filter: brightness(0.94);
+}
+
+.dark-mode .turma-delete-confirm-action {
+  color: #000;
+  background: color-mix(in srgb, var(--brand-delete-hint) 72%, #000 28%);
+}
+
+.dark-mode .turma-delete-confirm-action:hover,
+.dark-mode .turma-delete-confirm-action:focus-visible {
+  background: color-mix(in srgb, var(--brand-delete-hint) 72%, #000 28%);
+  filter: brightness(0.9);
 }
 
 .turma-header-dropdown {
@@ -1969,17 +1990,273 @@ svg {
   transform: rotate(90deg);
 }
 
+.turma-expanded-content {
+  display: grid;
+  grid-template-columns:
+    minmax(0, var(--turma-expanded-left, 50%))
+    1px
+    minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  background: var(--brand-panel);
+}
+
+.turma-expanded-resize-handle {
+  position: relative;
+  align-self: stretch;
+  width: 1px;
+  border: 0;
+  padding: 0;
+  cursor: col-resize;
+  background: color-mix(in srgb, var(--brand-line) 82%, transparent);
+}
+
+.turma-expanded-resize-handle::before {
+  position: absolute;
+  inset: 0 -6px;
+  content: "";
+}
+
+.turma-expanded-resize-handle:hover,
+.turma-expanded-resize-handle:focus-visible {
+  background: var(--brand-primary);
+  outline: none;
+}
+
 .turma-students-panel {
   width: 100%;
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
   scrollbar-width: none;
 }
 
 .turma-students-panel::-webkit-scrollbar {
   display: none;
+}
+
+.turma-schedule-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  background: var(--brand-panel);
+  overflow: visible;
+}
+
+.turma-schedule-month-controls {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  color: var(--brand-text);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.turma-schedule-nav-button {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0;
+  color: color-mix(in srgb, var(--brand-scroll-thumb) 72%, #000 28%);
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.turma-schedule-nav-button-previous {
+  left: 4px;
+}
+
+.turma-schedule-nav-button-next {
+  right: 4px;
+}
+
+.turma-schedule-nav-button-previous svg {
+  transform: rotate(180deg);
+}
+
+.turma-schedule-nav-button:hover,
+.turma-schedule-nav-button:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.turma-schedule-nav-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.dark-mode .turma-schedule-nav-button {
+  color: var(--brand-text);
+}
+
+.turma-schedule-month-controls span {
+  color: var(--brand-text);
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 8px;
+}
+
+.turma-schedule-grid {
+  display: grid;
+  grid-template-columns:
+    62px repeat(var(--turma-schedule-date-count, 1), minmax(78px, 1fr));
+  min-width: max-content;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
+}
+
+.turma-schedule-grid::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.turma-schedule-grid::-webkit-scrollbar-track,
+.turma-schedule-grid::-webkit-scrollbar-corner,
+.turma-schedule-grid::-webkit-scrollbar-button {
+  background: var(--brand-scroll-track);
+}
+
+.turma-schedule-grid::-webkit-scrollbar-button {
+  display: none;
+}
+
+.turma-schedule-grid::-webkit-scrollbar-thumb,
+.turma-schedule-grid::-webkit-scrollbar-thumb:hover {
+  border: 3px solid var(--brand-scroll-track);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.turma-schedule-corner,
+.turma-schedule-date-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: var(--table-row-height, 30px);
+  height: var(--table-row-height, 30px);
+  border-top: 0;
+  border-bottom: 1px solid var(--cell-line-color);
+  background: var(--brand-panel);
+}
+
+.turma-schedule-corner {
+  display: grid;
+  place-items: center;
+  left: 0;
+  z-index: 3;
+  border-right: 1px solid var(--cell-line-color);
+}
+
+.turma-schedule-date-header {
+  position: sticky;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0;
+  padding: 2px 8px;
+  border-right: 1px solid var(--cell-line-color);
+  color: var(--brand-text);
+  font-size: 0.94rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.turma-schedule-date-header.last {
+  border-right: 0;
+}
+
+.turma-schedule-row {
+  display: contents;
+}
+
+.turma-schedule-time-label,
+.turma-schedule-slot {
+  box-sizing: border-box;
+  min-height: var(--table-row-height, 30px);
+  height: var(--table-row-height, 30px);
+  border-right: 1px solid var(--cell-line-color);
+  border-bottom: 1px solid transparent;
+  background: var(--brand-panel);
+}
+
+.turma-schedule-time-label.first-slot,
+.turma-schedule-slot.first-slot {
+  min-height: calc(var(--table-row-height, 30px) - 1px);
+  height: calc(var(--table-row-height, 30px) - 1px);
+}
+
+.turma-schedule-time-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 6px;
+  color: var(--brand-text);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1;
+  text-align: right;
+  overflow: visible;
+}
+
+.turma-schedule-time-label.major {
+  z-index: 8;
+  overflow: visible;
+}
+
+.turma-schedule-time-label span {
+  position: relative;
+  z-index: 9;
+  display: inline-block;
+  transform: translateY(3px);
+  background: var(--brand-panel);
+}
+
+.turma-schedule-time-label.first-slot span {
+  transform: translateY(2px);
+}
+
+.turma-schedule-time-label.major,
+.turma-schedule-slot.major {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  box-shadow: inset 0 1px 0 var(--cell-line-color);
+}
+
+.turma-schedule-time-label.quarter,
+.turma-schedule-slot.quarter {
+  border-top-color: transparent;
+  box-shadow: inset 0 1px 0
+    color-mix(in srgb, var(--cell-line-color) 44%, transparent);
+}
+
+.turma-schedule-slot {
+  min-width: 78px;
+}
+
+.turma-schedule-slot.last {
+  border-right: 0;
+}
+
+.turma-schedule-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  padding: 20px;
+  color: var(--brand-text);
+  font-size: 0.88rem;
+  font-weight: 750;
+  text-align: center;
 }
 
 .turma-students-table {
@@ -1988,7 +2265,7 @@ svg {
 }
 
 .turma-students-table tbody tr:last-child td {
-  border-bottom: 0;
+  border-bottom: 1px solid var(--brand-line);
 }
 
 .turma-students-table td {
@@ -2040,15 +2317,33 @@ svg {
   min-height: 0;
 }
 
+.turma-add-student-row {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: block;
+  width: 100%;
+  min-width: 100%;
+  background: var(--brand-panel);
+}
+
 .turma-add-student-cell {
   position: relative;
-  z-index: 8;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
   height: var(--table-row-height, 30px);
   padding: 0;
+  border-bottom: 1px solid var(--brand-line);
   color: var(--brand-text);
   background: var(--brand-panel);
-  font: inherit;
-  font-weight: 400;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 
@@ -2065,11 +2360,12 @@ svg {
   height: var(--table-row-height, 30px);
   padding: 0 10px;
   color: var(--brand-text);
-  font: inherit;
-  font-weight: 400;
+  font-size: 0.8rem;
   line-height: var(--table-row-height, 30px);
   text-align: left;
-  transform: translateX(var(--turmas-horizontal-scroll-left, 0px));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .turma-add-student-cell:hover {
@@ -2077,10 +2373,9 @@ svg {
 }
 
 .turma-add-student-cell.active {
-  z-index: 60;
+  z-index: 1;
   color: var(--brand-text);
   background: var(--brand-panel);
-  font-weight: 400;
   cursor: text;
 }
 
@@ -2093,7 +2388,6 @@ svg {
   width: 260px;
   max-width: min(260px, 100%);
   height: var(--table-row-height, 30px);
-  transform: translateX(var(--turmas-horizontal-scroll-left, 0px));
 }
 
 .turma-add-student-picker input {
@@ -2112,14 +2406,14 @@ svg {
   font: 400 0.8rem Aptos, "Segoe UI Variable", "Segoe UI", sans-serif;
 }
 
-.data-table tbody tr.turma-add-student-row:hover
-  td.turma-add-student-cell.active:has(.turma-add-student-options:hover) {
+.turma-add-student-row:hover
+  .turma-add-student-cell.active:has(.turma-add-student-options:hover) {
   background-color: var(--brand-panel, #fff);
 }
 
 .turma-add-student-options {
   position: fixed;
-  z-index: 900;
+  z-index: 12000;
   display: grid;
   width: max-content;
   min-width: 160px;
