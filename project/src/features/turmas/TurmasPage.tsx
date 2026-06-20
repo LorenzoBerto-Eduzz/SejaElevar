@@ -169,6 +169,8 @@ type ActiveStudentEdit = {
   initialValue: string;
 };
 
+type TurmaRowRef = number | 'draft';
+
 type TurmaHeaderField =
   | 'name'
   | 'count'
@@ -178,17 +180,27 @@ type TurmaHeaderField =
   | 'room';
 
 type ActiveTurmaNameEdit = {
-  rowIndex: number;
+  rowIndex: TurmaRowRef;
   initialValue: string;
   draftValue: string;
 };
 
 type ActiveTurmaDropdown = {
-  rowIndex: number;
+  rowIndex: TurmaRowRef;
   field: Exclude<TurmaHeaderField, 'name' | 'count'>;
   columnName: string;
   style: CSSProperties;
   draftValue: string;
+};
+
+type TurmaDraftRow = {
+  id: string;
+  values: Record<string, string>;
+};
+
+type ClearedAprendizTurma = {
+  rowIndex: number;
+  previousValue: string;
 };
 
 type StudentDetailsInputElement = HTMLInputElement | HTMLSelectElement;
@@ -418,14 +430,77 @@ const getTurmaPeriodStartMinutes = (value: string) => {
   return hour * 60 + minute;
 };
 
+const getTurmaPeriodEndMinutes = (value: string) => {
+  const timeMatches = Array.from(
+    value.trim().matchAll(/(\d{1,2})(?:(?::|h|H)(\d{2}))?/g),
+  );
+  const endTimeMatch = timeMatches[1];
+
+  if (!endTimeMatch) {
+    return getTurmaPeriodStartMinutes(value);
+  }
+
+  const hour = Number.parseInt(endTimeMatch[1], 10);
+  const minute = endTimeMatch[2]
+    ? Number.parseInt(endTimeMatch[2], 10)
+    : 0;
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
 const TURMA_DAY_OPTIONS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
+const TURMA_DAY_ORDER = new Map(
+  TURMA_DAY_OPTIONS.map((day, index) => [normalizeFieldLabel(day), index]),
+);
 const PERIOD_CURSOR_POSITIONS = [0, 1, 3, 4, 9, 10, 12, 13, 15];
 
-const getPeriodDigits = (value: string) =>
-  Array.from(value.matchAll(/\d/g))
-    .map((match) => match[0])
-    .join('')
-    .slice(0, 8);
+const isPeriodDigitAllowed = (digit: string, digitIndex: number) => {
+  const numericDigit = Number.parseInt(digit, 10);
+
+  if (!Number.isFinite(numericDigit)) {
+    return false;
+  }
+
+  const positionInTime = digitIndex % 4;
+
+  if (positionInTime === 0) {
+    return numericDigit >= 0 && numericDigit <= 2;
+  }
+
+  if (positionInTime === 2) {
+    return numericDigit >= 0 && numericDigit <= 6;
+  }
+
+  return numericDigit >= 0 && numericDigit <= 9;
+};
+
+const getPeriodDigits = (value: string) => {
+  const digits = Array.from(value.matchAll(/\d/g)).map((match) => match[0]);
+  let nextDigits = '';
+
+  for (const digit of digits) {
+    if (nextDigits.length >= 8) {
+      break;
+    }
+
+    if (isPeriodDigitAllowed(digit, nextDigits.length)) {
+      nextDigits += digit;
+    }
+  }
+
+  return nextDigits;
+};
 
 const formatPeriodDigits = (digits: string) => {
   const paddedDigits = digits.padEnd(8, ' ');
@@ -684,6 +759,11 @@ export function TurmasPage({
   const [expandedTurmas, setExpandedTurmas] = useState<Record<string, boolean>>(
     {},
   );
+  const [turmaDraft, setTurmaDraft] = useState<TurmaDraftRow | null>(null);
+  const [turmaDeleteConfirmation, setTurmaDeleteConfirmation] = useState<{
+    rowIndex: number;
+    turmaName: string;
+  } | null>(null);
   const [activeAddTurmaKey, setActiveAddTurmaKey] = useState('');
   const [addStudentSearch, setAddStudentSearch] = useState('');
   const [addStudentDropdownStyle, setAddStudentDropdownStyle] =
@@ -821,6 +901,10 @@ export function TurmasPage({
         target.scrollLeft = nextScrollLeft;
       }
     });
+    frame.style.setProperty(
+      '--turmas-horizontal-scroll-left',
+      `${Math.max(0, scrollLeft)}px`,
+    );
 
     if (
       sharedHorizontalScrollRef.current &&
@@ -957,6 +1041,64 @@ export function TurmasPage({
       }) ?? [],
     [studentsByClass, turmasSheet],
   );
+  const sortedTurmaRows = useMemo(() => {
+    if (!turmasSheet) {
+      return [];
+    }
+
+    return turmasSheet.rows
+      .map((row, rowIndex) => ({
+        row,
+        rowIndex,
+      }))
+      .sort((left, right) => {
+        const leftDay =
+          TURMA_DAY_ORDER.get(
+            normalizeFieldLabel(getCellValue(turmasSheet, left.row, TURMA_DAY_COLUMN)),
+          ) ?? Number.MAX_SAFE_INTEGER;
+        const rightDay =
+          TURMA_DAY_ORDER.get(
+            normalizeFieldLabel(getCellValue(turmasSheet, right.row, TURMA_DAY_COLUMN)),
+          ) ?? Number.MAX_SAFE_INTEGER;
+        const leftStart =
+          getTurmaPeriodStartMinutes(
+            getCellValue(turmasSheet, left.row, TURMA_PERIOD_COLUMN),
+          ) ?? Number.MAX_SAFE_INTEGER;
+        const rightStart =
+          getTurmaPeriodStartMinutes(
+            getCellValue(turmasSheet, right.row, TURMA_PERIOD_COLUMN),
+          ) ?? Number.MAX_SAFE_INTEGER;
+        const leftEnd =
+          getTurmaPeriodEndMinutes(
+            getCellValue(turmasSheet, left.row, TURMA_PERIOD_COLUMN),
+          ) ?? Number.MAX_SAFE_INTEGER;
+        const rightEnd =
+          getTurmaPeriodEndMinutes(
+            getCellValue(turmasSheet, right.row, TURMA_PERIOD_COLUMN),
+          ) ?? Number.MAX_SAFE_INTEGER;
+        const dayDiff = leftDay - rightDay;
+        const startDiff = leftStart - rightStart;
+        const endDiff = leftEnd - rightEnd;
+
+        if (dayDiff !== 0) {
+          return dayDiff;
+        }
+
+        if (startDiff !== 0) {
+          return startDiff;
+        }
+
+        if (endDiff !== 0) {
+          return endDiff;
+        }
+
+        return getCellValue(turmasSheet, left.row, TURMA_COLUMN).localeCompare(
+          getCellValue(turmasSheet, right.row, TURMA_COLUMN),
+          'pt-BR',
+          { sensitivity: 'base' },
+        );
+      });
+  }, [turmasSheet]);
   const turmaHeaderLayoutStyle = useMemo(
     () =>
       ({
@@ -1164,6 +1306,77 @@ export function TurmasPage({
     return turmaName || fallbackValue || getTurmaActionRef(rowIndex);
   };
 
+  const areTurmaDraftValuesComplete = (values: Record<string, string>) =>
+    Boolean(
+      values[TURMA_COLUMN]?.trim() &&
+        values[TURMA_DAY_COLUMN]?.trim() &&
+        values[TURMA_PERIOD_COLUMN]?.trim() &&
+        values[TURMA_INSTRUCTOR_COLUMN]?.trim() &&
+        values[TURMA_ROOM_COLUMN]?.trim(),
+    );
+
+  const getVisibleTurmaDraftValues = (
+    draft: TurmaDraftRow | null,
+  ): Record<string, string> => {
+    if (!draft) {
+      return {};
+    }
+
+    return {
+      ...draft.values,
+      ...(activeTurmaNameEdit?.rowIndex === 'draft'
+        ? { [TURMA_COLUMN]: activeTurmaNameEdit.draftValue.trim() }
+        : {}),
+    };
+  };
+
+  const isTurmaDraftComplete = (draft: TurmaDraftRow | null) =>
+    areTurmaDraftValuesComplete(getVisibleTurmaDraftValues(draft));
+
+  const updateTurmaDraftField = (columnName: string, value: string) => {
+    setTurmaDraft((currentDraft) =>
+      currentDraft
+        ? {
+            ...currentDraft,
+            values: {
+              ...currentDraft.values,
+              [columnName]: value,
+            },
+          }
+        : currentDraft,
+    );
+  };
+
+  const focusTurmaDraftName = (draft: TurmaDraftRow) => {
+    activeTurmaDropdownRef.current = null;
+    setActiveTurmaDropdown(null);
+    activeTurmaNameEditRef.current = {
+      rowIndex: 'draft',
+      initialValue: draft.values[TURMA_COLUMN] ?? '',
+      draftValue: draft.values[TURMA_COLUMN] ?? '',
+    };
+    setActiveTurmaNameEdit(activeTurmaNameEditRef.current);
+  };
+
+  const startTurmaDraft = () => {
+    if (!turmasSheet) {
+      return;
+    }
+
+    if (turmaDraft) {
+      focusTurmaDraftName(turmaDraft);
+      return;
+    }
+
+    const nextDraft: TurmaDraftRow = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      values: {},
+    };
+
+    setTurmaDraft(nextDraft);
+    window.requestAnimationFrame(() => focusTurmaDraftName(nextDraft));
+  };
+
   const isTurmaFieldUndoEntry = (
     entry: GlobalUndoEntry | undefined,
   ): entry is GlobalUndoEntry & CellEditUndoEntry => {
@@ -1175,6 +1388,24 @@ export function TurmasPage({
       typeof entry.columnName === 'string' &&
       typeof entry.previousValue === 'string' &&
       typeof entry.nextValue === 'string'
+    );
+  };
+
+  const isTurmaRowUndoEntry = (
+    entry: GlobalUndoEntry | undefined,
+  ): entry is GlobalUndoEntry & {
+    kind: 'row-insert' | 'row-delete';
+    entityId: string;
+    rowIndex: number;
+    rowValues: string[];
+    clearedAprendizTurmas?: ClearedAprendizTurma[];
+  } => {
+    return (
+      Boolean(entry) &&
+      (entry?.kind === 'row-insert' || entry?.kind === 'row-delete') &&
+      entry.entityId === TURMAS_ENTITY_ID &&
+      typeof entry.rowIndex === 'number' &&
+      Array.isArray(entry.rowValues)
     );
   };
 
@@ -1305,6 +1536,11 @@ export function TurmasPage({
     setActiveTurmaNameEdit(null);
 
     if (activeEdit.initialValue === activeEdit.draftValue.trim()) {
+      return;
+    }
+
+    if (activeEdit.rowIndex === 'draft') {
+      updateTurmaDraftField(TURMA_COLUMN, activeEdit.draftValue.trim());
       return;
     }
 
@@ -1482,6 +1718,221 @@ export function TurmasPage({
 
     if (renamedAprendizesSheet) {
       await writeAprendizesSheetToSourceFile(renamedAprendizesSheet, {
+        patchColumns: [TURMA_COLUMN],
+        syncTurmas: false,
+      });
+    }
+
+    return true;
+  };
+
+  const getAprendizesSheetWithClearedTurma = (
+    sheet: SheetTable | null,
+    turmaName: string,
+  ) => {
+    if (!sheet || !turmaName.trim()) {
+      return { sheet: null, clearedAprendizTurmas: [] };
+    }
+
+    const turmaColumnIndex = getColumnIndex(sheet, TURMA_COLUMN);
+
+    if (turmaColumnIndex < 0) {
+      return { sheet: null, clearedAprendizTurmas: [] };
+    }
+
+    const clearedAprendizTurmas: ClearedAprendizTurma[] = [];
+    const nextRows = sheet.rows.map((row, rowIndex) => {
+      const value = row[turmaColumnIndex] || '';
+      const shouldClear =
+        value === turmaName ||
+        getCanonicalDropdownValue(value, [turmaName]) === turmaName;
+
+      if (!shouldClear) {
+        return row;
+      }
+
+      clearedAprendizTurmas.push({
+        rowIndex,
+        previousValue: value,
+      });
+      const nextRow = [...row];
+      nextRow[turmaColumnIndex] = '';
+      return nextRow;
+    });
+
+    return clearedAprendizTurmas.length > 0
+      ? {
+          sheet: {
+            ...sheet,
+            rows: nextRows,
+          },
+          clearedAprendizTurmas,
+        }
+      : { sheet: null, clearedAprendizTurmas: [] };
+  };
+
+  const getAprendizesSheetWithRestoredTurmas = (
+    sheet: SheetTable | null,
+    clearedAprendizTurmas: ClearedAprendizTurma[] = [],
+  ) => {
+    if (!sheet || clearedAprendizTurmas.length === 0) {
+      return null;
+    }
+
+    const turmaColumnIndex = getColumnIndex(sheet, TURMA_COLUMN);
+
+    if (turmaColumnIndex < 0) {
+      return null;
+    }
+
+    const valuesByRowIndex = new Map(
+      clearedAprendizTurmas.map((entry) => [entry.rowIndex, entry.previousValue]),
+    );
+    const nextRows = sheet.rows.map((row, rowIndex) => {
+      if (!valuesByRowIndex.has(rowIndex)) {
+        return row;
+      }
+
+      const nextRow = [...row];
+      nextRow[turmaColumnIndex] = valuesByRowIndex.get(rowIndex) ?? '';
+      return nextRow;
+    });
+
+    return {
+      ...sheet,
+      rows: nextRows,
+    };
+  };
+
+  const saveTurmaDraft = async () => {
+    const currentTurmasSheet = latestTurmasSheetRef.current;
+    const currentDraft = turmaDraft;
+
+    if (!currentTurmasSheet || !currentDraft) {
+      return false;
+    }
+
+    const activeDraftNameEdit =
+      activeTurmaNameEditRef.current?.rowIndex === 'draft'
+        ? activeTurmaNameEditRef.current.draftValue.trim()
+        : null;
+
+    const draftValues: Record<string, string> = {
+      ...currentDraft.values,
+      ...(activeDraftNameEdit !== null
+        ? { [TURMA_COLUMN]: activeDraftNameEdit }
+        : {}),
+    };
+
+    if (!areTurmaDraftValuesComplete(draftValues)) {
+      return false;
+    }
+    const rowValues = currentTurmasSheet.columns.map(
+      (columnName) => draftValues[columnName] ?? '',
+    );
+    const rowIndex = currentTurmasSheet.rows.length;
+    const nextTurmasSheet = {
+      ...currentTurmasSheet,
+      rows: [...currentTurmasSheet.rows, rowValues],
+    };
+    const nextTurmaNames = getUniqueValues(
+      nextTurmasSheet.rows.map((row) =>
+        getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
+      ),
+    );
+    const nextStudentsByClass = latestAprendizesSheetRef.current
+      ? buildStudentsByClass(latestAprendizesSheetRef.current, nextTurmaNames)
+      : undefined;
+    const turmaName =
+      draftValues[TURMA_COLUMN] || `Turma ${currentTurmasSheet.rows.length + 1}`;
+
+    pushGlobalUndoEntry({
+      originTab: 'turmas',
+      kind: 'row-insert',
+      entityId: TURMAS_ENTITY_ID,
+      itemRef: `tur#${rowIndex + 1}`,
+      itemLabel: turmaName,
+      rowIndex,
+      rowValues,
+    });
+
+    latestTurmasSheetRef.current = nextTurmasSheet;
+    setTurmasSheet(nextTurmasSheet);
+    setTurmaDraft(null);
+    activeTurmaNameEditRef.current = null;
+    setActiveTurmaNameEdit(null);
+    activeTurmaDropdownRef.current = null;
+    setActiveTurmaDropdown(null);
+
+    await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+    await Promise.all([
+      rememberWorkbookOption('period', draftValues[TURMA_PERIOD_COLUMN] ?? ''),
+      rememberWorkbookOption('instructor', draftValues[TURMA_INSTRUCTOR_COLUMN] ?? ''),
+      rememberWorkbookOption('room', draftValues[TURMA_ROOM_COLUMN] ?? ''),
+    ]);
+    return true;
+  };
+
+  const deleteTurmaRowAndSave = async (
+    rowIndex: number,
+    options: { trackUndo?: boolean } = {},
+  ) => {
+    const currentTurmasSheet = latestTurmasSheetRef.current;
+    const deletedRow = currentTurmasSheet?.rows[rowIndex];
+
+    if (!currentTurmasSheet || !deletedRow) {
+      return false;
+    }
+
+    const turmaName = getCellValue(currentTurmasSheet, deletedRow, TURMA_COLUMN);
+    const nextTurmasSheet = {
+      ...currentTurmasSheet,
+      rows: currentTurmasSheet.rows.filter(
+        (_row, currentRowIndex) => currentRowIndex !== rowIndex,
+      ),
+    };
+    const { sheet: clearedAprendizesSheet, clearedAprendizTurmas } =
+      getAprendizesSheetWithClearedTurma(
+        latestAprendizesSheetRef.current,
+        turmaName,
+      );
+    const nextAprendizesSheet =
+      clearedAprendizesSheet ?? latestAprendizesSheetRef.current;
+    const nextTurmaNames = getUniqueValues(
+      nextTurmasSheet.rows.map((row) =>
+        getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
+      ),
+    );
+    const nextStudentsByClass = nextAprendizesSheet
+      ? buildStudentsByClass(nextAprendizesSheet, nextTurmaNames)
+      : undefined;
+
+    if (options.trackUndo !== false) {
+      pushGlobalUndoEntry({
+        originTab: 'turmas',
+        kind: 'row-delete',
+        entityId: TURMAS_ENTITY_ID,
+        itemRef: getTurmaActionRef(rowIndex),
+        itemLabel: turmaName || getTurmaActionRef(rowIndex),
+        rowIndex,
+        rowValues: deletedRow,
+        clearedAprendizTurmas,
+      });
+    }
+
+    latestTurmasSheetRef.current = nextTurmasSheet;
+    setTurmasSheet(nextTurmasSheet);
+    setTurmaDeleteConfirmation(null);
+
+    if (clearedAprendizesSheet) {
+      latestAprendizesSheetRef.current = clearedAprendizesSheet;
+      setAprendizesSheet(clearedAprendizesSheet);
+    }
+
+    await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+
+    if (clearedAprendizesSheet) {
+      await writeAprendizesSheetToSourceFile(clearedAprendizesSheet, {
         patchColumns: [TURMA_COLUMN],
         syncTurmas: false,
       });
@@ -2697,6 +3148,8 @@ export function TurmasPage({
       setTurmasSheet(savedSheet);
       await persistTurmasDataIndex(savedSheet, nextStudentsByClass);
       await fetchRecoveryInfo();
+      suppressNextGlobalDataChangeEventRef.current = true;
+      window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
       window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
       setImportError('');
       return savedSheet;
@@ -2987,14 +3440,16 @@ export function TurmasPage({
   };
 
   const openTurmaDropdown = (
-    rowIndex: number,
+    rowIndex: TurmaRowRef,
     field: ActiveTurmaDropdown['field'],
     anchorElement: HTMLElement,
   ) => {
     const columnName = getTurmaDropdownColumn(field);
     const currentSheet = latestTurmasSheetRef.current;
     const currentValue =
-      currentSheet?.rows[rowIndex] && currentSheet
+      rowIndex === 'draft'
+        ? turmaDraft?.values[columnName] ?? ''
+        : currentSheet?.rows[rowIndex] && currentSheet
         ? getCellValue(currentSheet, currentSheet.rows[rowIndex], columnName)
         : '';
     const anchorRect = anchorElement.getBoundingClientRect();
@@ -3028,6 +3483,12 @@ export function TurmasPage({
   ) => {
     activeTurmaDropdownRef.current = null;
     setActiveTurmaDropdown(null);
+
+    if (dropdown.rowIndex === 'draft') {
+      updateTurmaDraftField(dropdown.columnName, value);
+      return;
+    }
+
     const didCommit = await commitTurmaHeaderField(
       dropdown.rowIndex,
       dropdown.columnName,
@@ -3055,6 +3516,11 @@ export function TurmasPage({
     setActiveTurmaDropdown(null);
 
     if (!nextValue) {
+      return;
+    }
+
+    if (dropdown.rowIndex === 'draft') {
+      updateTurmaDraftField(dropdown.columnName, nextValue);
       return;
     }
 
@@ -3106,7 +3572,7 @@ export function TurmasPage({
     }
   };
 
-  const startTurmaNameEdit = (rowIndex: number, value: string) => {
+  const startTurmaNameEdit = (rowIndex: TurmaRowRef, value: string) => {
     void commitActiveTurmaNameEdit();
     activeTurmaDropdownRef.current = null;
     setActiveTurmaDropdown(null);
@@ -3431,6 +3897,122 @@ export function TurmasPage({
     return true;
   };
 
+  const undoTurmaRowActionAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isTurmaRowUndoEntry(entry)) {
+      return false;
+    }
+
+    if (entry.kind === 'row-insert') {
+      const currentTurmasSheet = latestTurmasSheetRef.current;
+
+      if (!currentTurmasSheet) {
+        return false;
+      }
+
+      const nextTurmasSheet = {
+        ...currentTurmasSheet,
+        rows: currentTurmasSheet.rows.filter(
+          (_row, currentRowIndex) => currentRowIndex !== entry.rowIndex,
+        ),
+      };
+      const nextTurmaNames = getUniqueValues(
+        nextTurmasSheet.rows.map((row) =>
+          getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
+        ),
+      );
+      const nextStudentsByClass = latestAprendizesSheetRef.current
+        ? buildStudentsByClass(latestAprendizesSheetRef.current, nextTurmaNames)
+        : undefined;
+
+      latestTurmasSheetRef.current = nextTurmasSheet;
+      setTurmasSheet(nextTurmasSheet);
+      await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+      return true;
+    }
+
+    const currentTurmasSheet = latestTurmasSheetRef.current;
+
+    if (!currentTurmasSheet) {
+      return false;
+    }
+
+    const nextRows = [...currentTurmasSheet.rows];
+    nextRows.splice(entry.rowIndex, 0, entry.rowValues);
+    const nextTurmasSheet = {
+      ...currentTurmasSheet,
+      rows: nextRows,
+    };
+    const restoredAprendizesSheet = getAprendizesSheetWithRestoredTurmas(
+      latestAprendizesSheetRef.current,
+      entry.clearedAprendizTurmas,
+    );
+    const nextAprendizesSheet =
+      restoredAprendizesSheet ?? latestAprendizesSheetRef.current;
+    const nextTurmaNames = getUniqueValues(
+      nextTurmasSheet.rows.map((row) =>
+        getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
+      ),
+    );
+    const nextStudentsByClass = nextAprendizesSheet
+      ? buildStudentsByClass(nextAprendizesSheet, nextTurmaNames)
+      : undefined;
+
+    latestTurmasSheetRef.current = nextTurmasSheet;
+    setTurmasSheet(nextTurmasSheet);
+
+    if (restoredAprendizesSheet) {
+      latestAprendizesSheetRef.current = restoredAprendizesSheet;
+      setAprendizesSheet(restoredAprendizesSheet);
+    }
+
+    await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+
+    if (restoredAprendizesSheet) {
+      await writeAprendizesSheetToSourceFile(restoredAprendizesSheet, {
+        patchColumns: [TURMA_COLUMN],
+        syncTurmas: false,
+      });
+    }
+
+    return true;
+  };
+
+  const redoTurmaRowActionAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isTurmaRowUndoEntry(entry)) {
+      return false;
+    }
+
+    if (entry.kind === 'row-insert') {
+      const currentTurmasSheet = latestTurmasSheetRef.current;
+
+      if (!currentTurmasSheet) {
+        return false;
+      }
+
+      const nextRows = [...currentTurmasSheet.rows];
+      nextRows.splice(entry.rowIndex, 0, entry.rowValues);
+      const nextTurmasSheet = {
+        ...currentTurmasSheet,
+        rows: nextRows,
+      };
+      const nextTurmaNames = getUniqueValues(
+        nextTurmasSheet.rows.map((row) =>
+          getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
+        ),
+      );
+      const nextStudentsByClass = latestAprendizesSheetRef.current
+        ? buildStudentsByClass(latestAprendizesSheetRef.current, nextTurmaNames)
+        : undefined;
+
+      latestTurmasSheetRef.current = nextTurmasSheet;
+      setTurmasSheet(nextTurmasSheet);
+      await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
+      return true;
+    }
+
+    return deleteTurmaRowAndSave(entry.rowIndex, { trackUndo: false });
+  };
+
   const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
     replaceGlobalUndoStack(
       Array.isArray(entry.previousUndoStack)
@@ -3572,6 +4154,10 @@ export function TurmasPage({
             return undoTurmaHeaderEditAndSave(entry);
           }
 
+          if (isTurmaRowUndoEntry(entry)) {
+            return undoTurmaRowActionAndSave(entry);
+          }
+
           return undoLastActionAndSave(entry);
         },
         redo: (entry) => {
@@ -3585,6 +4171,10 @@ export function TurmasPage({
 
           if (isTurmaFieldUndoEntry(entry)) {
             return redoTurmaHeaderEditAndSave(entry);
+          }
+
+          if (isTurmaRowUndoEntry(entry)) {
+            return redoTurmaRowActionAndSave(entry);
           }
 
           return redoLastActionAndSave(entry);
@@ -3625,11 +4215,14 @@ export function TurmasPage({
         <div className="table-toolbar" aria-label="Ações da tabela">
           <div className="table-toolbar-track">
             <button
-              className="square-action disabled"
+              className={
+                hasWorkingSheet ? 'square-action' : 'square-action disabled'
+              }
               type="button"
               aria-label="Adicionar turma"
               title="Adicionar Turma"
-              disabled
+              disabled={!hasWorkingSheet}
+              onClick={startTurmaDraft}
             >
               <SquarePlusIcon />
             </button>
@@ -3681,14 +4274,73 @@ export function TurmasPage({
               onWheel={handleBoardWheel}
             >
               <div className="turmas-board" style={turmaHeaderLayoutStyle}>
-                {turmasSheet.rows.map((turmaRow, turmaRowIndex) => {
-                  const turmaHeader = turmaHeaderRows[turmaRowIndex];
+                {[
+                  ...(turmaDraft
+                    ? [
+                        {
+                          kind: 'draft' as const,
+                          row: turmasSheet.columns.map(
+                            (columnName) =>
+                              getVisibleTurmaDraftValues(turmaDraft)[columnName] ?? '',
+                          ),
+                          rowIndex: 'draft' as const,
+                          key: `draft-${turmaDraft.id}`,
+                        },
+                      ]
+                    : []),
+                  ...sortedTurmaRows.map(({ row, rowIndex }) => ({
+                    kind: 'real' as const,
+                    row,
+                    rowIndex,
+                    key: getSheetRecordId(turmasSheet, rowIndex, TURMAS_ENTITY_ID),
+                  })),
+                ].map((displayRow) => {
+                  const isDraft = displayRow.kind === 'draft';
+                  const turmaRow = displayRow.row;
+                  const turmaRowIndex = displayRow.rowIndex;
+                  const draftValues =
+                    isDraft && turmaDraft
+                      ? getVisibleTurmaDraftValues(turmaDraft)
+                      : {};
+                  const turmaHeader =
+                    isDraft
+                      ? {
+                          name: draftValues[TURMA_COLUMN] || '-',
+                          count: '0',
+                          day: draftValues[TURMA_DAY_COLUMN]
+                            ? formatTurmaDay(draftValues[TURMA_DAY_COLUMN])
+                            : '-',
+                          isMorning:
+                            getTurmaPeriodStartMinutes(
+                              draftValues[TURMA_PERIOD_COLUMN] ?? '',
+                            ) === null ||
+                            (getTurmaPeriodStartMinutes(
+                              draftValues[TURMA_PERIOD_COLUMN] ?? '',
+                            ) ?? 0) <
+                              12 * 60,
+                          period: draftValues[TURMA_PERIOD_COLUMN]
+                            ? formatTurmaPeriod(draftValues[TURMA_PERIOD_COLUMN])
+                            : '-',
+                          instructor:
+                            draftValues[TURMA_INSTRUCTOR_COLUMN] || '-',
+                          room: draftValues[TURMA_ROOM_COLUMN] || '-',
+                        }
+                      : typeof turmaRowIndex === 'number'
+                      ? turmaHeaderRows[turmaRowIndex]
+                      : undefined;
+                  const turmaNameValue = isDraft
+                    ? draftValues[TURMA_COLUMN] ?? ''
+                    : getCellValue(turmasSheet, turmaRow, TURMA_COLUMN);
                   const turmaName =
                     turmaHeader?.name ||
-                    getCellValue(turmasSheet, turmaRow, TURMA_COLUMN) ||
-                    `Turma ${turmaRowIndex + 1}`;
-                  const turmaKey = `${turmaName}-${turmaRowIndex}`;
-                  const isExpanded = Boolean(expandedTurmas[turmaKey]);
+                    turmaNameValue ||
+                    `Turma ${
+                      typeof turmaRowIndex === 'number' ? turmaRowIndex + 1 : ''
+                    }`;
+                  const turmaKey = isDraft
+                    ? displayRow.key
+                    : `${turmaName}-${turmaRowIndex}`;
+                  const isExpanded = !isDraft && Boolean(expandedTurmas[turmaKey]);
                   const assignedStudents = getAssignedStudents(
                     aprendizesSheet,
                     turmaName,
@@ -3702,14 +4354,35 @@ export function TurmasPage({
 
                   return (
                     <section
-                      className={isExpanded ? 'turma-group expanded' : 'turma-group'}
+                      className={[
+                        isExpanded ? 'turma-group expanded' : 'turma-group',
+                        isDraft ? 'turma-group-draft' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                       key={turmaKey}
                     >
-                      <button
+                      <div
                         className="turma-group-header"
-                        type="button"
-                        aria-expanded={isExpanded}
-                        onClick={() => toggleTurma(turmaKey)}
+                        role={isDraft ? undefined : 'button'}
+                        tabIndex={isDraft ? undefined : 0}
+                        aria-expanded={isDraft ? undefined : isExpanded}
+                        onClick={() => {
+                          if (!isDraft) {
+                            toggleTurma(turmaKey);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            isDraft ||
+                            (event.key !== 'Enter' && event.key !== ' ')
+                          ) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          toggleTurma(turmaKey);
+                        }}
                       >
                         <span
                           className={
@@ -3720,7 +4393,7 @@ export function TurmasPage({
                           onClick={(event) => {
                             event.stopPropagation();
                             if (activeTurmaNameEdit?.rowIndex !== turmaRowIndex) {
-                              startTurmaNameEdit(turmaRowIndex, turmaName);
+                              startTurmaNameEdit(turmaRowIndex, turmaNameValue);
                             }
                           }}
                         >
@@ -3761,7 +4434,9 @@ export function TurmasPage({
                               className="turma-header-detail turma-header-count"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                toggleTurma(turmaKey);
+                                if (!isDraft) {
+                                  toggleTurma(turmaKey);
+                                }
                               }}
                             >
                               <PeopleIcon />
@@ -3879,8 +4554,67 @@ export function TurmasPage({
                             />
                           </span>
                         </span>
-                        <ChevronIcon expanded={isExpanded} />
-                      </button>
+                        <span className="turma-header-actions">
+                          {isDraft ? (
+                            <>
+                              <button
+                                className={
+                                  isTurmaDraftComplete(turmaDraft)
+                                    ? 'turma-header-action-button turma-header-add-button'
+                                    : 'turma-header-action-button turma-header-add-button disabled'
+                                }
+                                type="button"
+                                aria-label="Adicionar turma"
+                                title="Adicionar Turma"
+                                disabled={!isTurmaDraftComplete(turmaDraft)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void saveTurmaDraft();
+                                }}
+                              >
+                                <PlusIcon />
+                              </button>
+                              <button
+                                className="turma-header-action-button turma-header-delete-button"
+                                type="button"
+                                aria-label="Descartar nova turma"
+                                title="Descartar"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setTurmaDraft(null);
+                                  activeTurmaNameEditRef.current = null;
+                                  setActiveTurmaNameEdit(null);
+                                  activeTurmaDropdownRef.current = null;
+                                  setActiveTurmaDropdown(null);
+                                }}
+                              >
+                                <CloseIcon />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronIcon expanded={isExpanded} />
+                              <button
+                                className="turma-header-action-button turma-header-delete-button"
+                                type="button"
+                                aria-label="Deletar turma"
+                                title="Deletar Turma"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (typeof turmaRowIndex === 'number') {
+                                    setTurmaDeleteConfirmation({
+                                      rowIndex: turmaRowIndex,
+                                      turmaName,
+                                    });
+                                  }
+                                }}
+                              >
+                                <CloseIcon />
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </div>
 
                       {isExpanded && (
                         <div
@@ -4325,6 +5059,48 @@ export function TurmasPage({
         </div>
       )}
 
+      {turmaDeleteConfirmation && (
+        <div
+          className="page-modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setTurmaDeleteConfirmation(null)}
+        >
+          <div
+            className="recovery-dialog turma-delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="turma-delete-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="recovery-dialog-header">
+              <h2 id="turma-delete-dialog-title">Confirmar aÃ§Ã£o</h2>
+              <button
+                className="dialog-close-button"
+                type="button"
+                aria-label="Fechar"
+                onClick={() => setTurmaDeleteConfirmation(null)}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <p>
+              VocÃª estÃ¡ prestes a deletar a turma{' '}
+              {turmaDeleteConfirmation.turmaName || 'sem nome'}.
+            </p>
+            <button
+              className="primary-action recovery-confirm-action turma-delete-confirm-action"
+              type="button"
+              onClick={() =>
+                void deleteTurmaRowAndSave(turmaDeleteConfirmation.rowIndex)
+              }
+            >
+              <CloseIcon />
+              Deletar turma
+            </button>
+          </div>
+        </div>
+      )}
+
       {isRecoveryDialogOpen && (
         <div
           className="page-modal-backdrop"
@@ -4526,6 +5302,15 @@ function CloseIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 6l12 12" />
       <path d="M18 6L6 18" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
     </svg>
   );
 }

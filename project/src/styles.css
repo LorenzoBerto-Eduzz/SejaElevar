@@ -1586,7 +1586,7 @@ svg {
   grid-template-columns: var(--turma-header-title-width, 126px) 1px minmax(
       0,
       1fr
-    ) 50px;
+    ) 96px;
   column-gap: 0;
   align-items: center;
   width: 100%;
@@ -1607,6 +1607,10 @@ svg {
 .turma-group-header:focus-visible {
   outline: none;
   box-shadow: none;
+}
+
+.turma-group-draft .turma-group-header {
+  cursor: default;
 }
 
 .turma-header-title {
@@ -1790,6 +1794,77 @@ svg {
   justify-self: center;
 }
 
+.turma-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  height: 100%;
+  min-width: 0;
+}
+
+.turma-header-action-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 0;
+  color: currentColor;
+  background: transparent;
+  cursor: pointer;
+}
+
+.turma-header-action-button svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.turma-header-delete-button svg {
+  transform: translate(-1px, 1px);
+}
+
+.turma-header-add-button svg {
+  transform: translate(-1px, 1px);
+}
+
+.turma-header-action-button:hover,
+.turma-header-action-button:focus-visible {
+  border-color: currentColor;
+  background: transparent;
+  outline: none;
+}
+
+.turma-header-action-button:disabled,
+.turma-header-action-button.disabled,
+.turma-header-action-button:disabled:hover,
+.turma-header-action-button.disabled:hover {
+  opacity: 0.38;
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
+
+.turma-header-add-button:not(:disabled):not(.disabled) {
+  color: var(--brand-active-icon);
+}
+
+.turma-delete-confirm-action {
+  background: var(--brand-delete-hint);
+}
+
+.turma-delete-confirm-action:hover,
+.turma-delete-confirm-action:focus-visible {
+  background: var(--brand-delete-hint);
+  filter: brightness(0.94);
+}
+
 .turma-header-dropdown {
   --turma-header-field-hover-background: color-mix(
     in srgb,
@@ -1966,8 +2041,7 @@ svg {
 }
 
 .turma-add-student-cell {
-  position: sticky;
-  left: 0;
+  position: relative;
   z-index: 8;
   height: var(--table-row-height, 30px);
   padding: 0;
@@ -1983,8 +2057,6 @@ svg {
 }
 
 .turma-add-student-cell span {
-  position: sticky;
-  left: 0;
   display: inline-flex;
   align-items: center;
   gap: 0;
@@ -1997,6 +2069,7 @@ svg {
   font-weight: 400;
   line-height: var(--table-row-height, 30px);
   text-align: left;
+  transform: translateX(var(--turmas-horizontal-scroll-left, 0px));
 }
 
 .turma-add-student-cell:hover {
@@ -2016,11 +2089,11 @@ svg {
 }
 
 .turma-add-student-picker {
-  position: sticky;
-  left: 0;
+  position: relative;
   width: 260px;
   max-width: min(260px, 100%);
   height: var(--table-row-height, 30px);
+  transform: translateX(var(--turmas-horizontal-scroll-left, 0px));
 }
 
 .turma-add-student-picker input {
