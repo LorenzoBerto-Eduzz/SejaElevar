@@ -48,6 +48,7 @@ import {
 } from '../../shared/data/workspaceData';
 import {
   GlobalWorkbookToolbar,
+  markGlobalWorkbookAvailable,
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
@@ -777,8 +778,10 @@ export function AprendizesPage({
     let response = await fetch('/api/base-workbook/file', {
       cache: 'no-store',
     });
+    let didUseBaseWorkbook = response.status !== 404;
 
     if (response.status === 404) {
+      didUseBaseWorkbook = false;
       response = await fetch('/api/aprendizes/file', {
         cache: 'no-store',
       });
@@ -806,7 +809,10 @@ export function AprendizesPage({
       return false;
     }
 
-    await fetchRecoveryInfo();
+    const nextRecoveryInfo = await fetchRecoveryInfo();
+    if (didUseBaseWorkbook) {
+      markGlobalWorkbookAvailable(nextRecoveryInfo);
+    }
     return true;
   };
 

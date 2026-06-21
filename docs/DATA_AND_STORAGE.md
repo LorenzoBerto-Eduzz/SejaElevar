@@ -46,6 +46,7 @@ Current migration anchor:
 - `GET /api/base-workbook/schema` exposes the same provider-side intended shape for future import/export and diagnostics.
 - `GET /api/base-workbook/file`, `POST /api/base-workbook/import`, `PUT /api/base-workbook/file`, `PUT /api/base-workbook/file/system`, and `POST /api/base-workbook/export` exist as the first provider bridge for the unified workbook. They store active files as `DadosElevar_hhmmssddmmyy.xlsx`.
 - During the transition, the existing Aprendizes/Turmas import buttons detect a selected workbook that contains both `Aprendizes` and `Turmas` worksheet tabs and store it through the base workbook endpoint. Once an active `DadosElevar` workbook exists, it becomes the primary app data source for Aprendizes and Turmas, and global checkpoints should track that one active workbook rather than separate Aprendizes/Turmas files. Those pages prefer their named worksheet when reading a multi-sheet workbook, while still accepting old one-sheet files when no unified workbook is active.
+- The app now treats `Aulas` and `Cronograma` as managed optional worksheets in the active unified workbook. Import/recovery/system normalization can create or extend those tabs without making them required for global workbook validation. `Aulas` is the reusable catalog/model layer with columns `ID`, `Aula`, `Cor`, `Instrutor Padrao`, `Sala Padrao`, and `Disciplinas`. `Cronograma` is the scheduled-instance layer with columns `ID`, `Turma`, `Data`, `Inicio`, `Fim`, `Tipo`, `Aula ID`, `Aula`, `Instrutor`, `Sala`, and `Cor`. Cronograma rows copy display/default values from an Aula model when one is used, so scheduled instances can stay historically stable or be overridden independently.
 - The current storage mode is still `multi-workbook-transition`; do not remove the existing Aprendizes/Turmas endpoints until the UI has been migrated to read/write named worksheets from the unified workbook adapter.
 
 Global app buttons should follow this direction:
@@ -102,7 +103,7 @@ Current Turmas behavior:
 Expanded Turmas timetable visual/storage note:
 
 - The expanded Turma body is a split work surface. The left side shows assigned Aprendizes and owns vertical scrolling when the list is longer than the available space. The right side is a filtered timetable preview for that Turma's `Dia` and `PerÃ­odo`; it should not have independent vertical scrolling.
-- The timetable currently renders true 15-minute rows aligned to the Aprendizes row height, with a small visual tail after the period end. It intentionally does not render 5-minute rows. Future Aula/Cronograma blocks should snap to thirds of a 15-minute row for 5-minute movement/resizing.
+- The timetable currently renders true 15-minute rows aligned to the Aprendizes row height, with a small visual tail after the period end. It intentionally does not render 5-minute rows. Aula/Cronograma blocks snap to thirds of a 15-minute row for 5-minute movement/resizing.
 
 ## Generated Data Index
 

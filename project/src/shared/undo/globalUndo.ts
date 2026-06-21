@@ -232,6 +232,14 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
     return `Recuperou ${recoveredAtLabel}`;
   }
 
+  if (entry.kind === 'cronograma-insert') {
+    return formatHistoryLine(tabLabel, itemLabel, 'aula criada');
+  }
+
+  if (entry.kind === 'cronograma-update') {
+    return formatHistoryLine(tabLabel, itemLabel, 'aula reagendada');
+  }
+
   return `${prefix} ação`;
 };
 

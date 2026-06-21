@@ -2,6 +2,7 @@ import {
   APRENDIZES_REQUIRED_COLUMNS,
   ARCOS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
+  CRONOGRAMA_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
 } from './schemas';
 
@@ -64,8 +65,8 @@ export const BASE_WORKBOOK_SHEETS = [
     entityId: 'cronograma',
     sheetName: 'Cronograma',
     label: 'Cronograma',
-    requiredColumns: [],
-    status: 'planned',
+    requiredColumns: CRONOGRAMA_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
   },
   {
     entityId: 'presencas',

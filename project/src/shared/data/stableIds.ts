@@ -8,6 +8,7 @@ const ENTITY_ID_PREFIXES: Record<string, string> = {
   arcos: 'arco',
   disciplinas: 'disc',
   aulas: 'aula',
+  cronograma: 'cro',
 };
 
 type SheetLike = {
@@ -42,11 +43,17 @@ export const generateStableRecordId = (entity: string) => {
 };
 
 const normalizeRecordId = (value: string) => value.trim();
+const isGenericIdColumn = (column: string) =>
+  normalizeFieldLabel(column) === 'id';
 
 export const ensureSheetRecordIds = <T extends SheetLike>(
   sheet: T,
   entity: string,
 ): { sheet: T; didChange: boolean } => {
+  if (sheet.rows.length === 0) {
+    return { sheet, didChange: false };
+  }
+
   const existingIdColumnIndex = sheet.columns.findIndex(isInternalColumn);
   const idColumnIndex =
     existingIdColumnIndex >= 0 ? existingIdColumnIndex : sheet.columns.length;
@@ -101,8 +108,13 @@ export const getSheetRecordId = (
   entity: string,
 ) => {
   const idColumnIndex = sheet.columns.findIndex(isInternalColumn);
-  const id = idColumnIndex >= 0 ? normalizeRecordId(sheet.rows[rowIndex]?.[idColumnIndex] ?? '') : '';
+  const genericIdColumnIndex = sheet.columns.findIndex(isGenericIdColumn);
+  const sourceIdColumnIndex =
+    idColumnIndex >= 0 ? idColumnIndex : genericIdColumnIndex;
+  const id =
+    sourceIdColumnIndex >= 0
+      ? normalizeRecordId(sheet.rows[rowIndex]?.[sourceIdColumnIndex] ?? '')
+      : '';
 
   return id || `${getEntityPrefix(entity)}#${rowIndex + 1}`;
 };
-

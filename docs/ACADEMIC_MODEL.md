@@ -88,7 +88,7 @@ Current UI direction for the Turma expanded body:
 - The expanded Turma body is split into a left Aprendizes list and a right Turma timetable preview.
 - The divider between those two areas is draggable in dev and persists the chosen percentage locally; approved values can be baked into source later.
 - The left list is the assigned-Aprendizes view, with `+ Adicionar Aprendiz` behaving like the fixed bottom row for that list.
-- The right timetable is currently only the visual/planning surface for future Aula/Cronograma blocks. It is not yet storing scheduled blocks.
+- The right timetable is currently the visual/planning surface for Aula/Cronograma blocks filtered to the Turma. It stores scheduled blocks in the global `Cronograma` worksheet and should keep reusable Aula definitions separate from scheduled instances.
 - The timetable header shows the selected month/year and the dates for the Turma's selected weekday in that month.
 - The timetable visual grid renders real 15-minute rows aligned to the Aprendizes row height. It intentionally does not render 5-minute DOM/visual rows; future block movement/resizing should snap to thirds inside each 15-minute row to represent 5-minute increments.
 - Timetable vertical scrolling should not be used. The expanded body should grow to fit the Turma's configured period plus a small visual tail after the end time, while the left Aprendizes list can scroll vertically when many Aprendizes are assigned.
@@ -104,15 +104,20 @@ The `Calendário` tab should be the main global Cronograma visualization area. I
 Each Cronograma block should know:
 
 ```text
+ID
 Turma
 Data
 Inicio
 Fim
 Tipo: Aula / Intervalo / Outro
-Aula, when Tipo = Aula
+Aula ID, when created from a reusable Aula
+Aula, copied display name used by this scheduled instance
 Sala
 Funcionario
+Cor
 ```
+
+Durable data split: `Aula` and `Cronograma` are related but not the same item. An `Aula` is the reusable model/catalog definition: what content exists and what defaults it carries. A `Cronograma` row is the scheduled instance: when, where, for which Turma, and with which copied/overridden values that occurrence will happen. The scheduled instance should keep its own copied values so old/future blocks do not silently mutate just because the reusable Aula definition changes later.
 
 The Turma page can display a filtered monthly timetable. For a Turma whose day is Wednesday, the view can show all Wednesdays in the selected month as full rows/columns rather than a normal month grid. The width should allow the block content and dropdowns such as Sala/Funcionario to be usable.
 
@@ -123,6 +128,35 @@ The Turma page can display a filtered monthly timetable. For a Turma whose day i
 `Aula` should become its own tab/item type later, because workers need a friendly place to define and manage reusable Aula content.
 
 An Aula item defines what content/activity exists and which Disciplinas it can cover. The date, time, duration, Sala, and Funcionario are defined by the Cronograma block where that Aula is scheduled.
+
+Current planned workbook/catalog fields for reusable Aulas:
+
+```text
+ID
+Aula
+Cor
+Instrutor Padrao
+Sala Padrao
+Disciplinas
+```
+
+Current planned workbook fields for scheduled Aula/Cronograma instances:
+
+```text
+ID
+Turma
+Data
+Inicio
+Fim
+Tipo
+Aula ID
+Aula
+Instrutor
+Sala
+Cor
+```
+
+`Aula ID` may be blank for an ad-hoc block created directly in a Turma timetable. If a block is created from the Aula catalog, the Cronograma row stores the `Aula ID` plus copied values such as Aula name, color, default instructor, and default room. The scheduled instance can later override these values without rewriting the Aula catalog item.
 
 From the Turma timetable, the user should eventually be able to:
 

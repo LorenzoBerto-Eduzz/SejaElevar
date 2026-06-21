@@ -2,6 +2,7 @@ import {
   APRENDIZES_REQUIRED_COLUMNS,
   ARCOS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
+  CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
@@ -14,6 +15,7 @@ export const TURMAS_ENTITY_ID = 'turmas';
 export const ARCOS_ENTITY_ID = 'arcos';
 export const DISCIPLINAS_ENTITY_ID = 'disciplinas';
 export const AULAS_ENTITY_ID = 'aulas';
+export const CRONOGRAMA_ENTITY_ID = 'cronograma';
 
 export type SheetTable = {
   fileName: string;
@@ -180,4 +182,12 @@ export const buildAulasDataIndexEntity = (sheet: SheetTable) =>
     getBaseWorkbookSheetByEntity(AULAS_ENTITY_ID)?.label ?? 'Aulas',
     sheet,
     AULAS_REQUIRED_COLUMNS,
+  );
+
+export const buildCronogramaDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    CRONOGRAMA_ENTITY_ID,
+    getBaseWorkbookSheetByEntity(CRONOGRAMA_ENTITY_ID)?.label ?? 'Cronograma',
+    sheet,
+    CRONOGRAMA_REQUIRED_COLUMNS,
   );

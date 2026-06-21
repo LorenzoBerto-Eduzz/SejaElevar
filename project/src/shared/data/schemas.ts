@@ -44,8 +44,26 @@ export const DISCIPLINAS_REQUIRED_COLUMNS = [
 ] as const;
 
 export const AULAS_REQUIRED_COLUMNS = [
+  'ID',
   'Aula',
+  'Cor',
+  'Instrutor Padrão',
+  'Sala Padrão',
   'Disciplinas',
+] as const;
+
+export const CRONOGRAMA_REQUIRED_COLUMNS = [
+  'ID',
+  'Turma',
+  'Data',
+  'Início',
+  'Fim',
+  'Tipo',
+  'Aula ID',
+  'Aula',
+  'Instrutor',
+  'Sala',
+  'Cor',
 ] as const;
 
 export const normalizeFieldLabel = (value: string) =>

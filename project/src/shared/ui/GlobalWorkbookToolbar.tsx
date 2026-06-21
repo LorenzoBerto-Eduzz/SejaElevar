@@ -9,6 +9,9 @@ import {
   fetchBaseWorkbookFile,
   fetchRecoveryInfo,
   formatWorkbookValidationToast,
+  ensureActiveWorkbookManagedSheets,
+  persistManagedWorkbookDataIndexes,
+  prepareManagedWorkbookFile,
   recoverGlobalData,
   type RecoveryInfo,
   validateGlobalWorkbookFile,
@@ -129,6 +132,18 @@ export const useGlobalWorkbookState = () => {
   return state;
 };
 
+export const markGlobalWorkbookAvailable = (
+  recoveryInfo?: RecoveryInfo | null,
+) => {
+  setLatestGlobalToolbarState({
+    hasWorkbook: true,
+    recoveryInfo: normalizeRecoveryInfoForToolbar(
+      recoveryInfo ?? latestGlobalToolbarState.recoveryInfo,
+    ),
+    hasLoaded: true,
+  });
+};
+
 const getRecoveryDescription = (info: RecoveryInfo | null) => {
   switch (info?.reason) {
     case 'before_import':
@@ -192,6 +207,12 @@ export function GlobalWorkbookToolbar({
       fetchedRecoveryInfo,
       nextHasWorkbook,
     );
+
+    if (nextHasWorkbook) {
+      await ensureActiveWorkbookManagedSheets().catch(() => false);
+    } else {
+      void persistManagedWorkbookDataIndexes(null);
+    }
 
     const nextState = {
       hasWorkbook: nextHasWorkbook,
@@ -296,7 +317,8 @@ export function GlobalWorkbookToolbar({
     try {
       previousUndoStack = getGlobalUndoBoundarySnapshot();
       await validateGlobalWorkbookFile(file);
-      const fileBuffer = await file.arrayBuffer();
+      const preparedWorkbook = await prepareManagedWorkbookFile(file);
+      const fileBuffer = preparedWorkbook.buffer;
 
       const response = await fetch('/api/base-workbook/import', {
         method: 'POST',
@@ -326,6 +348,7 @@ export function GlobalWorkbookToolbar({
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         },
       );
+      await persistManagedWorkbookDataIndexes(importedWorkbookFile);
       importSucceeded = true;
     } catch (error) {
       showInvalidImportToast(formatWorkbookValidationToast(error));
@@ -421,7 +444,9 @@ export function GlobalWorkbookToolbar({
         setRecoveryInfo(nextState.recoveryInfo);
       }
 
+      await ensureActiveWorkbookManagedSheets().catch(() => false);
       const recoveredFile = await fetchBaseWorkbookFile().catch(() => null);
+      await persistManagedWorkbookDataIndexes(recoveredFile);
       window.dispatchEvent(
         new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
           detail: {

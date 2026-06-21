@@ -1,6 +1,15 @@
 import { BASE_WORKBOOK_SHEETS } from './baseWorkbook';
-import type { SheetTable } from './dataIndex';
 import {
+  AULAS_ENTITY_ID,
+  CRONOGRAMA_ENTITY_ID,
+  buildAulasDataIndexEntity,
+  buildCronogramaDataIndexEntity,
+  buildEmptyDataIndexEntity,
+  type SheetTable,
+} from './dataIndex';
+import {
+  AULAS_REQUIRED_COLUMNS,
+  CRONOGRAMA_REQUIRED_COLUMNS,
   findSchemaHeaderRowIndex,
   normalizeColumnsForSchema,
   normalizeFieldLabel,
@@ -10,6 +19,7 @@ import { getWorkbookSheet, hasWorkbookSheet } from './workbookSheets';
 
 type XlsxModule = typeof import('xlsx');
 type XlsxWorksheet = ReturnType<XlsxModule['utils']['aoa_to_sheet']>;
+type XlsxWorkbook = ReturnType<XlsxModule['read']>;
 
 export type RecoveryReason =
   | 'before_import'
@@ -78,6 +88,148 @@ const ACTIVE_WORKBOOK_SHEETS = BASE_WORKBOOK_SHEETS.filter(
   (sheet) => sheet.status === 'active-legacy-workbook',
 );
 
+const MANAGED_OPTIONAL_WORKBOOK_SHEETS = [
+  {
+    entityId: AULAS_ENTITY_ID,
+    sheetName: 'Aulas',
+    label: 'Aulas',
+    requiredColumns: AULAS_REQUIRED_COLUMNS,
+  },
+  {
+    entityId: CRONOGRAMA_ENTITY_ID,
+    sheetName: 'Cronograma',
+    label: 'Cronograma',
+    requiredColumns: CRONOGRAMA_REQUIRED_COLUMNS,
+  },
+] as const;
+
+const toSheetRows = (
+  utils: XlsxModule['utils'],
+  worksheet: XlsxWorksheet,
+) =>
+  utils.sheet_to_json<unknown[]>(worksheet, {
+    blankrows: false,
+    defval: '',
+    header: 1,
+    raw: false,
+  });
+
+const getLastUsedColumnIndex = (rows: unknown[][], startRowIndex: number) => {
+  let lastColumnIndex = -1;
+
+  rows.slice(Math.max(0, startRowIndex)).forEach((row) => {
+    row.forEach((cell, index) => {
+      if (normalizeCell(cell) !== '') {
+        lastColumnIndex = Math.max(lastColumnIndex, index);
+      }
+    });
+  });
+
+  return lastColumnIndex;
+};
+
+const normalizeManagedWorksheet = (
+  utils: XlsxModule['utils'],
+  worksheet: XlsxWorksheet | null,
+  requiredColumns: readonly string[],
+) => {
+  if (!worksheet) {
+    return {
+      worksheet: utils.aoa_to_sheet([[...requiredColumns]]),
+      didChange: true,
+    };
+  }
+
+  const rows = toSheetRows(utils, worksheet);
+  const headerIndex = findSchemaHeaderRowIndex(rows, requiredColumns);
+
+  if (headerIndex < 0) {
+    return {
+      worksheet: utils.aoa_to_sheet([[...requiredColumns]]),
+      didChange: true,
+    };
+  }
+
+  const lastColumnIndex = Math.max(
+    requiredColumns.length - 1,
+    getLastUsedColumnIndex(rows, headerIndex),
+  );
+  const nextRows = rows.map((row) => [...row]);
+
+  while (nextRows.length <= headerIndex) {
+    nextRows.push([]);
+  }
+
+  const headerRow = nextRows[headerIndex];
+  const rawColumns = Array.from(
+    { length: lastColumnIndex + 1 },
+    (_, index) => normalizeCell(headerRow[index]) || `Coluna ${index + 1}`,
+  );
+  const { missingColumns, normalizedColumns } = normalizeColumnsForSchema(
+    rawColumns,
+    requiredColumns,
+  );
+  const nextColumns = [...normalizedColumns, ...missingColumns];
+  const originalColumns = Array.from(
+    { length: nextColumns.length },
+    (_, index) => normalizeCell(headerRow[index]),
+  );
+  const didChange =
+    missingColumns.length > 0 ||
+    nextColumns.some((column, index) => column !== originalColumns[index]);
+
+  if (!didChange) {
+    return {
+      worksheet,
+      didChange: false,
+    };
+  }
+
+  nextRows[headerIndex] = nextColumns;
+  for (let rowIndex = 0; rowIndex < nextRows.length; rowIndex += 1) {
+    while (nextRows[rowIndex].length < nextColumns.length) {
+      nextRows[rowIndex].push('');
+    }
+  }
+
+  return {
+    worksheet: utils.aoa_to_sheet(nextRows),
+    didChange: true,
+  };
+};
+
+const ensureManagedWorkbookSheets = (
+  utils: XlsxModule['utils'],
+  workbook: XlsxWorkbook,
+) => {
+  let didChange = false;
+
+  MANAGED_OPTIONAL_WORKBOOK_SHEETS.forEach((sheetDefinition) => {
+    const { sheetName, worksheet } = getWorkbookSheet(
+      workbook,
+      sheetDefinition.sheetName,
+    );
+    const targetSheetName = (sheetName ?? sheetDefinition.sheetName).slice(0, 31);
+    const normalizedSheet = normalizeManagedWorksheet(
+      utils,
+      worksheet,
+      sheetDefinition.requiredColumns,
+    );
+
+    if (!worksheet || normalizedSheet.didChange) {
+      workbook.Sheets[targetSheetName] = normalizedSheet.worksheet;
+      didChange = true;
+    }
+
+    if (!workbook.SheetNames.includes(targetSheetName)) {
+      workbook.SheetNames.push(targetSheetName);
+      didChange = true;
+    }
+  });
+
+  return didChange;
+};
+
 const extractColumns = (
   utils: XlsxModule['utils'],
   worksheet: XlsxWorksheet,
@@ -121,6 +273,32 @@ export const readWorkbookFromFile = async (file: File) => {
   return read(await file.arrayBuffer(), {
     cellDates: true,
   });
+};
+
+export const prepareManagedWorkbookFile = async (file: File) => {
+  const { read, utils, write } = await loadXlsx();
+  const inputBuffer = await file.arrayBuffer();
+  const workbook = read(inputBuffer, {
+    cellDates: true,
+  });
+  const didChange = ensureManagedWorkbookSheets(utils, workbook);
+  const outputBuffer = didChange
+    ? (write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      }) as ArrayBuffer)
+    : inputBuffer.slice(0);
+  const preparedFile = new File([outputBuffer.slice(0)], file.name, {
+    type:
+      file.type ||
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+
+  return {
+    file: preparedFile,
+    buffer: outputBuffer,
+    didChange,
+  };
 };
 
 export const isUnifiedWorkbookFile = async (file: File) => {
@@ -210,12 +388,14 @@ type ReadWorkbookSheetOptions = {
   requiredColumns: readonly string[];
   preferredSheetName: string;
   removedColumns?: Set<string>;
+  ensureRecordIds?: boolean;
 };
 
 export const readWorkbookSheetFile = async (
   file: File,
   {
     entityId,
+    ensureRecordIds = true,
     preferredSheetName,
     removedColumns,
     requiredColumns,
@@ -278,14 +458,20 @@ export const readWorkbookSheetFile = async (
       keptColumnIndexes.map(({ columnIndex }) => normalizeCell(row[columnIndex])),
     )
     .filter((row) => row.some((cell) => cell !== ''));
+  const baseSheet = {
+    fileName: file.name,
+    sheetName,
+    importedAt: new Date().toISOString(),
+    columns,
+    rows,
+  };
+
+  if (!ensureRecordIds) {
+    return baseSheet;
+  }
+
   const { sheet, didChange } = ensureSheetRecordIds(
-    {
-      fileName: file.name,
-      sheetName,
-      importedAt: new Date().toISOString(),
-      columns,
-      rows,
-    },
+    baseSheet,
     entityId,
   );
 
@@ -324,6 +510,111 @@ export const fetchBaseWorkbookFile = async () => {
   }
 
   return responseToWorkbookFile(response, 'DadosElevar.xlsx');
+};
+
+const readManagedWorkbookSheetFile = async (
+  file: File,
+  sheetDefinition: (typeof MANAGED_OPTIONAL_WORKBOOK_SHEETS)[number],
+) => {
+  try {
+    return await readWorkbookSheetFile(file, {
+      entityId: sheetDefinition.entityId,
+      ensureRecordIds: false,
+      preferredSheetName: sheetDefinition.sheetName,
+      requiredColumns: sheetDefinition.requiredColumns,
+    });
+  } catch {
+    return {
+      fileName: file.name,
+      sheetName: sheetDefinition.sheetName,
+      importedAt: new Date().toISOString(),
+      columns: [...sheetDefinition.requiredColumns],
+      rows: [],
+    } satisfies SheetTable;
+  }
+};
+
+export const persistManagedWorkbookDataIndexes = async (file: File | null) => {
+  const managedSheets = file
+    ? await Promise.all(
+        MANAGED_OPTIONAL_WORKBOOK_SHEETS.map(async (sheetDefinition) => ({
+          sheetDefinition,
+          sheet: await readManagedWorkbookSheetFile(file, sheetDefinition),
+        })),
+      )
+    : MANAGED_OPTIONAL_WORKBOOK_SHEETS.map((sheetDefinition) => ({
+        sheetDefinition,
+        sheet: null,
+      }));
+  const managedEntities = managedSheets.map(({ sheetDefinition, sheet }) => {
+    if (sheetDefinition.entityId === AULAS_ENTITY_ID) {
+      return {
+        entityId: AULAS_ENTITY_ID,
+        entity: sheet
+          ? buildAulasDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(AULAS_ENTITY_ID, 'Aulas'),
+      };
+    }
+
+    return {
+      entityId: CRONOGRAMA_ENTITY_ID,
+      entity: sheet
+        ? buildCronogramaDataIndexEntity(sheet)
+        : buildEmptyDataIndexEntity(CRONOGRAMA_ENTITY_ID, 'Cronograma'),
+    };
+  });
+
+  try {
+    await Promise.all(
+      managedEntities.map(({ entityId, entity }) =>
+        fetch(`/api/data-index/entities/${entityId}`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(entity),
+        }),
+      ),
+    );
+  } catch {
+    // The workbook remains the source of truth; the generated index can be rebuilt.
+  }
+};
+
+export const ensureActiveWorkbookManagedSheets = async () => {
+  const sourceResponse = await fetch('/api/base-workbook/file', {
+    cache: 'no-store',
+  });
+
+  if (sourceResponse.status === 404) {
+    await persistManagedWorkbookDataIndexes(null);
+    return false;
+  }
+
+  if (!sourceResponse.ok) {
+    throw new Error('read-failed');
+  }
+
+  const file = await responseToWorkbookFile(sourceResponse, 'DadosElevar.xlsx');
+  const preparedWorkbook = await prepareManagedWorkbookFile(file);
+
+  if (preparedWorkbook.didChange) {
+    const saveResponse = await fetch('/api/base-workbook/file/system', {
+      method: 'PUT',
+      headers: {
+        'content-type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+      body: preparedWorkbook.buffer,
+    });
+
+    if (!saveResponse.ok) {
+      throw new Error('save-failed');
+    }
+  }
+
+  await persistManagedWorkbookDataIndexes(preparedWorkbook.file);
+  return preparedWorkbook.didChange;
 };
 
 export const fetchRecoveryInfo = async () => {

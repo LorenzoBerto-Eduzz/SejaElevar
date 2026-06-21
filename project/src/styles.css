@@ -2240,12 +2240,143 @@ svg {
     color-mix(in srgb, var(--cell-line-color) 44%, transparent);
 }
 
+.turma-schedule-time-label.footer-time {
+  border-bottom: 1px solid var(--cell-line-color);
+}
+
+.turma-schedule-footer-actions {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: var(--table-row-height, 30px);
+  height: var(--table-row-height, 30px);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--cell-line-color);
+  background: var(--brand-panel);
+}
+
+.turma-schedule-footer-actions.major {
+  box-shadow: inset 0 1px 0 var(--cell-line-color);
+}
+
+.turma-schedule-footer-actions.quarter {
+  box-shadow: inset 0 1px 0
+    color-mix(in srgb, var(--cell-line-color) 44%, transparent);
+}
+
 .turma-schedule-slot {
+  position: relative;
   min-width: 78px;
+  overflow: visible;
 }
 
 .turma-schedule-slot.last {
   border-right: 0;
+}
+
+.turma-schedule-slot-add {
+  position: absolute;
+  inset: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, #168c55 74%, transparent);
+  border-radius: 4px;
+  padding: 0 5px;
+  color: #ffffff;
+  background: #168c55;
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.turma-schedule-slot:hover > .turma-schedule-slot-add,
+.turma-schedule-slot-add:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.turma-schedule-slot-add svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dark-mode .turma-schedule-slot-add {
+  border-color: color-mix(in srgb, #4e9a73 78%, var(--brand-panel) 22%);
+  color: color-mix(in srgb, #ffffff 86%, var(--brand-panel) 14%);
+  background: #397858;
+}
+
+.turma-schedule-block {
+  position: absolute;
+  box-sizing: border-box;
+  top: var(--schedule-block-top, 0);
+  left: 5px;
+  right: 5px;
+  z-index: 5;
+  display: flex;
+  min-height: var(--table-row-height, 30px);
+  height: var(--schedule-block-height, 100%);
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 82%, #ffffff 18%);
+  border-radius: 5px;
+  padding: 0 7px;
+  color: #ffffff;
+  background: color-mix(in srgb, var(--brand-primary) 88%, #168c55 12%);
+  box-shadow: 0 4px 10px rgba(8, 35, 72, 0.14);
+  cursor: grab;
+  user-select: none;
+}
+
+.turma-schedule-block:active {
+  cursor: grabbing;
+}
+
+.turma-schedule-block span {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--table-row-height, 30px) / 2);
+  height: calc(var(--table-row-height, 30px) / 2);
+  color: inherit;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turma-schedule-block-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 7px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.turma-schedule-block-resize-top {
+  top: -3px;
+}
+
+.turma-schedule-block-resize-bottom {
+  bottom: -3px;
 }
 
 .turma-schedule-empty-state {

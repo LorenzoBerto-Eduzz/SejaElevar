@@ -15,8 +15,10 @@ import {
 } from 'react';
 import {
   APRENDIZES_ENTITY_ID,
+  CRONOGRAMA_ENTITY_ID,
   TURMAS_ENTITY_ID,
   buildAprendizesDataIndexEntity,
+  buildCronogramaDataIndexEntity,
   buildEmptyDataIndexEntity,
   buildTurmasDataIndexEntity,
   type DataIndexEntity,
@@ -31,11 +33,13 @@ import {
 } from '../../shared/data/events';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  CRONOGRAMA_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
 import {
   ensureSheetRecordIds,
+  generateStableRecordId,
   getPublicColumns,
   getSheetRecordId,
 } from '../../shared/data/stableIds';
@@ -58,6 +62,7 @@ import {
 } from '../../shared/data/workbookOptions';
 import {
   GlobalWorkbookToolbar,
+  markGlobalWorkbookAvailable,
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
 import {
@@ -124,6 +129,21 @@ const APRENDIZES_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
 const TURMAS_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(TURMAS_ENTITY_ID)?.sheetName ?? 'Turmas';
+const CRONOGRAMA_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(CRONOGRAMA_ENTITY_ID)?.sheetName ?? 'Cronograma';
+const CRONOGRAMA_ID_COLUMN = 'ID';
+const CRONOGRAMA_DATE_COLUMN = 'Data';
+const CRONOGRAMA_START_COLUMN = 'Início';
+const CRONOGRAMA_END_COLUMN = 'Fim';
+const CRONOGRAMA_TYPE_COLUMN = 'Tipo';
+const CRONOGRAMA_LESSON_ID_COLUMN = 'Aula ID';
+const CRONOGRAMA_LESSON_COLUMN = 'Aula';
+const CRONOGRAMA_COLOR_COLUMN = 'Cor';
+const CRONOGRAMA_MIN_DURATION_MINUTES = 15;
+const CRONOGRAMA_SNAP_MINUTES = 5;
+const DEFAULT_CRONOGRAMA_BLOCK_TYPE = 'Aula';
+const DEFAULT_CRONOGRAMA_LESSON_NAME = 'Aula sem nome';
+const DEFAULT_CRONOGRAMA_BLOCK_COLOR = '#2069df';
 const SEX_COLUMN = 'Sexo';
 const BIRTHDATE_COLUMN = 'Data de Nascimento';
 const EMAIL_COLUMN = 'E-mail';
@@ -204,6 +224,39 @@ type ActiveTurmaDropdown = {
 type TurmaDraftRow = {
   id: string;
   values: Record<string, string>;
+};
+
+type CronogramaBlock = {
+  id: string;
+  rowIndex: number;
+  row: string[];
+  turma: string;
+  dateKey: string;
+  startMinutes: number;
+  endMinutes: number;
+  type: string;
+  lessonId: string;
+  lesson: string;
+  instructor: string;
+  room: string;
+  color: string;
+};
+
+type SchedulePointerMode = 'move' | 'resize-start' | 'resize-end';
+
+type ActiveSchedulePointer = {
+  blockId: string;
+  mode: SchedulePointerMode;
+  turmaName: string;
+  originalRow: string[];
+  originalRowIndex: number;
+  grabbedOffsetMinutes: number;
+  periodStartMinutes: number;
+  periodEndMinutes: number;
+  scheduleDates: Date[];
+  grid: HTMLDivElement;
+  rowHeight: number;
+  timeColumnWidth: number;
 };
 
 type ClearedAprendizTurma = {
@@ -596,6 +649,63 @@ const formatScheduleDate = (date: Date) =>
     month: '2-digit',
   });
 
+const formatScheduleDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`;
+
+const parseScheduleDateKey = (value: string) => {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number.parseInt(match[1], 10);
+  const monthIndex = Number.parseInt(match[2], 10) - 1;
+  const day = Number.parseInt(match[3], 10);
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(monthIndex) ||
+    !Number.isFinite(day)
+  ) {
+    return null;
+  }
+
+  return new Date(year, monthIndex, day);
+};
+
+const parseScheduleTimeValue = (value: string) => {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})/);
+
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
+const snapMinutes = (minutes: number) =>
+  Math.round(minutes / CRONOGRAMA_SNAP_MINUTES) * CRONOGRAMA_SNAP_MINUTES;
+
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
 const clampTurmasExpandedSplit = (value: number) =>
   Math.max(
     MIN_TURMAS_EXPANDED_SPLIT_PERCENT,
@@ -794,12 +904,14 @@ const readSheetFile = async (
   entity: string,
   requiredColumns: readonly string[],
   options: {
+    ensureRecordIds?: boolean;
     preferredSheetName?: string;
     removedColumns?: Set<string>;
   } = {},
 ): Promise<SheetTable> => {
   return readWorkbookSheetFile(file, {
     entityId: entity,
+    ensureRecordIds: options.ensureRecordIds,
     preferredSheetName: options.preferredSheetName ?? '',
     removedColumns: options.removedColumns,
     requiredColumns,
@@ -864,6 +976,186 @@ const persistAprendizesDataIndex = async (sheet: SheetTable | null) => {
   await persistDataIndexEntity(APRENDIZES_ENTITY_ID, entityIndex);
 };
 
+const persistCronogramaDataIndex = async (sheet: SheetTable | null) => {
+  const entityIndex = sheet
+    ? buildCronogramaDataIndexEntity(sheet)
+    : buildEmptyDataIndexEntity(CRONOGRAMA_ENTITY_ID, 'Cronograma');
+
+  await persistDataIndexEntity(CRONOGRAMA_ENTITY_ID, entityIndex);
+};
+
+const getCronogramaFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: CRONOGRAMA_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...CRONOGRAMA_REQUIRED_COLUMNS],
+  rows: [],
+});
+
+const getCronogramaCellValue = (
+  sheet: SheetTable,
+  row: string[],
+  columnName: string,
+) => {
+  const columnIndex = getColumnIndex(sheet, columnName);
+
+  return columnIndex >= 0 ? row[columnIndex] ?? '' : '';
+};
+
+const getCronogramaRowWithValues = (
+  sheet: SheetTable,
+  values: Record<string, string>,
+) =>
+  sheet.columns.map((column) => {
+    const matchingValue = Object.entries(values).find(
+      ([key]) => normalizeFieldLabel(key) === normalizeFieldLabel(column),
+    );
+
+    return matchingValue?.[1] ?? '';
+  });
+
+const getCronogramaRowId = (sheet: SheetTable, row: string[]) =>
+  getCronogramaCellValue(sheet, row, CRONOGRAMA_ID_COLUMN) ||
+  generateStableRecordId(CRONOGRAMA_ENTITY_ID);
+
+const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
+  if (!sheet) {
+    return [];
+  }
+
+  return sheet.rows.flatMap((row, rowIndex) => {
+    const startMinutes = parseScheduleTimeValue(
+      getCronogramaCellValue(sheet, row, CRONOGRAMA_START_COLUMN),
+    );
+    const endMinutes = parseScheduleTimeValue(
+      getCronogramaCellValue(sheet, row, CRONOGRAMA_END_COLUMN),
+    );
+    const dateKey = getCronogramaCellValue(sheet, row, CRONOGRAMA_DATE_COLUMN);
+    const turma = getCronogramaCellValue(sheet, row, TURMA_COLUMN);
+
+    if (
+      !turma ||
+      !dateKey ||
+      startMinutes === null ||
+      endMinutes === null ||
+      endMinutes <= startMinutes
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        id: getCronogramaRowId(sheet, row),
+        rowIndex,
+        row,
+        turma,
+        dateKey,
+        startMinutes,
+        endMinutes,
+        type:
+          getCronogramaCellValue(sheet, row, CRONOGRAMA_TYPE_COLUMN) ||
+          DEFAULT_CRONOGRAMA_BLOCK_TYPE,
+        lessonId: getCronogramaCellValue(
+          sheet,
+          row,
+          CRONOGRAMA_LESSON_ID_COLUMN,
+        ),
+        lesson:
+          getCronogramaCellValue(sheet, row, CRONOGRAMA_LESSON_COLUMN) ||
+          DEFAULT_CRONOGRAMA_LESSON_NAME,
+        instructor: getCronogramaCellValue(sheet, row, TURMA_INSTRUCTOR_COLUMN),
+        room: getCronogramaCellValue(sheet, row, TURMA_ROOM_COLUMN),
+        color:
+          getCronogramaCellValue(sheet, row, CRONOGRAMA_COLOR_COLUMN) ||
+          DEFAULT_CRONOGRAMA_BLOCK_COLOR,
+      },
+    ];
+  });
+};
+
+const doScheduleRangesOverlap = (
+  firstStart: number,
+  firstEnd: number,
+  secondStart: number,
+  secondEnd: number,
+) => firstStart < secondEnd && firstEnd > secondStart;
+
+const getAvailableScheduleMoveStart = (
+  desiredStart: number,
+  duration: number,
+  periodStartMinutes: number,
+  periodEndMinutes: number,
+  blockers: CronogramaBlock[],
+) => {
+  const sortedBlockers = blockers
+    .filter(
+      (block) =>
+        block.endMinutes > periodStartMinutes &&
+        block.startMinutes < periodEndMinutes,
+    )
+    .sort((first, second) => first.startMinutes - second.startMinutes);
+  const desiredSnappedStart = clampNumber(
+    snapMinutes(desiredStart),
+    periodStartMinutes,
+    periodEndMinutes - duration,
+  );
+  const intervals: Array<{ start: number; end: number }> = [];
+  let cursor = periodStartMinutes;
+
+  sortedBlockers.forEach((block) => {
+    const blockerStart = clampNumber(
+      block.startMinutes,
+      periodStartMinutes,
+      periodEndMinutes,
+    );
+    const blockerEnd = clampNumber(
+      block.endMinutes,
+      periodStartMinutes,
+      periodEndMinutes,
+    );
+
+    if (blockerStart - cursor >= duration) {
+      intervals.push({
+        start: cursor,
+        end: blockerStart - duration,
+      });
+    }
+
+    cursor = Math.max(cursor, blockerEnd);
+  });
+
+  if (periodEndMinutes - cursor >= duration) {
+    intervals.push({
+      start: cursor,
+      end: periodEndMinutes - duration,
+    });
+  }
+
+  if (intervals.length === 0) {
+    return null;
+  }
+
+  const containingInterval = intervals.find(
+    (interval) =>
+      desiredSnappedStart >= interval.start &&
+      desiredSnappedStart <= interval.end,
+  );
+
+  if (containingInterval) {
+    return desiredSnappedStart;
+  }
+
+  const laterInterval = intervals.find(
+    (interval) => interval.start >= desiredSnappedStart,
+  );
+
+  if (laterInterval) {
+    return laterInterval.start;
+  }
+
+  return intervals[intervals.length - 1].end;
+};
+
 type TurmasPageProps = {
   canInitialize?: boolean;
   isActive?: boolean;
@@ -896,13 +1188,18 @@ export function TurmasPage({
   const [aprendizesSheet, setAprendizesSheet] = useState<SheetTable | null>(
     null,
   );
+  const [cronogramaSheet, setCronogramaSheet] = useState<SheetTable | null>(
+    null,
+  );
   const [workbookOptions, setWorkbookOptions] =
     useState<WorkbookOptions>(emptyWorkbookOptions);
   const latestTurmasSheetRef = useRef<SheetTable | null>(turmasSheet);
   const latestAprendizesSheetRef = useRef<SheetTable | null>(aprendizesSheet);
+  const latestCronogramaSheetRef = useRef<SheetTable | null>(cronogramaSheet);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSchedulePointerActive, setIsSchedulePointerActive] = useState(false);
   const [importError, setImportError] = useState('');
   const [invalidImportToast, setInvalidImportToast] = useState('');
   const globalWorkbookState = useGlobalWorkbookState();
@@ -943,6 +1240,7 @@ export function TurmasPage({
   const [rowDetailsPanelStyle, setRowDetailsPanelStyle] =
     useState<CSSProperties>({});
   const isSyncingStudentsScrollRef = useRef(false);
+  const activeSchedulePointerRef = useRef<ActiveSchedulePointer | null>(null);
 
   useEffect(() => {
     latestTurmasSheetRef.current = turmasSheet;
@@ -951,6 +1249,10 @@ export function TurmasPage({
   useEffect(() => {
     latestAprendizesSheetRef.current = aprendizesSheet;
   }, [aprendizesSheet]);
+
+  useEffect(() => {
+    latestCronogramaSheetRef.current = cronogramaSheet;
+  }, [cronogramaSheet]);
 
   useEffect(() => {
     activeTurmaNameEditRef.current = activeTurmaNameEdit;
@@ -1613,6 +1915,23 @@ export function TurmasPage({
       entry.entityId === TURMAS_ENTITY_ID &&
       typeof entry.rowIndex === 'number' &&
       Array.isArray(entry.rowValues)
+    );
+  };
+
+  const isCronogramaUndoEntry = (
+    entry: GlobalUndoEntry | undefined,
+  ): entry is GlobalUndoEntry & {
+    kind: 'cronograma-insert' | 'cronograma-update';
+    rowIndex: number;
+    rowValues?: string[];
+    previousRowValues?: string[];
+    nextRowValues?: string[];
+  } => {
+    return (
+      Boolean(entry) &&
+      (entry?.kind === 'cronograma-insert' ||
+        entry?.kind === 'cronograma-update') &&
+      typeof entry.rowIndex === 'number'
     );
   };
 
@@ -2578,13 +2897,565 @@ export function TurmasPage({
     return nextSheet;
   };
 
+  const applyCronogramaFile = async (file: File) => {
+    let nextSheet: SheetTable;
+
+    try {
+      nextSheet = await readSheetFile(
+        file,
+        CRONOGRAMA_ENTITY_ID,
+        CRONOGRAMA_REQUIRED_COLUMNS,
+        {
+          ensureRecordIds: false,
+          preferredSheetName: CRONOGRAMA_WORKBOOK_SHEET,
+        },
+      );
+    } catch {
+      nextSheet = getCronogramaFallbackSheet(file.name);
+    }
+
+    const nextSheetWithFileName = {
+      ...nextSheet,
+      fileName: file.name,
+    };
+
+    latestCronogramaSheetRef.current = nextSheetWithFileName;
+    setCronogramaSheet(nextSheetWithFileName);
+    await persistCronogramaDataIndex(nextSheetWithFileName);
+    return nextSheetWithFileName;
+  };
+
+  const saveCronogramaSheetToSourceFile = async (sheet: SheetTable) => {
+    try {
+      const { read, utils, write } = await loadXlsx();
+      const sourceResponse = await fetch('/api/base-workbook/file', {
+        cache: 'no-store',
+      });
+
+      if (!sourceResponse.ok) {
+        throw new Error('read-failed');
+      }
+
+      const sourceFile = await responseToWorkbookFile(
+        sourceResponse,
+        'DadosElevar.xlsx',
+      );
+      const workbook = read(await sourceFile.arrayBuffer(), {
+        cellDates: true,
+      });
+      const sheetName =
+        workbook.SheetNames.find(
+          (candidateName) =>
+            normalizeFieldLabel(candidateName) ===
+            normalizeFieldLabel(CRONOGRAMA_WORKBOOK_SHEET),
+        ) ?? CRONOGRAMA_WORKBOOK_SHEET;
+
+      workbook.Sheets[sheetName] = utils.aoa_to_sheet([
+        sheet.columns,
+        ...sheet.rows,
+      ]);
+
+      if (!workbook.SheetNames.includes(sheetName)) {
+        workbook.SheetNames.push(sheetName);
+      }
+
+      const output = write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      }) as ArrayBuffer;
+      const saveResponse = await fetch('/api/base-workbook/file', {
+        method: 'PUT',
+        headers: {
+          'content-type':
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+        body: output,
+      });
+
+      if (!saveResponse.ok) {
+        throw new Error('save-failed');
+      }
+
+      const result = (await saveResponse.json()) as { fileName?: string };
+      const savedSheet = {
+        ...sheet,
+        fileName: result.fileName || sheet.fileName,
+      };
+
+      latestCronogramaSheetRef.current = savedSheet;
+      setCronogramaSheet(savedSheet);
+      await persistCronogramaDataIndex(savedSheet);
+      await fetchRecoveryInfo();
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+
+      return savedSheet;
+    } catch {
+      setImportError(
+        'A alteração ficou na tela, mas não foi possível gravar em dados.',
+      );
+      return null;
+    }
+  };
+
+  const getWorkingCronogramaSheet = () =>
+    latestCronogramaSheetRef.current ??
+    getCronogramaFallbackSheet(turmasSheet?.fileName ?? 'DadosElevar.xlsx');
+
+  const getCronogramaRowWithBlockValues = (
+    sheet: SheetTable,
+    sourceRow: string[],
+    values: {
+      id: string;
+      turmaName: string;
+      dateKey: string;
+      startMinutes: number;
+      endMinutes: number;
+      type?: string;
+      lessonId?: string;
+      lesson?: string;
+      instructor?: string;
+      room?: string;
+      color?: string;
+    },
+  ) =>
+    sheet.columns.map((column, columnIndex) => {
+      const currentValue = sourceRow[columnIndex] ?? '';
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_ID_COLUMN)) {
+        return values.id;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_COLUMN)) {
+        return values.turmaName;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_DATE_COLUMN)) {
+        return values.dateKey;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_START_COLUMN)) {
+        return formatMinutesAsTime(values.startMinutes);
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_END_COLUMN)) {
+        return formatMinutesAsTime(values.endMinutes);
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_TYPE_COLUMN)) {
+        return values.type ?? currentValue;
+      }
+
+      if (
+        normalizeFieldLabel(column) ===
+        normalizeFieldLabel(CRONOGRAMA_LESSON_ID_COLUMN)
+      ) {
+        return values.lessonId ?? currentValue;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_LESSON_COLUMN)) {
+        return values.lesson ?? currentValue;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_INSTRUCTOR_COLUMN)) {
+        return values.instructor ?? currentValue;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_ROOM_COLUMN)) {
+        return values.room ?? currentValue;
+      }
+
+      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_COLOR_COLUMN)) {
+        return values.color ?? currentValue;
+      }
+
+      return currentValue;
+    });
+
+  const replaceCronogramaRow = (
+    sheet: SheetTable,
+    rowIndex: number,
+    nextRow: string[],
+  ): SheetTable => ({
+    ...sheet,
+    rows: sheet.rows.map((row, currentIndex) =>
+      currentIndex === rowIndex ? nextRow : row,
+    ),
+  });
+
+  const createScheduleBlock = async (
+    turmaName: string,
+    date: Date,
+    startMinutes: number,
+    defaults: {
+      instructor: string;
+      room: string;
+    },
+  ) => {
+    const sheet = getWorkingCronogramaSheet();
+    const id = generateStableRecordId(CRONOGRAMA_ENTITY_ID);
+    const nextRow = getCronogramaRowWithValues(sheet, {
+      [CRONOGRAMA_ID_COLUMN]: id,
+      [TURMA_COLUMN]: turmaName,
+      [CRONOGRAMA_DATE_COLUMN]: formatScheduleDateKey(date),
+      [CRONOGRAMA_START_COLUMN]: formatMinutesAsTime(startMinutes),
+      [CRONOGRAMA_END_COLUMN]: formatMinutesAsTime(
+        startMinutes + CRONOGRAMA_MIN_DURATION_MINUTES,
+      ),
+      [CRONOGRAMA_TYPE_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_TYPE,
+      [CRONOGRAMA_LESSON_ID_COLUMN]: '',
+      [CRONOGRAMA_LESSON_COLUMN]: DEFAULT_CRONOGRAMA_LESSON_NAME,
+      [TURMA_INSTRUCTOR_COLUMN]: defaults.instructor,
+      [TURMA_ROOM_COLUMN]: defaults.room,
+      [CRONOGRAMA_COLOR_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_COLOR,
+    });
+    const nextSheet = {
+      ...sheet,
+      rows: [...sheet.rows, nextRow],
+    };
+
+    latestCronogramaSheetRef.current = nextSheet;
+    setCronogramaSheet(nextSheet);
+    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+
+    if (!savedSheet) {
+      latestCronogramaSheetRef.current = sheet;
+      setCronogramaSheet(sheet);
+      return;
+    }
+
+    pushGlobalUndoEntry({
+      originTab: 'turmas',
+      kind: 'cronograma-insert',
+      itemRef: id,
+      itemLabel: id,
+      rowIndex: sheet.rows.length,
+      rowValues: nextRow,
+    });
+  };
+
+  const commitScheduleBlockUpdate = async (
+    blockId: string,
+    originalRowIndex: number,
+    originalRow: string[],
+    nextRow: string[],
+  ) => {
+    const sheet = getWorkingCronogramaSheet();
+    const currentRowIndex = sheet.rows.findIndex(
+      (row) => getCronogramaRowId(sheet, row) === blockId,
+    );
+
+    if (currentRowIndex < 0) {
+      return;
+    }
+
+    const currentRow = sheet.rows[currentRowIndex];
+
+    if (currentRow.join('\u0000') === originalRow.join('\u0000')) {
+      return;
+    }
+
+    const savedSheet = await saveCronogramaSheetToSourceFile(sheet);
+
+    if (!savedSheet) {
+      const revertedSheet = replaceCronogramaRow(
+        sheet,
+        currentRowIndex,
+        originalRow,
+      );
+      latestCronogramaSheetRef.current = revertedSheet;
+      setCronogramaSheet(revertedSheet);
+      return;
+    }
+
+    pushGlobalUndoEntry({
+      originTab: 'turmas',
+      kind: 'cronograma-update',
+      itemRef: blockId,
+      itemLabel: blockId,
+      rowIndex: originalRowIndex,
+      previousRowValues: originalRow,
+      nextRowValues: nextRow,
+    });
+  };
+
+  const getSchedulePointerTarget = (
+    pointer: ActiveSchedulePointer,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const gridRect = pointer.grid.getBoundingClientRect();
+    const scheduleWidth = Math.max(
+      1,
+      pointer.grid.scrollWidth - pointer.timeColumnWidth,
+    );
+    const dateColumnWidth = scheduleWidth / Math.max(1, pointer.scheduleDates.length);
+    const contentX = clientX - gridRect.left + pointer.grid.scrollLeft;
+    const contentY = clientY - gridRect.top;
+    const dateIndex = clampNumber(
+      Math.floor((contentX - pointer.timeColumnWidth) / dateColumnWidth),
+      0,
+      pointer.scheduleDates.length - 1,
+    );
+    const rawMinutes =
+      pointer.periodStartMinutes +
+      ((contentY - pointer.rowHeight) / pointer.rowHeight) * 15;
+    const snappedMinutes = snapMinutes(rawMinutes);
+
+    return {
+      date: pointer.scheduleDates[dateIndex] ?? pointer.scheduleDates[0],
+      minutes: clampNumber(
+        snappedMinutes,
+        pointer.periodStartMinutes,
+        pointer.periodEndMinutes,
+      ),
+    };
+  };
+
+  const previewScheduleBlockRow = (
+    pointer: ActiveSchedulePointer,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const sheet = latestCronogramaSheetRef.current;
+
+    if (!sheet) {
+      return null;
+    }
+
+    const currentRowIndex = sheet.rows.findIndex(
+      (row) => getCronogramaRowId(sheet, row) === pointer.blockId,
+    );
+
+    if (currentRowIndex < 0) {
+      return null;
+    }
+
+    const currentBlock = buildCronogramaBlocks(sheet).find(
+      (block) => block.id === pointer.blockId,
+    );
+
+    if (!currentBlock) {
+      return null;
+    }
+
+    const target = getSchedulePointerTarget(pointer, clientX, clientY);
+    let nextStart = currentBlock.startMinutes;
+    let nextEnd = currentBlock.endMinutes;
+    let nextDateKey = currentBlock.dateKey;
+    const allBlocks = buildCronogramaBlocks(sheet);
+    const getBlockersForDate = (dateKey: string) =>
+      allBlocks.filter(
+        (block) =>
+          block.id !== pointer.blockId &&
+          block.dateKey === dateKey &&
+          normalizeFieldLabel(block.turma) ===
+            normalizeFieldLabel(pointer.turmaName),
+      );
+
+    if (pointer.mode === 'move') {
+      const nextDuration = currentBlock.endMinutes - currentBlock.startMinutes;
+      const desiredStart = clampNumber(
+        target.minutes - pointer.grabbedOffsetMinutes,
+        pointer.periodStartMinutes,
+        pointer.periodEndMinutes - nextDuration,
+      );
+      nextDateKey = formatScheduleDateKey(target.date);
+      const availableStart = getAvailableScheduleMoveStart(
+        desiredStart,
+        nextDuration,
+        pointer.periodStartMinutes,
+        pointer.periodEndMinutes,
+        getBlockersForDate(nextDateKey),
+      );
+
+      if (availableStart === null) {
+        nextStart = currentBlock.startMinutes;
+        nextEnd = currentBlock.endMinutes;
+        nextDateKey = currentBlock.dateKey;
+      } else {
+        nextStart = availableStart;
+        nextEnd = nextStart + nextDuration;
+      }
+    } else if (pointer.mode === 'resize-start') {
+      const previousBlockEnd = getBlockersForDate(currentBlock.dateKey).reduce(
+        (latestEnd, block) =>
+          block.endMinutes <= currentBlock.endMinutes &&
+          doScheduleRangesOverlap(
+            block.startMinutes,
+            block.endMinutes,
+            pointer.periodStartMinutes,
+            currentBlock.endMinutes,
+          )
+            ? Math.max(latestEnd, block.endMinutes)
+            : latestEnd,
+        pointer.periodStartMinutes,
+      );
+      nextStart = clampNumber(
+        target.minutes,
+        previousBlockEnd,
+        currentBlock.endMinutes - CRONOGRAMA_MIN_DURATION_MINUTES,
+      );
+      nextStart = clampNumber(
+        snapMinutes(nextStart),
+        previousBlockEnd,
+        currentBlock.endMinutes - CRONOGRAMA_MIN_DURATION_MINUTES,
+      );
+    } else {
+      const nextBlockStart = getBlockersForDate(currentBlock.dateKey).reduce(
+        (earliestStart, block) =>
+          block.startMinutes >= currentBlock.startMinutes &&
+          doScheduleRangesOverlap(
+            block.startMinutes,
+            block.endMinutes,
+            currentBlock.startMinutes,
+            pointer.periodEndMinutes,
+          )
+            ? Math.min(earliestStart, block.startMinutes)
+            : earliestStart,
+        pointer.periodEndMinutes,
+      );
+      nextEnd = clampNumber(
+        target.minutes,
+        currentBlock.startMinutes + CRONOGRAMA_MIN_DURATION_MINUTES,
+        nextBlockStart,
+      );
+      nextEnd = clampNumber(
+        snapMinutes(nextEnd),
+        currentBlock.startMinutes + CRONOGRAMA_MIN_DURATION_MINUTES,
+        nextBlockStart,
+      );
+    }
+
+    const nextRow = getCronogramaRowWithBlockValues(
+      sheet,
+      sheet.rows[currentRowIndex],
+      {
+        id: pointer.blockId,
+        turmaName: pointer.turmaName,
+        dateKey: nextDateKey,
+        startMinutes: nextStart,
+        endMinutes: nextEnd,
+      },
+    );
+    const nextSheet = replaceCronogramaRow(sheet, currentRowIndex, nextRow);
+
+    latestCronogramaSheetRef.current = nextSheet;
+    setCronogramaSheet(nextSheet);
+    return nextRow;
+  };
+
+  const startScheduleBlockPointer = (
+    event: PointerEvent<HTMLElement>,
+    block: CronogramaBlock,
+    mode: SchedulePointerMode,
+    turmaName: string,
+    periodRange: { startMinutes: number; endMinutes: number },
+    scheduleDates: Date[],
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const grid = event.currentTarget.closest<HTMLDivElement>(
+      '.turma-schedule-grid',
+    );
+
+    if (!grid) {
+      return;
+    }
+
+    const rowHeight = readPixelCustomProperty(
+      grid,
+      '--table-row-height',
+      30,
+    );
+    const blockRect = event.currentTarget.getBoundingClientRect();
+    const grabbedOffsetMinutes =
+      mode === 'move'
+        ? clampNumber(
+            ((event.clientY - blockRect.top) / Math.max(1, blockRect.height)) *
+              (block.endMinutes - block.startMinutes),
+            0,
+            block.endMinutes - block.startMinutes,
+          )
+        : 0;
+
+    activeSchedulePointerRef.current = {
+      blockId: block.id,
+      mode,
+      turmaName,
+      originalRow: [...block.row],
+      originalRowIndex: block.rowIndex,
+      grabbedOffsetMinutes,
+      periodStartMinutes: periodRange.startMinutes,
+      periodEndMinutes: periodRange.endMinutes,
+      scheduleDates,
+      grid,
+      rowHeight,
+      timeColumnWidth: 62,
+    };
+    setIsSchedulePointerActive(true);
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+      const pointer = activeSchedulePointerRef.current;
+
+      if (!pointer) {
+        return;
+      }
+
+      previewScheduleBlockRow(pointer, moveEvent.clientX, moveEvent.clientY);
+    };
+    const handlePointerUp = async (upEvent: globalThis.PointerEvent) => {
+      const pointer = activeSchedulePointerRef.current;
+
+      activeSchedulePointerRef.current = null;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
+      setIsSchedulePointerActive(false);
+
+      if (!pointer) {
+        return;
+      }
+
+      const nextRow = previewScheduleBlockRow(
+        pointer,
+        upEvent.clientX,
+        upEvent.clientY,
+      );
+
+      if (!nextRow) {
+        return;
+      }
+
+      await commitScheduleBlockUpdate(
+        pointer.blockId,
+        pointer.originalRowIndex,
+        pointer.originalRow,
+        nextRow,
+      );
+    };
+    const handlePointerCancel = () => {
+      activeSchedulePointerRef.current = null;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
+      setIsSchedulePointerActive(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
+  };
+
   const loadAprendizesProviderFile = async () => {
     try {
       let response = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
+      let didUseBaseWorkbook = response.status !== 404;
 
       if (response.status === 404) {
+        didUseBaseWorkbook = false;
         response = await fetch('/api/aprendizes/file', {
           cache: 'no-store',
         });
@@ -2608,7 +3479,13 @@ export function TurmasPage({
       }
 
       const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
-      return await applyAprendizesFile(file);
+      const nextSheet = await applyAprendizesFile(file);
+
+      if (didUseBaseWorkbook) {
+        markGlobalWorkbookAvailable(recoveryInfo);
+      }
+
+      return nextSheet;
     } catch {
       const fallbackSheet = await loadAprendizesDataIndexFallback();
 
@@ -2627,8 +3504,10 @@ export function TurmasPage({
       let response = await fetch('/api/base-workbook/file', {
         cache: 'no-store',
       });
+      let didUseBaseWorkbook = response.status !== 404;
 
       if (response.status === 404) {
+        didUseBaseWorkbook = false;
         response = await fetch('/api/turmas/file', {
           cache: 'no-store',
         });
@@ -2645,7 +3524,13 @@ export function TurmasPage({
       }
 
       const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
-      return await applyTurmasFile(file, currentAprendizesSheet);
+      const nextSheet = await applyTurmasFile(file, currentAprendizesSheet);
+
+      if (didUseBaseWorkbook) {
+        markGlobalWorkbookAvailable(recoveryInfo);
+      }
+
+      return nextSheet;
     } catch (error) {
       clearWorkingSheet();
 
@@ -2665,12 +3550,32 @@ export function TurmasPage({
     try {
       if (changedFile) {
         const nextAprendizesSheet = await applyAprendizesFile(changedFile);
-        await applyTurmasFile(changedFile, nextAprendizesSheet);
+        await Promise.all([
+          applyTurmasFile(changedFile, nextAprendizesSheet),
+          applyCronogramaFile(changedFile),
+        ]);
         return;
       }
 
       const nextAprendizesSheet = await loadAprendizesProviderFile();
-      await loadProviderFile(nextAprendizesSheet);
+      await Promise.all([
+        loadProviderFile(nextAprendizesSheet),
+        (async () => {
+          const response = await fetch('/api/base-workbook/file', {
+            cache: 'no-store',
+          });
+
+          if (!response.ok) {
+            latestCronogramaSheetRef.current = null;
+            setCronogramaSheet(null);
+            await persistCronogramaDataIndex(null);
+            return;
+          }
+
+          const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
+          await applyCronogramaFile(file);
+        })(),
+      ]);
     } finally {
       setIsWorkspaceSyncing(false);
     }
@@ -2686,7 +3591,24 @@ export function TurmasPage({
 
     const loadSavedWorkbooks = async () => {
       const nextAprendizesSheet = await loadAprendizesProviderFile();
-      await loadProviderFile(nextAprendizesSheet);
+      await Promise.all([
+        loadProviderFile(nextAprendizesSheet),
+        (async () => {
+          const response = await fetch('/api/base-workbook/file', {
+            cache: 'no-store',
+          });
+
+          if (!response.ok) {
+            latestCronogramaSheetRef.current = null;
+            setCronogramaSheet(null);
+            await persistCronogramaDataIndex(null);
+            return;
+          }
+
+          const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
+          await applyCronogramaFile(file);
+        })(),
+      ]);
 
       if (isMounted) {
         setHasCheckedWorkspace(true);
@@ -4220,6 +5142,95 @@ export function TurmasPage({
     return deleteTurmaRowAndSave(entry.rowIndex, { trackUndo: false });
   };
 
+  const undoCronogramaActionAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isCronogramaUndoEntry(entry)) {
+      return false;
+    }
+
+    const currentSheet = latestCronogramaSheetRef.current;
+
+    if (!currentSheet) {
+      return false;
+    }
+
+    if (entry.kind === 'cronograma-insert') {
+      const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : [];
+      const rowId = getCronogramaRowId(currentSheet, rowValues);
+      const nextSheet = {
+        ...currentSheet,
+        rows: currentSheet.rows.filter(
+          (row, rowIndex) =>
+            rowIndex !== entry.rowIndex &&
+            getCronogramaRowId(currentSheet, row) !== rowId,
+        ),
+      };
+
+      latestCronogramaSheetRef.current = nextSheet;
+      setCronogramaSheet(nextSheet);
+      await saveCronogramaSheetToSourceFile(nextSheet);
+      return true;
+    }
+
+    if (!Array.isArray(entry.previousRowValues)) {
+      return false;
+    }
+
+    const nextSheet = replaceCronogramaRow(
+      currentSheet,
+      entry.rowIndex,
+      entry.previousRowValues,
+    );
+
+    latestCronogramaSheetRef.current = nextSheet;
+    setCronogramaSheet(nextSheet);
+    await saveCronogramaSheetToSourceFile(nextSheet);
+    return true;
+  };
+
+  const redoCronogramaActionAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isCronogramaUndoEntry(entry)) {
+      return false;
+    }
+
+    const currentSheet =
+      latestCronogramaSheetRef.current ?? getWorkingCronogramaSheet();
+
+    if (entry.kind === 'cronograma-insert') {
+      const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : null;
+
+      if (!rowValues) {
+        return false;
+      }
+
+      const nextRows = [...currentSheet.rows];
+      nextRows.splice(entry.rowIndex, 0, rowValues);
+      const nextSheet = {
+        ...currentSheet,
+        rows: nextRows,
+      };
+
+      latestCronogramaSheetRef.current = nextSheet;
+      setCronogramaSheet(nextSheet);
+      await saveCronogramaSheetToSourceFile(nextSheet);
+      return true;
+    }
+
+    if (!Array.isArray(entry.nextRowValues)) {
+      return false;
+    }
+
+    const nextSheet = replaceCronogramaRow(
+      currentSheet,
+      entry.rowIndex,
+      entry.nextRowValues,
+    );
+
+    latestCronogramaSheetRef.current = nextSheet;
+    setCronogramaSheet(nextSheet);
+    await saveCronogramaSheetToSourceFile(nextSheet);
+    return true;
+  };
+
   const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
     replaceGlobalUndoStack(
       Array.isArray(entry.previousUndoStack)
@@ -4365,6 +5376,10 @@ export function TurmasPage({
             return undoTurmaRowActionAndSave(entry);
           }
 
+          if (isCronogramaUndoEntry(entry)) {
+            return undoCronogramaActionAndSave(entry);
+          }
+
           return undoLastActionAndSave(entry);
         },
         redo: (entry) => {
@@ -4384,10 +5399,14 @@ export function TurmasPage({
             return redoTurmaRowActionAndSave(entry);
           }
 
+          if (isCronogramaUndoEntry(entry)) {
+            return redoCronogramaActionAndSave(entry);
+          }
+
           return redoLastActionAndSave(entry);
         },
       }),
-    [aprendizesSheet, selectedStudentRowIndex, turmasSheet],
+    [aprendizesSheet, cronogramaSheet, selectedStudentRowIndex, turmasSheet],
   );
 
   const hasWorkingSheet = Boolean(turmasSheet);
@@ -4413,10 +5432,17 @@ export function TurmasPage({
         : [];
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
   const scheduleMonthLabel = formatScheduleMonthShort(scheduleMonth);
+  const cronogramaBlocks = useMemo(
+    () => buildCronogramaBlocks(cronogramaSheet),
+    [cronogramaSheet],
+  );
 
   const renderTurmaSchedulePanel = (
+    turmaName: string,
     turmaDayValue: string,
     turmaPeriodValue: string,
+    turmaInstructorValue: string,
+    turmaRoomValue: string,
   ) => {
     const weekdayIndex = getTurmaWeekdayIndex(turmaDayValue);
     const periodRange = getTurmaPeriodRange(turmaPeriodValue);
@@ -4441,6 +5467,14 @@ export function TurmasPage({
     const timeSlots = getScheduleTimeSlots(
       periodRange.startMinutes,
       periodRange.endMinutes,
+    );
+    const scheduleDateKeys = new Set(scheduleDates.map(formatScheduleDateKey));
+    const turmaScheduleBlocks = cronogramaBlocks.filter(
+      (block) =>
+        normalizeFieldLabel(block.turma) === normalizeFieldLabel(turmaName) &&
+        scheduleDateKeys.has(block.dateKey) &&
+        block.startMinutes < periodRange.endMinutes &&
+        block.endMinutes > periodRange.startMinutes,
     );
     const gridStyle = {
       '--turma-schedule-date-count': Math.max(1, scheduleDates.length),
@@ -4496,6 +5530,7 @@ export function TurmasPage({
           ))}
           {timeSlots.map((slotMinutes) => {
             const isInsidePeriod = slotMinutes <= periodRange.endMinutes;
+            const isFooterSlot = slotMinutes === periodRange.endMinutes;
             const isMajorSlot = slotMinutes % 30 === 0;
             const isPeriodStartSlot = slotMinutes === periodRange.startMinutes;
             const isFirstScheduleSlot = slotMinutes === periodRange.startMinutes;
@@ -4505,16 +5540,35 @@ export function TurmasPage({
                 ? 'quarter'
                 : '';
 
+            const timeLabelClass = ['turma-schedule-time-label', scheduleLineClass]
+              .concat(isFirstScheduleSlot ? ['first-slot'] : [])
+              .concat(isFooterSlot ? ['footer-time'] : [])
+              .filter(Boolean)
+              .join(' ');
+
+            if (isFooterSlot) {
+              return (
+                <div className="turma-schedule-row" key={slotMinutes}>
+                  <div
+                    className={timeLabelClass}
+                  >
+                    <span>{formatMinutesAsTime(slotMinutes)}</span>
+                  </div>
+                  <div
+                    className={
+                      ['turma-schedule-footer-actions', scheduleLineClass]
+                        .filter(Boolean)
+                        .join(' ')
+                    }
+                    style={{ gridColumn: `span ${Math.max(1, scheduleDates.length)}` }}
+                  />
+                </div>
+              );
+            }
+
             return (
               <div className="turma-schedule-row" key={slotMinutes}>
-                <div
-                  className={
-                    ['turma-schedule-time-label', scheduleLineClass]
-                      .concat(isFirstScheduleSlot ? ['first-slot'] : [])
-                      .filter(Boolean)
-                      .join(' ')
-                  }
-                >
+                <div className={timeLabelClass}>
                   {isInsidePeriod && isMajorSlot ? (
                     <span>{formatMinutesAsTime(slotMinutes)}</span>
                   ) : (
@@ -4522,19 +5576,152 @@ export function TurmasPage({
                   )}
                 </div>
                 {scheduleDates.map((date, dateIndex) => (
-                  <div
-                    className={
-                      [
-                        'turma-schedule-slot',
-                        scheduleLineClass,
-                        isFirstScheduleSlot ? 'first-slot' : '',
-                        dateIndex === scheduleDates.length - 1 ? 'last' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')
-                    }
-                    key={`${date.toISOString()}-${slotMinutes}`}
-                  />
+                  (() => {
+                    const dateKey = formatScheduleDateKey(date);
+                    const blocksInSlot = turmaScheduleBlocks.filter((block) => {
+                      const slotStart =
+                        periodRange.startMinutes +
+                        Math.floor(
+                          (block.startMinutes - periodRange.startMinutes) / 15,
+                        ) *
+                          15;
+
+                      return (
+                        block.dateKey === dateKey &&
+                        slotStart === slotMinutes
+                      );
+                    });
+                    const hasBlockOverlap = turmaScheduleBlocks.some(
+                      (block) =>
+                        block.dateKey === dateKey &&
+                        block.startMinutes < slotMinutes + 15 &&
+                        block.endMinutes > slotMinutes,
+                    );
+
+                    return (
+                      <div
+                        className={
+                          [
+                            'turma-schedule-slot',
+                            scheduleLineClass,
+                            isFirstScheduleSlot ? 'first-slot' : '',
+                            dateIndex === scheduleDates.length - 1 ? 'last' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')
+                        }
+                        data-date-index={dateIndex}
+                        data-slot-minutes={slotMinutes}
+                        key={`${date.toISOString()}-${slotMinutes}`}
+                      >
+                        {!isSchedulePointerActive && !hasBlockOverlap ? (
+                          <button
+                            className="turma-schedule-slot-add"
+                            type="button"
+                            onClick={() =>
+                              void createScheduleBlock(turmaName, date, slotMinutes, {
+                                instructor: turmaInstructorValue,
+                                room: turmaRoomValue,
+                              })
+                            }
+                          >
+                            <PlusIcon />
+                            <span>Adicionar aula</span>
+                          </button>
+                        ) : null}
+                        {blocksInSlot.map((block) => {
+                          const topRowUnits =
+                            (block.startMinutes - slotMinutes) / 15;
+                          const heightRowUnits =
+                            (block.endMinutes - block.startMinutes) / 15;
+                          const availableTextLines = Math.max(
+                            2,
+                            Math.floor(heightRowUnits * 2),
+                          );
+                          const blockTextLines = [
+                            block.lesson,
+                            block.instructor || '-',
+                            `${formatMinutesAsTime(block.startMinutes)} - ${formatMinutesAsTime(
+                              block.endMinutes,
+                            )}`,
+                          ].slice(0, availableTextLines);
+                          const emptyTextLines = Math.max(
+                            0,
+                            availableTextLines - blockTextLines.length,
+                          );
+
+                          return (
+                            <div
+                              className="turma-schedule-block"
+                              key={block.id}
+                              style={
+                                {
+                                  '--schedule-block-top': `calc(var(--table-row-height, 30px) * ${topRowUnits})`,
+                                  '--schedule-block-height': `calc(var(--table-row-height, 30px) * ${heightRowUnits})`,
+                                } as CSSProperties
+                              }
+                              onPointerDown={(event) =>
+                                startScheduleBlockPointer(
+                                  event,
+                                  block,
+                                  'move',
+                                  turmaName,
+                                  periodRange,
+                                  scheduleDates,
+                                )
+                              }
+                            >
+                              <button
+                                className="turma-schedule-block-resize turma-schedule-block-resize-top"
+                                type="button"
+                                aria-label="Ajustar inicio da aula"
+                                onPointerDown={(event) =>
+                                  startScheduleBlockPointer(
+                                    event,
+                                    block,
+                                    'resize-start',
+                                    turmaName,
+                                    periodRange,
+                                    scheduleDates,
+                                  )
+                                }
+                              />
+                              {blockTextLines.map((line, lineIndex) => (
+                                <span key={`${block.id}-line-${lineIndex}`}>
+                                  {line}
+                                </span>
+                              ))}
+                              {Array.from({ length: emptyTextLines }).map(
+                                (_, lineIndex) => (
+                                  <span
+                                    aria-hidden="true"
+                                    key={`${block.id}-empty-${lineIndex}`}
+                                  >
+                                    &nbsp;
+                                  </span>
+                                ),
+                              )}
+                              <button
+                                className="turma-schedule-block-resize turma-schedule-block-resize-bottom"
+                                type="button"
+                                aria-label="Ajustar fim da aula"
+                                onPointerDown={(event) =>
+                                  startScheduleBlockPointer(
+                                    event,
+                                    block,
+                                    'resize-end',
+                                    turmaName,
+                                    periodRange,
+                                    scheduleDates,
+                                  )
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()
                 ))}
               </div>
             );
@@ -5157,8 +6344,15 @@ export function TurmasPage({
                             onPointerDown={startExpandedSplitResize}
                           />
                           {renderTurmaSchedulePanel(
+                            getCellValue(turmasSheet, turmaRow, TURMA_COLUMN),
                             getCellValue(turmasSheet, turmaRow, TURMA_DAY_COLUMN),
                             getCellValue(turmasSheet, turmaRow, TURMA_PERIOD_COLUMN),
+                            getCellValue(
+                              turmasSheet,
+                              turmaRow,
+                              TURMA_INSTRUCTOR_COLUMN,
+                            ),
+                            getCellValue(turmasSheet, turmaRow, TURMA_ROOM_COLUMN),
                           )}
                         </div>
                       )}
@@ -5672,7 +6866,6 @@ function CloseIcon() {
     </svg>
   );
 }
-
 function PlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">

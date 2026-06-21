@@ -2110,7 +2110,11 @@ internal static class Program
                         legacyApiBasePath = (string?)null,
                         requiredColumns = new[]
                         {
+                            "ID",
                             "Aula",
+                            "Cor",
+                            "Instrutor Padr\u00e3o",
+                            "Sala Padr\u00e3o",
                             "Disciplinas"
                         }
                     },
@@ -2119,9 +2123,22 @@ internal static class Program
                         entityId = "cronograma",
                         sheetName = "Cronograma",
                         label = "Cronograma",
-                        status = "planned",
+                        status = "planned-index-ready",
                         legacyApiBasePath = (string?)null,
-                        requiredColumns = Array.Empty<string>()
+                        requiredColumns = new[]
+                        {
+                            "ID",
+                            "Turma",
+                            "Data",
+                            "In\u00edcio",
+                            "Fim",
+                            "Tipo",
+                            "Aula ID",
+                            "Aula",
+                            "Instrutor",
+                            "Sala",
+                            "Cor"
+                        }
                     },
                     new
                     {
