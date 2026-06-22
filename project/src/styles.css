@@ -2287,7 +2287,7 @@ svg {
   border: 1px solid color-mix(in srgb, #168c55 74%, transparent);
   border-radius: 4px;
   padding: 0 5px;
-  color: #ffffff;
+  color: var(--brand-header-text);
   background: #168c55;
   font-size: 0.68rem;
   font-weight: 750;
@@ -2323,8 +2323,8 @@ svg {
   position: absolute;
   box-sizing: border-box;
   top: var(--schedule-block-top, 0);
-  left: 5px;
-  right: 5px;
+  left: 1px;
+  right: 1px;
   z-index: 5;
   display: flex;
   min-height: var(--table-row-height, 30px);
@@ -2334,7 +2334,7 @@ svg {
   gap: 0;
   border: 1px solid color-mix(in srgb, var(--brand-primary) 82%, #ffffff 18%);
   border-radius: 5px;
-  padding: 0 7px;
+  padding: 0 2px;
   color: #ffffff;
   background: color-mix(in srgb, var(--brand-primary) 88%, #168c55 12%);
   box-shadow: 0 4px 10px rgba(8, 35, 72, 0.14);
@@ -2346,18 +2346,117 @@ svg {
   cursor: grabbing;
 }
 
-.turma-schedule-block span {
-  overflow: hidden;
-  display: flex;
+.turma-schedule-block-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   min-height: calc(var(--table-row-height, 30px) / 2);
   height: calc(var(--table-row-height, 30px) / 2);
+  gap: 4px;
+}
+
+.turma-schedule-block-line-main {
+  padding-right: 0;
+}
+
+.turma-schedule-block-line span {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
   color: inherit;
   font-size: 0.72rem;
   font-weight: 400;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.turma-schedule-block-line span:last-child {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.turma-schedule-block-field {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: calc(var(--table-row-height, 30px) / 2 - 2px);
+  border: 0;
+  border-radius: 2px;
+  padding: 0 1px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+button.turma-schedule-block-field {
+  cursor: pointer;
+}
+
+.turma-schedule-block-field:hover,
+.turma-schedule-block-field.active {
+  background: color-mix(in srgb, var(--brand-primary) 55%, #000000 26%);
+}
+
+.turma-schedule-block-field-static,
+.turma-schedule-block-field-static:hover {
+  background: transparent;
+  cursor: default;
+}
+
+input.turma-schedule-block-field {
+  outline: none;
+}
+
+.turma-schedule-block-line .turma-schedule-block-field:last-child {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.turma-schedule-block-actions {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.turma-schedule-block-icon-button {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--table-row-height, 30px) / 2 - 3px);
+  height: calc(var(--table-row-height, 30px) / 2 - 3px);
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.turma-schedule-block-icon-button:hover {
+  background: color-mix(in srgb, var(--brand-primary) 58%, #000000 22%);
+}
+
+.turma-schedule-block-icon-button svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .turma-schedule-block-resize {
@@ -2377,6 +2476,90 @@ svg {
 
 .turma-schedule-block-resize-bottom {
   bottom: -3px;
+}
+
+.turma-schedule-field-editor {
+  position: fixed;
+  z-index: 120;
+  width: var(--turma-dropdown-width, auto);
+  max-height: min(420px, calc(100vh - 24px));
+  overflow-y: auto;
+  border: 1px solid var(--brand-border);
+  border-radius: 6px;
+  padding: 6px;
+  color: var(--brand-header-text);
+  background: var(--brand-primary);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-primary);
+}
+
+.turma-schedule-field-editor::-webkit-scrollbar {
+  width: 10px;
+}
+
+.turma-schedule-field-editor::-webkit-scrollbar-track,
+.turma-schedule-field-editor::-webkit-scrollbar-corner,
+.turma-schedule-field-editor::-webkit-scrollbar-button {
+  background: var(--brand-primary);
+}
+
+.turma-schedule-field-editor::-webkit-scrollbar-button {
+  display: none;
+}
+
+.turma-schedule-field-editor::-webkit-scrollbar-thumb,
+.turma-schedule-field-editor::-webkit-scrollbar-thumb:hover {
+  border: 2px solid var(--brand-primary);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.turma-schedule-field-options {
+  display: grid;
+  gap: 4px;
+}
+
+.turma-schedule-field-options button,
+.turma-schedule-field-empty {
+  display: grid;
+  min-width: 0;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.turma-schedule-field-options button {
+  cursor: pointer;
+}
+
+.turma-schedule-field-options button:hover,
+.turma-schedule-field-options button:focus-visible {
+  background: color-mix(in srgb, var(--brand-primary) 86%, #000 14%);
+  outline: none;
+}
+
+.turma-schedule-field-options button span,
+.turma-schedule-field-options button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turma-schedule-field-options button small {
+  opacity: 0.78;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.turma-schedule-field-empty {
+  opacity: 0.78;
+  cursor: default;
 }
 
 .turma-schedule-empty-state {

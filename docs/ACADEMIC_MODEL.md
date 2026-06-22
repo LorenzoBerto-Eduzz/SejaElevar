@@ -156,12 +156,12 @@ Sala
 Cor
 ```
 
-`Aula ID` may be blank for an ad-hoc block created directly in a Turma timetable. If a block is created from the Aula catalog, the Cronograma row stores the `Aula ID` plus copied values such as Aula name, color, default instructor, and default room. The scheduled instance can later override these values without rewriting the Aula catalog item.
+Current alignment: Cronograma blocks should select a predefined Aula from the Aula catalog. The timetable should not create new Aula definitions directly. `Aula ID` may be blank only while a newly placed scheduled block is still an incomplete draft waiting for the user to select a predefined Aula. Once an Aula is selected, the Cronograma row stores the `Aula ID` plus copied values such as Aula name, color, default instructor, and default room. The scheduled instance can later override instance values such as instructor and room without rewriting the Aula catalog item.
 
 From the Turma timetable, the user should eventually be able to:
 
 - pick an existing Aula from the Aula catalog
-- or create a new Aula quickly from the timetable flow
+- not create a new Aula directly; Aula creation belongs in the Aulas flow after Arcos/Disciplinas exist
 
 When an Aula is placed in a Turma's Cronograma, the block should default to the Turma's default Funcionario and Sala, but the block should allow overriding both through dropdowns.
 
@@ -198,6 +198,8 @@ Disciplina Especifica
 `Modulo` does not need to be a main tab/item unless later needed. It can start as a fixed/category property of Disciplinas: `Inicial`, `Basico`, `Especifico`.
 
 `Disciplina` also does not need its own main tab for now. Because Arcos are directly composed of their Disciplinas, the user-facing management for Disciplinas should live inside the `Arcos` tab/flow. Keep Disciplina as an internal data concept for Aula mappings, progress tracking, attendance proof, search, and document generation.
+
+Current implementation priority: pause further Turma timetable/Aula-instance polish and move upstream to the Arcos/Disciplinas foundation. The next solid foundation is defining Arcos and their plano de ensino/ementa Disciplinas first, then using those Disciplinas as selectable coverage when building predefined Aulas, then returning to Cronograma blocks so each scheduled event can select a predefined Aula with real coverage.
 
 ## Aula To Disciplina Mapping
 

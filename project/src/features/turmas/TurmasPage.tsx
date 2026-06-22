@@ -14,9 +14,11 @@ import {
   type WheelEvent,
 } from 'react';
 import {
+  AULAS_ENTITY_ID,
   APRENDIZES_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
   TURMAS_ENTITY_ID,
+  buildAulasDataIndexEntity,
   buildAprendizesDataIndexEntity,
   buildCronogramaDataIndexEntity,
   buildEmptyDataIndexEntity,
@@ -32,6 +34,7 @@ import {
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import {
+  AULAS_REQUIRED_COLUMNS,
   APRENDIZES_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
@@ -129,6 +132,8 @@ const APRENDIZES_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
 const TURMAS_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(TURMAS_ENTITY_ID)?.sheetName ?? 'Turmas';
+const AULAS_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(AULAS_ENTITY_ID)?.sheetName ?? 'Aulas';
 const CRONOGRAMA_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(CRONOGRAMA_ENTITY_ID)?.sheetName ?? 'Cronograma';
 const CRONOGRAMA_ID_COLUMN = 'ID';
@@ -142,8 +147,11 @@ const CRONOGRAMA_COLOR_COLUMN = 'Cor';
 const CRONOGRAMA_MIN_DURATION_MINUTES = 15;
 const CRONOGRAMA_SNAP_MINUTES = 5;
 const DEFAULT_CRONOGRAMA_BLOCK_TYPE = 'Aula';
-const DEFAULT_CRONOGRAMA_LESSON_NAME = 'Aula sem nome';
+const SCHEDULE_LESSON_PLACEHOLDER = 'Selecionar aula';
 const DEFAULT_CRONOGRAMA_BLOCK_COLOR = '#2069df';
+const AULA_DEFAULT_INSTRUCTOR_COLUMN = 'Instrutor Padrão';
+const AULA_DEFAULT_ROOM_COLUMN = 'Sala Padrão';
+const AULA_DISCIPLINES_COLUMN = 'Disciplinas';
 const SEX_COLUMN = 'Sexo';
 const BIRTHDATE_COLUMN = 'Data de Nascimento';
 const EMAIL_COLUMN = 'E-mail';
@@ -240,6 +248,24 @@ type CronogramaBlock = {
   instructor: string;
   room: string;
   color: string;
+};
+
+type AulaCatalogOption = {
+  id: string;
+  name: string;
+  color: string;
+  defaultInstructor: string;
+  defaultRoom: string;
+  disciplines: string;
+};
+
+type ScheduleField = 'lesson' | 'instructor' | 'room';
+
+type ActiveScheduleFieldEditor = {
+  blockId: string;
+  field: ScheduleField;
+  draftValue: string;
+  style: CSSProperties;
 };
 
 type SchedulePointerMode = 'move' | 'resize-start' | 'resize-end';
@@ -649,6 +675,12 @@ const formatScheduleDate = (date: Date) =>
     month: '2-digit',
   });
 
+const formatScheduleDateKeyShort = (value: string) => {
+  const date = parseScheduleDateKey(value);
+
+  return date ? formatScheduleDate(date) : value;
+};
+
 const formatScheduleDateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
     date.getDate(),
@@ -984,6 +1016,22 @@ const persistCronogramaDataIndex = async (sheet: SheetTable | null) => {
   await persistDataIndexEntity(CRONOGRAMA_ENTITY_ID, entityIndex);
 };
 
+const persistAulasDataIndex = async (sheet: SheetTable | null) => {
+  const entityIndex = sheet
+    ? buildAulasDataIndexEntity(sheet)
+    : buildEmptyDataIndexEntity(AULAS_ENTITY_ID, 'Aulas');
+
+  await persistDataIndexEntity(AULAS_ENTITY_ID, entityIndex);
+};
+
+const getAulasFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: AULAS_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...AULAS_REQUIRED_COLUMNS],
+  rows: [],
+});
+
 const getCronogramaFallbackSheet = (fileName: string): SheetTable => ({
   fileName,
   sheetName: CRONOGRAMA_WORKBOOK_SHEET,
@@ -1060,9 +1108,7 @@ const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
           row,
           CRONOGRAMA_LESSON_ID_COLUMN,
         ),
-        lesson:
-          getCronogramaCellValue(sheet, row, CRONOGRAMA_LESSON_COLUMN) ||
-          DEFAULT_CRONOGRAMA_LESSON_NAME,
+        lesson: getCronogramaCellValue(sheet, row, CRONOGRAMA_LESSON_COLUMN),
         instructor: getCronogramaCellValue(sheet, row, TURMA_INSTRUCTOR_COLUMN),
         room: getCronogramaCellValue(sheet, row, TURMA_ROOM_COLUMN),
         color:
@@ -1071,6 +1117,35 @@ const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
       },
     ];
   });
+};
+
+const buildAulaCatalogOptions = (sheet: SheetTable | null): AulaCatalogOption[] => {
+  if (!sheet) {
+    return [];
+  }
+
+  return sheet.rows
+    .map((row, rowIndex) => {
+      const name = getCellValue(sheet, row, CRONOGRAMA_LESSON_COLUMN).trim();
+
+      if (!name) {
+        return null;
+      }
+
+      return {
+        id:
+          getCellValue(sheet, row, CRONOGRAMA_ID_COLUMN) ||
+          getSheetRecordId(sheet, rowIndex, AULAS_ENTITY_ID),
+        name,
+        color:
+          getCellValue(sheet, row, CRONOGRAMA_COLOR_COLUMN) ||
+          DEFAULT_CRONOGRAMA_BLOCK_COLOR,
+        defaultInstructor: getCellValue(sheet, row, AULA_DEFAULT_INSTRUCTOR_COLUMN),
+        defaultRoom: getCellValue(sheet, row, AULA_DEFAULT_ROOM_COLUMN),
+        disciplines: getCellValue(sheet, row, AULA_DISCIPLINES_COLUMN),
+      };
+    })
+    .filter((option): option is AulaCatalogOption => Boolean(option));
 };
 
 const doScheduleRangesOverlap = (
@@ -1188,6 +1263,7 @@ export function TurmasPage({
   const [aprendizesSheet, setAprendizesSheet] = useState<SheetTable | null>(
     null,
   );
+  const [aulasSheet, setAulasSheet] = useState<SheetTable | null>(null);
   const [cronogramaSheet, setCronogramaSheet] = useState<SheetTable | null>(
     null,
   );
@@ -1195,6 +1271,7 @@ export function TurmasPage({
     useState<WorkbookOptions>(emptyWorkbookOptions);
   const latestTurmasSheetRef = useRef<SheetTable | null>(turmasSheet);
   const latestAprendizesSheetRef = useRef<SheetTable | null>(aprendizesSheet);
+  const latestAulasSheetRef = useRef<SheetTable | null>(aulasSheet);
   const latestCronogramaSheetRef = useRef<SheetTable | null>(cronogramaSheet);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
@@ -1241,6 +1318,11 @@ export function TurmasPage({
     useState<CSSProperties>({});
   const isSyncingStudentsScrollRef = useRef(false);
   const activeSchedulePointerRef = useRef<ActiveSchedulePointer | null>(null);
+  const [activeScheduleFieldEditor, setActiveScheduleFieldEditor] =
+    useState<ActiveScheduleFieldEditor | null>(null);
+  const activeScheduleFieldEditorRef =
+    useRef<ActiveScheduleFieldEditor | null>(null);
+  const scheduleFieldInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     latestTurmasSheetRef.current = turmasSheet;
@@ -1249,6 +1331,10 @@ export function TurmasPage({
   useEffect(() => {
     latestAprendizesSheetRef.current = aprendizesSheet;
   }, [aprendizesSheet]);
+
+  useEffect(() => {
+    latestAulasSheetRef.current = aulasSheet;
+  }, [aulasSheet]);
 
   useEffect(() => {
     latestCronogramaSheetRef.current = cronogramaSheet;
@@ -1261,6 +1347,10 @@ export function TurmasPage({
   useEffect(() => {
     activeTurmaDropdownRef.current = activeTurmaDropdown;
   }, [activeTurmaDropdown]);
+
+  useEffect(() => {
+    activeScheduleFieldEditorRef.current = activeScheduleFieldEditor;
+  }, [activeScheduleFieldEditor]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -1292,6 +1382,69 @@ export function TurmasPage({
       input?.setSelectionRange(cursorPosition, cursorPosition);
     });
   }, [activeTurmaDropdown?.field, activeTurmaDropdown?.draftValue]);
+
+  const updateScheduleFieldEditorStyle = (
+    blockId: string,
+    field: ScheduleField,
+  ) => {
+    const anchor = boardFrameRef.current?.querySelector<HTMLElement>(
+      `[data-schedule-field-anchor="${blockId}-${field}"]`,
+    );
+
+    if (!anchor) {
+      return;
+    }
+
+    const anchorRect = anchor.getBoundingClientRect();
+    const frameBottom =
+      boardFrameRef.current?.getBoundingClientRect().bottom ?? window.innerHeight;
+    const maxDropdownHeight = Math.max(
+      92,
+      Math.round(frameBottom - anchorRect.bottom - 10),
+    );
+
+    setActiveScheduleFieldEditor((currentEditor) => {
+      if (
+        !currentEditor ||
+        currentEditor.blockId !== blockId ||
+        currentEditor.field !== field
+      ) {
+        return currentEditor;
+      }
+
+      return {
+        ...currentEditor,
+        style: {
+          left: Math.round(anchorRect.left),
+          top: Math.round(anchorRect.bottom + 4),
+          width: Math.round(anchorRect.width),
+          maxHeight: maxDropdownHeight,
+          visibility: 'visible',
+        },
+      };
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!activeScheduleFieldEditor) {
+      return;
+    }
+
+    updateScheduleFieldEditorStyle(
+      activeScheduleFieldEditor.blockId,
+      activeScheduleFieldEditor.field,
+    );
+
+    window.requestAnimationFrame(() => {
+      const input = scheduleFieldInputRef.current;
+
+      input?.focus();
+      input?.setSelectionRange(input.value.length, input.value.length);
+    });
+  }, [
+    activeScheduleFieldEditor?.blockId,
+    activeScheduleFieldEditor?.field,
+  ]);
 
   useEffect(() => {
     if (!activeTurmaDropdown) {
@@ -1326,6 +1479,51 @@ export function TurmasPage({
     };
   }, [activeTurmaDropdown]);
 
+  useEffect(() => {
+    if (!activeScheduleFieldEditor) {
+      return;
+    }
+
+    const closeScheduleEditorOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      if (target?.closest('.turma-schedule-field-editor')) {
+        return;
+      }
+
+      const editor = activeScheduleFieldEditorRef.current;
+
+      if (!editor) {
+        return;
+      }
+
+      const targetFieldAnchor = target?.closest<HTMLElement>(
+        '[data-schedule-field-anchor]',
+      );
+
+      if (
+        targetFieldAnchor?.dataset.scheduleFieldAnchor ===
+        `${editor.blockId}-${editor.field}`
+      ) {
+        return;
+      }
+
+      if (editor.field === 'lesson') {
+        activeScheduleFieldEditorRef.current = null;
+        setActiveScheduleFieldEditor(null);
+        return;
+      }
+
+      void commitScheduleFieldEditor(editor);
+    };
+
+    window.addEventListener('mousedown', closeScheduleEditorOnOutsideClick);
+
+    return () => {
+      window.removeEventListener('mousedown', closeScheduleEditorOnOutsideClick);
+    };
+  }, [activeScheduleFieldEditor]);
+
   const applyRowDetailsPanelStyle = (nextStyle: CSSProperties) => {
     const currentStyle = rowDetailsPanelStyleRef.current;
     const isSameStyle =
@@ -1350,6 +1548,8 @@ export function TurmasPage({
 
     void commitActiveTurmaNameEdit();
     void commitActiveStudentEditForUndo();
+    activeScheduleFieldEditorRef.current = null;
+    setActiveScheduleFieldEditor(null);
     setSelectedStudentRowIndex(null);
     applyRowDetailsPanelStyle({});
   }, [isActive]);
@@ -1921,7 +2121,7 @@ export function TurmasPage({
   const isCronogramaUndoEntry = (
     entry: GlobalUndoEntry | undefined,
   ): entry is GlobalUndoEntry & {
-    kind: 'cronograma-insert' | 'cronograma-update';
+    kind: 'cronograma-insert' | 'cronograma-update' | 'cronograma-delete';
     rowIndex: number;
     rowValues?: string[];
     previousRowValues?: string[];
@@ -1930,7 +2130,8 @@ export function TurmasPage({
     return (
       Boolean(entry) &&
       (entry?.kind === 'cronograma-insert' ||
-        entry?.kind === 'cronograma-update') &&
+        entry?.kind === 'cronograma-update' ||
+        entry?.kind === 'cronograma-delete') &&
       typeof entry.rowIndex === 'number'
     );
   };
@@ -2766,6 +2967,15 @@ export function TurmasPage({
     const result = await recoverWorkspaceGlobalData(checkpointId);
     const nextAprendizesSheet = await loadAprendizesProviderFile();
     await loadProviderFile(nextAprendizesSheet);
+    const response = await fetch('/api/base-workbook/file', {
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
+      await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
+    }
+
     await fetchRecoveryInfo();
     window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
     setImportError('');
@@ -2922,6 +3132,34 @@ export function TurmasPage({
     latestCronogramaSheetRef.current = nextSheetWithFileName;
     setCronogramaSheet(nextSheetWithFileName);
     await persistCronogramaDataIndex(nextSheetWithFileName);
+    return nextSheetWithFileName;
+  };
+
+  const applyAulasFile = async (file: File) => {
+    let nextSheet: SheetTable;
+
+    try {
+      nextSheet = await readSheetFile(
+        file,
+        AULAS_ENTITY_ID,
+        AULAS_REQUIRED_COLUMNS,
+        {
+          ensureRecordIds: false,
+          preferredSheetName: AULAS_WORKBOOK_SHEET,
+        },
+      );
+    } catch {
+      nextSheet = getAulasFallbackSheet(file.name);
+    }
+
+    const nextSheetWithFileName = {
+      ...nextSheet,
+      fileName: file.name,
+    };
+
+    latestAulasSheetRef.current = nextSheetWithFileName;
+    setAulasSheet(nextSheetWithFileName);
+    await persistAulasDataIndex(nextSheetWithFileName);
     return nextSheetWithFileName;
   };
 
@@ -3082,6 +3320,153 @@ export function TurmasPage({
     ),
   });
 
+  const updateScheduleBlockValues = async (
+    blockId: string,
+    values: {
+      lessonId?: string;
+      lesson?: string;
+      instructor?: string;
+      room?: string;
+      color?: string;
+    },
+  ) => {
+    const sheet = getWorkingCronogramaSheet();
+    const currentRowIndex = sheet.rows.findIndex(
+      (row) => getCronogramaRowId(sheet, row) === blockId,
+    );
+
+    if (currentRowIndex < 0) {
+      return false;
+    }
+
+    const currentRow = sheet.rows[currentRowIndex];
+    const currentBlock = buildCronogramaBlocks(sheet).find(
+      (block) => block.id === blockId,
+    );
+
+    if (!currentBlock) {
+      return false;
+    }
+
+    const nextRow = getCronogramaRowWithBlockValues(sheet, currentRow, {
+      id: blockId,
+      turmaName: currentBlock.turma,
+      dateKey: currentBlock.dateKey,
+      startMinutes: currentBlock.startMinutes,
+      endMinutes: currentBlock.endMinutes,
+      ...values,
+    });
+
+    if (nextRow.join('\u0000') === currentRow.join('\u0000')) {
+      return false;
+    }
+
+    const nextSheet = replaceCronogramaRow(sheet, currentRowIndex, nextRow);
+    latestCronogramaSheetRef.current = nextSheet;
+    setCronogramaSheet(nextSheet);
+    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+
+    if (!savedSheet) {
+      latestCronogramaSheetRef.current = sheet;
+      setCronogramaSheet(sheet);
+      return false;
+    }
+
+    pushGlobalUndoEntry({
+      originTab: 'turmas',
+      kind: 'cronograma-update',
+      itemRef: blockId,
+      itemLabel: values.lesson || currentBlock.lesson || blockId,
+      rowIndex: currentRowIndex,
+      previousRowValues: currentRow,
+      nextRowValues: nextRow,
+    });
+    return true;
+  };
+
+  const openScheduleFieldEditor = (
+    block: CronogramaBlock,
+    field: ScheduleField,
+  ) => {
+    const draftValue =
+      field === 'lesson'
+        ? block.lesson
+        : field === 'instructor'
+          ? block.instructor
+          : block.room;
+    const nextEditor: ActiveScheduleFieldEditor = {
+      blockId: block.id,
+      field,
+      draftValue,
+      style: { visibility: 'hidden' },
+    };
+
+    activeScheduleFieldEditorRef.current = nextEditor;
+    setActiveScheduleFieldEditor(nextEditor);
+  };
+
+  const updateScheduleFieldEditorDraft = (value: string) => {
+    setActiveScheduleFieldEditor((currentEditor) => {
+      if (!currentEditor) {
+        return currentEditor;
+      }
+
+      const nextEditor = {
+        ...currentEditor,
+        draftValue: value,
+      };
+
+      activeScheduleFieldEditorRef.current = nextEditor;
+      return nextEditor;
+    });
+  };
+
+  const selectScheduleAula = async (
+    editor: ActiveScheduleFieldEditor,
+    option: AulaCatalogOption,
+  ) => {
+    activeScheduleFieldEditorRef.current = null;
+    setActiveScheduleFieldEditor(null);
+    await updateScheduleBlockValues(editor.blockId, {
+      lessonId: option.id,
+      lesson: option.name,
+      color: option.color,
+    });
+  };
+
+  const commitScheduleFieldEditor = async (
+    editor = activeScheduleFieldEditorRef.current,
+  ) => {
+    if (!editor) {
+      return;
+    }
+
+    if (editor.field === 'lesson') {
+      activeScheduleFieldEditorRef.current = null;
+      setActiveScheduleFieldEditor(null);
+      return;
+    }
+
+    const nextValue = editor.draftValue.trim();
+    activeScheduleFieldEditorRef.current = null;
+    setActiveScheduleFieldEditor(null);
+
+    const didCommit = await updateScheduleBlockValues(
+      editor.blockId,
+      editor.field === 'instructor'
+        ? { instructor: nextValue }
+        : { room: nextValue },
+    );
+
+    if (didCommit && editor.field === 'instructor') {
+      await rememberWorkbookOption('instructor', nextValue);
+    }
+
+    if (didCommit && editor.field === 'room') {
+      await rememberWorkbookOption('room', nextValue);
+    }
+  };
+
   const createScheduleBlock = async (
     turmaName: string,
     date: Date,
@@ -3103,7 +3488,7 @@ export function TurmasPage({
       ),
       [CRONOGRAMA_TYPE_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_TYPE,
       [CRONOGRAMA_LESSON_ID_COLUMN]: '',
-      [CRONOGRAMA_LESSON_COLUMN]: DEFAULT_CRONOGRAMA_LESSON_NAME,
+      [CRONOGRAMA_LESSON_COLUMN]: '',
       [TURMA_INSTRUCTOR_COLUMN]: defaults.instructor,
       [TURMA_ROOM_COLUMN]: defaults.room,
       [CRONOGRAMA_COLOR_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_COLOR,
@@ -3130,6 +3515,49 @@ export function TurmasPage({
       itemLabel: id,
       rowIndex: sheet.rows.length,
       rowValues: nextRow,
+    });
+    activeScheduleFieldEditorRef.current = {
+      blockId: id,
+      field: 'lesson',
+      draftValue: '',
+      style: { visibility: 'hidden' },
+    };
+    setActiveScheduleFieldEditor(activeScheduleFieldEditorRef.current);
+  };
+
+  const deleteScheduleBlock = async (block: CronogramaBlock) => {
+    const sheet = getWorkingCronogramaSheet();
+    const currentRowIndex = sheet.rows.findIndex(
+      (row) => getCronogramaRowId(sheet, row) === block.id,
+    );
+
+    if (currentRowIndex < 0) {
+      return;
+    }
+
+    const deletedRow = sheet.rows[currentRowIndex];
+    const nextSheet = {
+      ...sheet,
+      rows: sheet.rows.filter((_, rowIndex) => rowIndex !== currentRowIndex),
+    };
+
+    latestCronogramaSheetRef.current = nextSheet;
+    setCronogramaSheet(nextSheet);
+    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+
+    if (!savedSheet) {
+      latestCronogramaSheetRef.current = sheet;
+      setCronogramaSheet(sheet);
+      return;
+    }
+
+    pushGlobalUndoEntry({
+      originTab: 'turmas',
+      kind: 'cronograma-delete',
+      itemRef: block.id,
+      itemLabel: block.lesson || block.id,
+      rowIndex: currentRowIndex,
+      rowValues: deletedRow,
     });
   };
 
@@ -3552,6 +3980,7 @@ export function TurmasPage({
         const nextAprendizesSheet = await applyAprendizesFile(changedFile);
         await Promise.all([
           applyTurmasFile(changedFile, nextAprendizesSheet),
+          applyAulasFile(changedFile),
           applyCronogramaFile(changedFile),
         ]);
         return;
@@ -3566,6 +3995,9 @@ export function TurmasPage({
           });
 
           if (!response.ok) {
+            latestAulasSheetRef.current = null;
+            setAulasSheet(null);
+            await persistAulasDataIndex(null);
             latestCronogramaSheetRef.current = null;
             setCronogramaSheet(null);
             await persistCronogramaDataIndex(null);
@@ -3573,7 +4005,7 @@ export function TurmasPage({
           }
 
           const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
-          await applyCronogramaFile(file);
+          await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
         })(),
       ]);
     } finally {
@@ -3599,6 +4031,9 @@ export function TurmasPage({
           });
 
           if (!response.ok) {
+            latestAulasSheetRef.current = null;
+            setAulasSheet(null);
+            await persistAulasDataIndex(null);
             latestCronogramaSheetRef.current = null;
             setCronogramaSheet(null);
             await persistCronogramaDataIndex(null);
@@ -3606,7 +4041,7 @@ export function TurmasPage({
           }
 
           const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
-          await applyCronogramaFile(file);
+          await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
         })(),
       ]);
 
@@ -5171,6 +5606,26 @@ export function TurmasPage({
       return true;
     }
 
+    if (entry.kind === 'cronograma-delete') {
+      const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : null;
+
+      if (!rowValues) {
+        return false;
+      }
+
+      const nextRows = [...currentSheet.rows];
+      nextRows.splice(entry.rowIndex, 0, rowValues);
+      const nextSheet = {
+        ...currentSheet,
+        rows: nextRows,
+      };
+
+      latestCronogramaSheetRef.current = nextSheet;
+      setCronogramaSheet(nextSheet);
+      await saveCronogramaSheetToSourceFile(nextSheet);
+      return true;
+    }
+
     if (!Array.isArray(entry.previousRowValues)) {
       return false;
     }
@@ -5207,6 +5662,24 @@ export function TurmasPage({
       const nextSheet = {
         ...currentSheet,
         rows: nextRows,
+      };
+
+      latestCronogramaSheetRef.current = nextSheet;
+      setCronogramaSheet(nextSheet);
+      await saveCronogramaSheetToSourceFile(nextSheet);
+      return true;
+    }
+
+    if (entry.kind === 'cronograma-delete') {
+      const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : [];
+      const rowId = getCronogramaRowId(currentSheet, rowValues);
+      const nextSheet = {
+        ...currentSheet,
+        rows: currentSheet.rows.filter(
+          (row, rowIndex) =>
+            rowIndex !== entry.rowIndex &&
+            getCronogramaRowId(currentSheet, row) !== rowId,
+        ),
       };
 
       latestCronogramaSheetRef.current = nextSheet;
@@ -5436,6 +5909,58 @@ export function TurmasPage({
     () => buildCronogramaBlocks(cronogramaSheet),
     [cronogramaSheet],
   );
+  const aulaCatalogOptions = useMemo(
+    () => buildAulaCatalogOptions(aulasSheet),
+    [aulasSheet],
+  );
+  const scheduleInstructorOptions = useMemo(
+    () =>
+      mergeWorkbookOptionValues(
+        instructorOptions,
+        getUniqueValues([
+          ...cronogramaBlocks.map((block) => block.instructor).filter(Boolean),
+          ...aulaCatalogOptions
+            .map((option) => option.defaultInstructor)
+            .filter(Boolean),
+        ]),
+      ),
+    [aulaCatalogOptions, cronogramaBlocks, instructorOptions],
+  );
+  const scheduleRoomOptions = useMemo(
+    () =>
+      mergeWorkbookOptionValues(
+        roomOptions,
+        getUniqueValues([
+          ...cronogramaBlocks.map((block) => block.room).filter(Boolean),
+          ...aulaCatalogOptions.map((option) => option.defaultRoom).filter(Boolean),
+        ]),
+      ),
+    [aulaCatalogOptions, cronogramaBlocks, roomOptions],
+  );
+  const getFilteredScheduleAulaOptions = (searchValue: string) => {
+    const searchKey = normalizeDropdownKey(searchValue);
+
+    return searchKey
+      ? aulaCatalogOptions.filter((option) =>
+          normalizeDropdownKey(option.name).includes(searchKey),
+        )
+      : aulaCatalogOptions;
+  };
+
+  const getFilteredScheduleValueOptions = (
+    field: Exclude<ScheduleField, 'lesson'>,
+    searchValue: string,
+  ) => {
+    const options =
+      field === 'instructor' ? scheduleInstructorOptions : scheduleRoomOptions;
+    const searchKey = normalizeDropdownKey(searchValue);
+
+    return searchKey
+      ? options.filter((option) =>
+          normalizeDropdownKey(option).includes(searchKey),
+        )
+      : options;
+  };
 
   const renderTurmaSchedulePanel = (
     turmaName: string,
@@ -5638,17 +6163,105 @@ export function TurmasPage({
                             2,
                             Math.floor(heightRowUnits * 2),
                           );
-                          const blockTextLines = [
-                            block.lesson,
-                            block.instructor || '-',
-                            `${formatMinutesAsTime(block.startMinutes)} - ${formatMinutesAsTime(
-                              block.endMinutes,
-                            )}`,
-                          ].slice(0, availableTextLines);
+                          const shouldShowScheduleDetails = availableTextLines >= 3;
+                          const visibleBlockLineCount = shouldShowScheduleDetails ? 3 : 2;
                           const emptyTextLines = Math.max(
                             0,
-                            availableTextLines - blockTextLines.length,
+                            availableTextLines - visibleBlockLineCount,
                           );
+                          const activeBlockField =
+                            activeScheduleFieldEditor?.blockId === block.id
+                              ? activeScheduleFieldEditor.field
+                              : null;
+                          const renderScheduleField = (
+                            field: ScheduleField,
+                            value: string,
+                            placeholder: string,
+                          ) => {
+                            const isActive = activeBlockField === field;
+                            const fieldClassName = [
+                              'turma-schedule-block-field',
+                              isActive ? 'active' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ');
+
+                            if (isActive && activeScheduleFieldEditor) {
+                              return (
+                                <input
+                                  className={fieldClassName}
+                                  data-schedule-field-anchor={`${block.id}-${field}`}
+                                  ref={scheduleFieldInputRef}
+                                  spellCheck={false}
+                                  value={activeScheduleFieldEditor.draftValue}
+                                  aria-label={
+                                    field === 'lesson'
+                                      ? 'Selecionar aula'
+                                      : field === 'instructor'
+                                        ? 'Instrutor da aula'
+                                        : 'Sala da aula'
+                                  }
+                                  placeholder={placeholder}
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(event) =>
+                                    updateScheduleFieldEditorDraft(
+                                      event.currentTarget.value,
+                                    )
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault();
+
+                                      if (
+                                        activeScheduleFieldEditor.field ===
+                                        'lesson'
+                                      ) {
+                                        const aulaOptions =
+                                          getFilteredScheduleAulaOptions(
+                                            activeScheduleFieldEditor.draftValue,
+                                          );
+
+                                        if (aulaOptions.length === 1) {
+                                          void selectScheduleAula(
+                                            activeScheduleFieldEditor,
+                                            aulaOptions[0],
+                                          );
+                                        }
+                                        return;
+                                      }
+
+                                      void commitScheduleFieldEditor(
+                                        activeScheduleFieldEditor,
+                                      );
+                                      return;
+                                    }
+
+                                    if (event.key === 'Escape') {
+                                      event.preventDefault();
+                                      activeScheduleFieldEditorRef.current = null;
+                                      setActiveScheduleFieldEditor(null);
+                                    }
+                                  }}
+                                />
+                              );
+                            }
+
+                            return (
+                              <button
+                                className={fieldClassName}
+                                data-schedule-field-anchor={`${block.id}-${field}`}
+                                type="button"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openScheduleFieldEditor(block, field);
+                                }}
+                              >
+                                {value || placeholder}
+                              </button>
+                            );
+                          };
 
                           return (
                             <div
@@ -5686,19 +6299,55 @@ export function TurmasPage({
                                   )
                                 }
                               />
-                              {blockTextLines.map((line, lineIndex) => (
-                                <span key={`${block.id}-line-${lineIndex}`}>
-                                  {line}
-                                </span>
-                              ))}
+                              <div className="turma-schedule-block-line turma-schedule-block-line-main">
+                                {renderScheduleField(
+                                  'lesson',
+                                  block.lesson,
+                                  SCHEDULE_LESSON_PLACEHOLDER,
+                                )}
+                                <div className="turma-schedule-block-actions">
+                                  <button
+                                    className="turma-schedule-block-icon-button"
+                                    type="button"
+                                    aria-label="Deletar aula"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void deleteScheduleBlock(block);
+                                    }}
+                                  >
+                                    <CloseIcon />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="turma-schedule-block-line">
+                                {renderScheduleField(
+                                  'instructor',
+                                  block.instructor,
+                                  '-',
+                                )}
+                                {renderScheduleField('room', block.room, '-')}
+                              </div>
+                              {shouldShowScheduleDetails ? (
+                                <div className="turma-schedule-block-line">
+                                  <span className="turma-schedule-block-field turma-schedule-block-field-static">
+                                    {formatMinutesAsTime(block.startMinutes)} -{' '}
+                                    {formatMinutesAsTime(block.endMinutes)}
+                                  </span>
+                                  <span className="turma-schedule-block-field turma-schedule-block-field-static">
+                                    {formatScheduleDateKeyShort(block.dateKey)}
+                                  </span>
+                                </div>
+                              ) : null}
                               {Array.from({ length: emptyTextLines }).map(
                                 (_, lineIndex) => (
-                                  <span
+                                  <div
                                     aria-hidden="true"
+                                    className="turma-schedule-block-line"
                                     key={`${block.id}-empty-${lineIndex}`}
                                   >
                                     &nbsp;
-                                  </span>
+                                  </div>
                                 ),
                               )}
                               <button
@@ -6436,6 +7085,82 @@ export function TurmasPage({
                     ),
                   )}
                 </div>
+              </div>
+            )}
+            {activeScheduleFieldEditor && (
+              <div
+                className="turma-schedule-field-editor"
+                style={activeScheduleFieldEditor.style}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                {activeScheduleFieldEditor.field === 'lesson' ? (
+                  <div className="turma-schedule-field-options">
+                    {(() => {
+                      const filteredOptions = getFilteredScheduleAulaOptions(
+                        activeScheduleFieldEditor.draftValue,
+                      );
+
+                      return filteredOptions.length > 0 ? (
+                        filteredOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() =>
+                              void selectScheduleAula(
+                                activeScheduleFieldEditor,
+                                option,
+                              )
+                            }
+                          >
+                            <span>{option.name}</span>
+                            {option.disciplines ? (
+                              <small>{option.disciplines}</small>
+                            ) : null}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="turma-schedule-field-empty">
+                          {aulaCatalogOptions.length > 0
+                            ? 'Nenhuma aula encontrada'
+                            : 'Nenhuma aula cadastrada'}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="turma-schedule-field-options">
+                    {(() => {
+                      const filteredOptions = getFilteredScheduleValueOptions(
+                        activeScheduleFieldEditor.field,
+                        activeScheduleFieldEditor.draftValue,
+                      );
+
+                      return filteredOptions.length > 0 ? (
+                        filteredOptions.map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              updateScheduleFieldEditorDraft(option);
+                              void commitScheduleFieldEditor({
+                                ...activeScheduleFieldEditor,
+                                draftValue: option,
+                              });
+                            }}
+                          >
+                            <span>{option}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="turma-schedule-field-empty">
+                          Nenhuma opcao cadastrada
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             )}
             {shouldShowStudentDetailsPanel &&

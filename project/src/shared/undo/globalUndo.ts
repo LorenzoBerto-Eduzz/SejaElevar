@@ -240,6 +240,10 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
     return formatHistoryLine(tabLabel, itemLabel, 'aula reagendada');
   }
 
+  if (entry.kind === 'cronograma-delete') {
+    return formatHistoryLine(tabLabel, itemLabel, 'aula deletada');
+  }
+
   return `${prefix} ação`;
 };
 

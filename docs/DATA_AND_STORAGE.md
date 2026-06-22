@@ -105,6 +105,8 @@ Expanded Turmas timetable visual/storage note:
 - The expanded Turma body is a split work surface. The left side shows assigned Aprendizes and owns vertical scrolling when the list is longer than the available space. The right side is a filtered timetable preview for that Turma's `Dia` and `PerÃ­odo`; it should not have independent vertical scrolling.
 - The timetable currently renders true 15-minute rows aligned to the Aprendizes row height, with a small visual tail after the period end. It intentionally does not render 5-minute rows. Aula/Cronograma blocks snap to thirds of a 15-minute row for 5-minute movement/resizing.
 
+Current planning checkpoint: pause deeper Turmas timetable/Aula-instance work until the upstream academic catalog exists. The next foundation should be the `Arcos` worksheet/UI, where each Arco's plano de ensino/ementa Disciplinas are defined. After that, `Aulas` can select which Disciplinas they cover, and only then should Cronograma block selection/discipline display be completed.
+
 ## Generated Data Index
 
 The `.xlsx` files remain the source of truth. The app also maintains a generated internal index for search, document generation, and future cross-tool variable lookup.
