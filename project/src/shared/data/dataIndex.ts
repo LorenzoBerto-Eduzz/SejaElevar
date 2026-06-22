@@ -171,7 +171,7 @@ export const buildArcosDataIndexEntity = (sheet: SheetTable) =>
 export const buildDisciplinasDataIndexEntity = (sheet: SheetTable) =>
   buildDataIndexEntity(
     DISCIPLINAS_ENTITY_ID,
-    'Disciplinas',
+    getBaseWorkbookSheetByEntity(DISCIPLINAS_ENTITY_ID)?.label ?? 'Disciplinas',
     sheet,
     DISCIPLINAS_REQUIRED_COLUMNS,
   );

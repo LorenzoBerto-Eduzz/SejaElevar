@@ -2086,10 +2086,24 @@ internal static class Program
                         legacyApiBasePath = (string?)null,
                         requiredColumns = new[]
                         {
-                            "Arco",
-                            "M\u00f3dulo",
+                            "ID",
+                            "Arco"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "disciplinas",
+                        sheetName = "Disciplinas",
+                        label = "Disciplinas",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
                             "Disciplina",
-                            "Carga Hor\u00e1ria"
+                            "M\u00f3dulo",
+                            "Arco",
+                            "Carga Hor\u00e1ria",
+                            "ID"
                         }
                     },
                     new

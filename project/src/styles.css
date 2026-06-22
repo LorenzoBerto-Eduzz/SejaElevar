@@ -1548,6 +1548,303 @@ svg {
   padding: 0;
 }
 
+.arcos-data-panel {
+  min-height: 0;
+}
+
+.arcos-board-frame {
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+  padding: 0;
+}
+
+.arcos-board {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
+  scrollbar-width: thin;
+}
+
+.arcos-board::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.arcos-board::-webkit-scrollbar-track,
+.arcos-board::-webkit-scrollbar-corner,
+.arcos-board::-webkit-scrollbar-button {
+  background: var(--brand-scroll-track);
+}
+
+.arcos-board::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.arcos-board::-webkit-scrollbar-thumb,
+.arcos-board::-webkit-scrollbar-thumb:hover {
+  border: 3px solid var(--brand-scroll-track);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.arcos-board:focus,
+.arcos-board:focus-visible {
+  outline: none;
+}
+
+.arcos-board-content {
+  display: grid;
+  grid-auto-rows: max-content;
+  column-gap: var(--arcos-column-gap, 24px);
+  row-gap: 0;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 0 16px;
+  overflow: visible;
+}
+
+.arco-header-cell {
+  min-width: 0;
+}
+
+.arco-group-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: calc(var(--table-header-height, 40px) + 16px);
+  min-height: calc(var(--table-header-height, 40px) + 16px);
+  border-radius: 7px;
+  color: var(--brand-header-text);
+  background: var(--brand-primary);
+}
+
+.arco-header-title {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 14px;
+  color: inherit;
+  font-size: 1.12rem;
+  font-weight: 900;
+  line-height: 1.14;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.arcos-module-section {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin-top: var(--arcos-module-gap, 8px);
+  overflow: visible;
+}
+
+.arco-header-cell + .arcos-module-section {
+  margin-top: var(--arcos-first-module-gap, 8px);
+}
+
+.arcos-module-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  height: var(--table-row-height, 30px);
+  border: 0;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: var(--brand-text);
+  background: transparent;
+  font-size: 0.88rem;
+  font-weight: 850;
+  line-height: 1;
+  text-align: left;
+}
+
+.arcos-module-button:hover,
+.arcos-module-button:focus-visible {
+  background: var(--brand-tertiary);
+  outline: none;
+}
+
+.arcos-module-button-text {
+  position: sticky;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+}
+
+.arcos-module-arrow {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.3;
+  transition: transform 120ms ease;
+}
+
+.arcos-module-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.arcos-module-columns {
+  display: grid;
+  column-gap: var(--arcos-column-gap, 24px);
+  align-items: start;
+  min-width: 0;
+  overflow: visible;
+}
+
+.arco-discipline-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding-bottom: 12px;
+}
+
+.arco-discipline-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  align-items: start;
+  gap: 8px;
+  min-height: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 8px 5px 10px;
+  color: var(--brand-text);
+  background: var(--brand-tertiary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.arco-discipline-row.empty {
+  color: color-mix(in srgb, var(--brand-text) 62%, transparent);
+}
+
+.arco-discipline-name {
+  min-width: 0;
+  max-height: calc(0.82rem * 1.25 * 2);
+  overflow: hidden;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.arco-discipline-row:hover .arco-discipline-name {
+  position: absolute;
+  top: 5px;
+  right: 74px;
+  left: 10px;
+  z-index: 6;
+  max-height: none;
+  overflow: visible;
+  min-height: calc(0.82rem * 1.25 * 2);
+  padding: 0 0 7px;
+  border-radius: 6px;
+  background: var(--brand-tertiary);
+}
+
+.arco-discipline-side {
+  display: grid;
+  justify-items: end;
+  align-items: start;
+  width: 58px;
+  min-width: 58px;
+}
+
+.arco-discipline-hours {
+  display: grid;
+  place-items: center;
+  justify-self: end;
+  width: 34px;
+  min-width: 34px;
+  height: 19px;
+  color: inherit;
+  font-weight: 850;
+  white-space: nowrap;
+  transform: translateX(2px);
+}
+
+.arco-discipline-corner-action {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.arco-discipline-corner-action svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.arco-discipline-lessons-action {
+  right: 5px;
+  bottom: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.arco-discipline-delete-action {
+  right: 5px;
+  top: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.arco-discipline-row:hover .arco-discipline-delete-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.arco-discipline-row:hover .arco-discipline-lessons-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.arco-discipline-corner-action:hover,
+.arco-discipline-corner-action:focus-visible {
+  border-color: currentColor;
+  outline: none;
+}
+
 .turma-group {
   position: relative;
   display: grid;

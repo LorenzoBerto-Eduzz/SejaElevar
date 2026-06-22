@@ -3,6 +3,7 @@ import {
   ARCOS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
+  DISCIPLINAS_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
 } from './schemas';
 
@@ -45,6 +46,13 @@ export const BASE_WORKBOOK_SHEETS = [
     sheetName: 'Arcos',
     label: 'Arcos',
     requiredColumns: ARCOS_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
+  },
+  {
+    entityId: 'disciplinas',
+    sheetName: 'Disciplinas',
+    label: 'Disciplinas',
+    requiredColumns: DISCIPLINAS_REQUIRED_COLUMNS,
     status: 'planned-index-ready',
   },
   {

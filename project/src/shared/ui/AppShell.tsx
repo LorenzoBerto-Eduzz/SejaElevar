@@ -421,6 +421,10 @@ export function AppShell({
           '--row-details-class-width': `${settings.layout.rowDetailsClassWidth}px`,
           '--row-details-close-icon-horizontal-offset': `${settings.layout.rowDetailsCloseIconHorizontalOffset}px`,
           '--settings-close-icon-horizontal-offset': `${settings.layout.settingsCloseIconHorizontalOffset}px`,
+          '--arcos-column-width': `${settings.layout.arcosColumnWidth}px`,
+          '--arcos-column-gap': `${settings.layout.arcosColumnGap}px`,
+          '--arcos-first-module-gap': `${settings.layout.arcosFirstModuleGap}px`,
+          '--arcos-module-gap': `${settings.layout.arcosModuleGap}px`,
         } as CSSProperties
       }
     >
@@ -793,6 +797,50 @@ export function AppShell({
               onChange={(value) => updateDarkColor('headerText', value)}
               onReset={() => resetDarkColor('headerText')}
             />
+            {!isReleaseMode && (
+              <>
+                <SliderField
+                  label="Arcos largura"
+                  min={180}
+                  max={520}
+                  step={1}
+                  value={settings.layout.arcosColumnWidth}
+                  onChange={(value) => updateLayout('arcosColumnWidth', value)}
+                  onReset={() => resetLayout('arcosColumnWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos gap"
+                  min={0}
+                  max={80}
+                  step={1}
+                  value={settings.layout.arcosColumnGap}
+                  onChange={(value) => updateLayout('arcosColumnGap', value)}
+                  onReset={() => resetLayout('arcosColumnGap')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos primeiro gap"
+                  min={0}
+                  max={56}
+                  step={1}
+                  value={settings.layout.arcosFirstModuleGap}
+                  onChange={(value) => updateLayout('arcosFirstModuleGap', value)}
+                  onReset={() => resetLayout('arcosFirstModuleGap')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos mÃ³dulos gap"
+                  min={0}
+                  max={40}
+                  step={1}
+                  value={settings.layout.arcosModuleGap}
+                  onChange={(value) => updateLayout('arcosModuleGap', value)}
+                  onReset={() => resetLayout('arcosModuleGap')}
+                  className="dev-visible-slider-field"
+                />
+              </>
+            )}
             {false && !isReleaseMode && (
               <>
                 <SliderField
@@ -1145,6 +1193,26 @@ export function AppShell({
                   value={settings.layout.rowDetailsClassWidth}
                   onChange={(value) => updateLayout('rowDetailsClassWidth', value)}
                   onReset={() => resetLayout('rowDetailsClassWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos largura"
+                  min={180}
+                  max={520}
+                  step={1}
+                  value={settings.layout.arcosColumnWidth}
+                  onChange={(value) => updateLayout('arcosColumnWidth', value)}
+                  onReset={() => resetLayout('arcosColumnWidth')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos gap"
+                  min={0}
+                  max={80}
+                  step={1}
+                  value={settings.layout.arcosColumnGap}
+                  onChange={(value) => updateLayout('arcosColumnGap', value)}
+                  onReset={() => resetLayout('arcosColumnGap')}
                   className="dev-visible-slider-field"
                 />
               </>

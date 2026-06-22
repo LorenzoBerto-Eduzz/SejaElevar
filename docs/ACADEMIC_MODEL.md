@@ -199,7 +199,17 @@ Disciplina Especifica
 
 `Disciplina` also does not need its own main tab for now. Because Arcos are directly composed of their Disciplinas, the user-facing management for Disciplinas should live inside the `Arcos` tab/flow. Keep Disciplina as an internal data concept for Aula mappings, progress tracking, attendance proof, search, and document generation.
 
-Current implementation priority: pause further Turma timetable/Aula-instance polish and move upstream to the Arcos/Disciplinas foundation. The next solid foundation is defining Arcos and their plano de ensino/ementa Disciplinas first, then using those Disciplinas as selectable coverage when building predefined Aulas, then returning to Cronograma blocks so each scheduled event can select a predefined Aula with real coverage.
+Current implementation state: deeper Turma timetable/Aula-instance polish is paused while the upstream Arcos/Disciplinas foundation is built. The first Arcos tab now reads the active `DadosElevar` workbook, displays `Arcos` horizontally, and reads `Disciplinas` grouped by shared module rows. The next solid foundation is turning that view into reliable creation/editing of Arcos and their plano de ensino/ementa Disciplinas, then using those Disciplinas as selectable coverage when building predefined Aulas, then returning to Cronograma blocks so each scheduled event can select a predefined Aula with real coverage.
+
+Current Arcos/Disciplinas UI direction:
+
+- `Ementa` is the external/source document concept, not a worksheet/entity name.
+- `Arcos` is a workbook sheet with one row per Arco.
+- `Disciplinas` is a workbook sheet with one row per Disciplina, including `Disciplina`, `Módulo`, `Arco`, `Carga Horária`, and `ID`.
+- The Arcos tab displays Arcos as horizontal columns.
+- Module buttons are shared full-width rows (`Inicial`, `Básico`, `Específico`) that expand/collapse across all Arcos at once.
+- `Inicial` and `Básico` rows marked with `Arco = Todos` appear in every Arco column; `Específico` rows appear only in their matching Arco.
+- Disciplina bubbles currently show name and carga horária, with visual-only hover controls for future delete and future "show Aulas covering this Disciplina" actions.
 
 ## Aula To Disciplina Mapping
 

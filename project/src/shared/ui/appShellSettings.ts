@@ -86,6 +86,10 @@ export type LayoutSettings = {
   rowDetailsClassWidth: number;
   rowDetailsCloseIconHorizontalOffset: number;
   settingsCloseIconHorizontalOffset: number;
+  arcosColumnWidth: number;
+  arcosColumnGap: number;
+  arcosFirstModuleGap: number;
+  arcosModuleGap: number;
 };
 
 export type AppSettings = {
@@ -183,6 +187,10 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     rowDetailsClassWidth: 217,
     rowDetailsCloseIconHorizontalOffset: -1.7,
     settingsCloseIconHorizontalOffset: -2,
+    arcosColumnWidth: 280,
+    arcosColumnGap: 24,
+    arcosFirstModuleGap: 8,
+    arcosModuleGap: 8,
   },
 });
 

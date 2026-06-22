@@ -1,15 +1,21 @@
 import { BASE_WORKBOOK_SHEETS } from './baseWorkbook';
 import {
   AULAS_ENTITY_ID,
+  ARCOS_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
+  DISCIPLINAS_ENTITY_ID,
   buildAulasDataIndexEntity,
+  buildArcosDataIndexEntity,
   buildCronogramaDataIndexEntity,
+  buildDisciplinasDataIndexEntity,
   buildEmptyDataIndexEntity,
   type SheetTable,
 } from './dataIndex';
 import {
+  ARCOS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
+  DISCIPLINAS_REQUIRED_COLUMNS,
   findSchemaHeaderRowIndex,
   normalizeColumnsForSchema,
   normalizeFieldLabel,
@@ -89,6 +95,18 @@ const ACTIVE_WORKBOOK_SHEETS = BASE_WORKBOOK_SHEETS.filter(
 );
 
 const MANAGED_OPTIONAL_WORKBOOK_SHEETS = [
+  {
+    entityId: ARCOS_ENTITY_ID,
+    sheetName: 'Arcos',
+    label: 'Arcos',
+    requiredColumns: ARCOS_REQUIRED_COLUMNS,
+  },
+  {
+    entityId: DISCIPLINAS_ENTITY_ID,
+    sheetName: 'Disciplinas',
+    label: 'Disciplinas',
+    requiredColumns: DISCIPLINAS_REQUIRED_COLUMNS,
+  },
   {
     entityId: AULAS_ENTITY_ID,
     sheetName: 'Aulas',
@@ -547,20 +565,33 @@ export const persistManagedWorkbookDataIndexes = async (file: File | null) => {
         sheet: null,
       }));
   const managedEntities = managedSheets.map(({ sheetDefinition, sheet }) => {
-    if (sheetDefinition.entityId === AULAS_ENTITY_ID) {
-      return {
-        entityId: AULAS_ENTITY_ID,
-        entity: sheet
+    const buildEntity = () => {
+      if (sheetDefinition.entityId === ARCOS_ENTITY_ID) {
+        return sheet
+          ? buildArcosDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(ARCOS_ENTITY_ID, 'Arcos');
+      }
+
+      if (sheetDefinition.entityId === DISCIPLINAS_ENTITY_ID) {
+        return sheet
+          ? buildDisciplinasDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(DISCIPLINAS_ENTITY_ID, 'Disciplinas');
+      }
+
+      if (sheetDefinition.entityId === AULAS_ENTITY_ID) {
+        return sheet
           ? buildAulasDataIndexEntity(sheet)
-          : buildEmptyDataIndexEntity(AULAS_ENTITY_ID, 'Aulas'),
-      };
-    }
+          : buildEmptyDataIndexEntity(AULAS_ENTITY_ID, 'Aulas');
+      }
+
+      return sheet
+        ? buildCronogramaDataIndexEntity(sheet)
+        : buildEmptyDataIndexEntity(CRONOGRAMA_ENTITY_ID, 'Cronograma');
+    };
 
     return {
-      entityId: CRONOGRAMA_ENTITY_ID,
-      entity: sheet
-        ? buildCronogramaDataIndexEntity(sheet)
-        : buildEmptyDataIndexEntity(CRONOGRAMA_ENTITY_ID, 'Cronograma'),
+      entityId: sheetDefinition.entityId,
+      entity: buildEntity(),
     };
   });
 

@@ -29,18 +29,16 @@ export const TURMAS_REQUIRED_COLUMNS = [
 ] as const;
 
 export const ARCOS_REQUIRED_COLUMNS = [
+  'ID',
   'Arco',
-  'Módulo',
-  'Disciplina',
-  'Carga Horária',
 ] as const;
 
 export const DISCIPLINAS_REQUIRED_COLUMNS = [
   'Disciplina',
   'Módulo',
-  'Tipo',
   'Arco',
   'Carga Horária',
+  'ID',
 ] as const;
 
 export const AULAS_REQUIRED_COLUMNS = [

@@ -93,7 +93,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 ## Known Pitfalls
 
 - This repo is initialized as Git on `main` and tracks `origin/main`.
-- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, generated data-index foundations, and global undo/recovery foundations, but no full filters, document generation, Calendário, Aulas, or Arcos implementation yet.
+- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, a first read-only Arcos/Disciplinas foundation, generated data-index foundations, and global undo/recovery foundations, but no full filters, document generation, Calendário, or Aulas implementation yet.
 - Do not treat `notes/todos.txt` as instructions unless the user explicitly asks.
 - Do not commit dependency folders, build outputs, local secrets, or real private data.
 - Future AI sessions should inspect `project/` before assuming the current UI state, commands, dependencies, or folder structure.
