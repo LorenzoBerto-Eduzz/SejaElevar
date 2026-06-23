@@ -5883,11 +5883,13 @@ export function TurmasPage({
   );
 
   const hasWorkingSheet = Boolean(turmasSheet);
+  const hasTurmaRows = Boolean(turmasSheet && turmasSheet.rows.length > 0);
   const shouldShowEmptyImportState =
     !hasWorkingSheet &&
     (globalWorkbookState.hasLoaded
       ? !globalWorkbookState.hasWorkbook
       : hasCheckedWorkspace);
+  const shouldShowNoTurmasState = hasWorkingSheet && !hasTurmaRows;
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const recoveryCheckpoints =
     recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
@@ -6437,7 +6439,13 @@ export function TurmasPage({
         </div>
       )}
 
-      {hasWorkingSheet && turmasSheet && (
+      {shouldShowNoTurmasState && (
+        <div className="empty-data-state placeholder-state" role="region">
+          <h2>Nenhuma turma cadastrada</h2>
+        </div>
+      )}
+
+      {hasTurmaRows && turmasSheet && (
         <div className="data-table-panel turmas-data-table-panel">
           <div className="data-table-frame turmas-board-frame" ref={boardFrameRef}>
             <div

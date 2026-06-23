@@ -1653,7 +1653,7 @@ svg {
 .arcos-module-section {
   grid-column: 1 / -1;
   display: grid;
-  gap: 6px;
+  gap: var(--arcos-module-content-gap, 6px);
   min-width: 0;
   margin-top: var(--arcos-module-gap, 8px);
   overflow: visible;
@@ -1664,6 +1664,7 @@ svg {
 }
 
 .arcos-module-button {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -1680,10 +1681,26 @@ svg {
   text-align: left;
 }
 
+.arcos-module-button::before {
+  content: '';
+  position: absolute;
+  inset: 5px 0;
+  z-index: 0;
+  border-radius: 7px;
+  background: var(--brand-tertiary);
+  opacity: 0;
+  pointer-events: none;
+}
+
 .arcos-module-button:hover,
 .arcos-module-button:focus-visible {
-  background: var(--brand-tertiary);
+  background: transparent;
   outline: none;
+}
+
+.arcos-module-button:hover::before,
+.arcos-module-button:focus-visible::before {
+  opacity: 1;
 }
 
 .dark-mode .arcos-module-button,
@@ -1694,6 +1711,7 @@ svg {
 .arcos-module-button-text {
   position: sticky;
   left: 10px;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1726,22 +1744,22 @@ svg {
 .arco-discipline-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: var(--arcos-discipline-gap, 6px);
   min-width: 0;
-  padding-bottom: 12px;
+  padding-bottom: 20px;
 }
 
 .arco-discipline-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 58px;
-  align-items: start;
-  gap: 8px;
-  min-height: 44px;
-  height: 44px;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: stretch;
+  gap: 5px;
+  min-height: 48px;
+  height: 48px;
   border: 0;
   border-radius: 7px;
-  padding: 5px 8px 5px 10px;
+  padding: 5px 5px 7px 8px;
   color: #21465d;
   background: var(--brand-tertiary);
   font-size: 0.82rem;
@@ -1753,56 +1771,75 @@ svg {
   color: color-mix(in srgb, var(--brand-text) 62%, transparent);
 }
 
-.arco-discipline-name {
+.arco-discipline-name-wrap {
+  position: relative;
   min-width: 0;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.arco-discipline-name {
+  display: -webkit-box;
+  width: 100%;
+  min-width: 0;
+  height: calc(0.82rem * 1.25 * 2);
   max-height: calc(0.82rem * 1.25 * 2);
   overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   word-break: normal;
   overflow-wrap: anywhere;
 }
 
-.arco-discipline-row:hover .arco-discipline-name {
+.arco-discipline-name-wrap.expandable:hover .arco-discipline-name {
   position: absolute;
-  top: 5px;
-  right: 74px;
-  left: 10px;
-  z-index: 6;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 12;
+  display: block;
+  height: auto;
   max-height: none;
   overflow: visible;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
   min-height: calc(0.82rem * 1.25 * 2);
-  padding: 0 0 7px;
+  padding: 0;
+  outline: 1px solid color-mix(in srgb, currentColor 50%, transparent);
+  outline-offset: 3px;
   border-radius: 6px;
   background: var(--brand-tertiary);
+  box-shadow: 0 3px 8px color-mix(in srgb, #000 16%, transparent);
+  pointer-events: none;
 }
 
 .arco-discipline-side {
   display: grid;
-  justify-items: end;
-  align-items: start;
-  width: 58px;
-  min-width: 58px;
+  grid-template-rows: 20px 1fr;
+  width: 40px;
+  min-width: 40px;
+  height: 100%;
 }
 
 .arco-discipline-hours {
   display: grid;
   place-items: center;
-  justify-self: end;
-  width: 34px;
-  min-width: 34px;
-  height: 19px;
+  width: 100%;
+  height: 100%;
   color: inherit;
   font-weight: 850;
   white-space: nowrap;
-  transform: translateX(2px);
+  transform: translateY(-2px);
 }
 
 .arco-discipline-corner-action {
-  position: absolute;
-  z-index: 8;
+  align-self: end;
+  justify-self: center;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 0;
@@ -1821,8 +1858,6 @@ svg {
 }
 
 .arco-discipline-lessons-action {
-  right: 16px;
-  bottom: 4px;
   opacity: 0;
   pointer-events: none;
 }

@@ -1,4 +1,3 @@
-import { BASE_WORKBOOK_SHEETS } from '../baseWorkbook';
 import {
   ARCOS_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
@@ -100,24 +99,6 @@ const writeSheet = (
   }
 };
 
-const createEmptyBaseWorkbook = (utils: XlsxModule['utils']) => {
-  const workbook = utils.book_new();
-
-  BASE_WORKBOOK_SHEETS.forEach((sheet) => {
-    if (sheet.requiredColumns.length === 0) {
-      return;
-    }
-
-    utils.book_append_sheet(
-      workbook,
-      utils.aoa_to_sheet([[...sheet.requiredColumns]]),
-      sheet.sheetName,
-    );
-  });
-
-  return workbook as XlsxWorkbook;
-};
-
 const createArcoRow = (
   columns: readonly string[],
   parsedEmenta: ParsedEmenta,
@@ -177,9 +158,12 @@ const getDisciplinaKey = (
 export const saveParsedEmentaToWorkbook = async (parsedEmenta: ParsedEmenta) => {
   const { utils, write } = await loadXlsx();
   const activeFile = await fetchBaseWorkbookFile().catch(() => null);
-  const workbook = activeFile
-    ? await readWorkbookFromFile(activeFile)
-    : createEmptyBaseWorkbook(utils);
+
+  if (!activeFile) {
+    throw new Error('missing-base-workbook');
+  }
+
+  const workbook = await readWorkbookFromFile(activeFile);
   const arcosSheet = toRows(
     utils,
     workbook,

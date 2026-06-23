@@ -3390,11 +3390,13 @@ export function AprendizesPage({
     .filter(Boolean)
     .join(' ');
   const hasWorkingSheet = Boolean(importedSheet);
+  const hasAprendizRows = Boolean(importedSheet && importedSheet.rows.length > 0);
   const shouldShowEmptyImportState =
     !hasWorkingSheet &&
     (globalWorkbookState.hasLoaded
       ? !globalWorkbookState.hasWorkbook
       : hasCheckedWorkspace);
+  const shouldShowNoAprendizesState = hasWorkingSheet && !hasAprendizRows;
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const recoveryCheckpoints =
     recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
@@ -3962,7 +3964,13 @@ export function AprendizesPage({
         </div>
       )}
 
-      {importedSheet && (
+      {shouldShowNoAprendizesState && (
+        <div className="empty-data-state placeholder-state" role="region">
+          <h2>Nenhum aprendiz cadastrado</h2>
+        </div>
+      )}
+
+      {hasAprendizRows && importedSheet && (
         <div className="data-table-panel">
           <div className="data-table-frame" ref={tableFrameRef}>
             <div

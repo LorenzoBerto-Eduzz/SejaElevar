@@ -2225,10 +2225,10 @@ internal static class Program
                         legacyApiBasePath = (string?)null,
                         requiredColumns = new[]
                         {
-                            "ID",
                             "Arco",
-                            "Ementa ID",
-                            "Arquivo Ementa"
+                            "Arquivo Ementa",
+                            "ID",
+                            "Ementa ID"
                         }
                     },
                     new
@@ -2266,12 +2266,12 @@ internal static class Program
                         legacyApiBasePath = (string?)null,
                         requiredColumns = new[]
                         {
-                            "ID",
                             "Aula",
                             "Cor",
                             "Instrutor Padr\u00e3o",
                             "Sala Padr\u00e3o",
-                            "Disciplinas"
+                            "Disciplinas",
+                            "ID"
                         }
                     },
                     new
@@ -2283,7 +2283,6 @@ internal static class Program
                         legacyApiBasePath = (string?)null,
                         requiredColumns = new[]
                         {
-                            "ID",
                             "Turma",
                             "Data",
                             "In\u00edcio",
@@ -2293,7 +2292,8 @@ internal static class Program
                             "Aula",
                             "Instrutor",
                             "Sala",
-                            "Cor"
+                            "Cor",
+                            "ID"
                         }
                     },
                     new

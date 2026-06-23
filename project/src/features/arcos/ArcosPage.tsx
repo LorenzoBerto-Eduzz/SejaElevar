@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ARCOS_ENTITY_ID,
   DISCIPLINAS_ENTITY_ID,
@@ -6,6 +6,7 @@ import {
 } from '../../shared/data/dataIndex';
 import {
   GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import { importEmentaFromPicker } from '../../shared/data/ementas/ementaImport';
 import {
@@ -49,6 +50,18 @@ const getCellValue = (
   const columnIndex = getColumnIndex(sheet, columnName);
 
   return columnIndex >= 0 ? String(row[columnIndex] ?? '').trim() : '';
+};
+
+const formatDisciplineHours = (value: string) => {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return '-';
+  }
+
+  const numericValue = trimmedValue.match(/\d+(?:[,.]\d+)?/)?.[0];
+
+  return numericValue ? `${numericValue.replace(',', '.')}h` : trimmedValue;
 };
 
 const createEmptyArcosSheet = (fileName = 'DadosElevar.xlsx'): SheetTable => ({
@@ -263,8 +276,9 @@ export function ArcosPage({
     };
   }, [canInitialize]);
 
+  const shouldShowEmptyImportState = hasCheckedWorkbook && !arcosSheet;
   const shouldShowEmptyState =
-    hasCheckedWorkbook && (!arcosSheet || arcos.length === 0);
+    hasCheckedWorkbook && Boolean(arcosSheet) && arcos.length === 0;
   const toggleModule = (moduleName: string) => {
     const moduleKey = normalizeFieldLabel(moduleName);
 
@@ -293,8 +307,12 @@ export function ArcosPage({
       if (result) {
         setExpandedModules(new Set(MODULES.map(normalizeFieldLabel)));
       }
-    } catch {
-      showEmentaToast('N\u00e3o foi poss\u00edvel ler a ementa');
+    } catch (error) {
+      showEmentaToast(
+        error instanceof Error && error.message === 'missing-base-workbook'
+          ? 'Importe o DadosElevar antes de adicionar uma ementa'
+          : 'N\u00e3o foi poss\u00edvel ler a ementa',
+      );
     } finally {
       setIsImportingEmenta(false);
     }
@@ -310,12 +328,14 @@ export function ArcosPage({
           <div className="table-toolbar-track">
             <button
               className={
-                isImportingEmenta ? 'square-action disabled' : 'square-action'
+                isImportingEmenta || !arcosSheet
+                  ? 'square-action disabled'
+                  : 'square-action'
               }
               type="button"
               aria-label="Adicionar arco"
               title="Adicionar Arco"
-              disabled={isImportingEmenta}
+              disabled={isImportingEmenta || !arcosSheet}
               onClick={() => void addArcoFromEmenta()}
             >
               <ClipboardPlusIcon />
@@ -324,6 +344,27 @@ export function ArcosPage({
           </div>
         </div>
       </div>
+
+      {shouldShowEmptyImportState && (
+        <div
+          className="empty-data-state empty-tool-state"
+          role="region"
+          aria-label="Importar dados"
+        >
+          <button
+            className="primary-action import-empty-action"
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(
+                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
+              )
+            }
+          >
+            <ImportIcon />
+            Importar .xlsx
+          </button>
+        </div>
+      )}
 
       {shouldShowEmptyState && (
         <div className="empty-data-state placeholder-state" role="region">
@@ -393,31 +434,25 @@ export function ArcosPage({
                                     <div
                                       className="arco-discipline-row"
                                       key={discipline.id}
-                                      title={discipline.name}
                                     >
-                                      <span className="arco-discipline-name">
-                                        {discipline.name}
-                                      </span>
+                                      <DisciplineName name={discipline.name} />
                                       <span className="arco-discipline-side">
                                         <span className="arco-discipline-hours">
-                                          {discipline.hours || '-'}
+                                          {formatDisciplineHours(discipline.hours)}
                                         </span>
+                                        <button
+                                          className="arco-discipline-corner-action arco-discipline-lessons-action"
+                                          type="button"
+                                          aria-label={`Ver aulas de ${discipline.name}`}
+                                        >
+                                          <LessonsIcon />
+                                        </button>
                                       </span>
-                                      <button
-                                        className="arco-discipline-corner-action arco-discipline-lessons-action"
-                                        type="button"
-                                        aria-label={`Ver aulas de ${discipline.name}`}
-                                        title="Aulas"
-                                      >
-                                        <LessonsIcon />
-                                      </button>
                                     </div>
                                   ))
                                 ) : (
                                   <div className="arco-discipline-row empty">
-                                    <span className="arco-discipline-name">
-                                      -
-                                    </span>
+                                    <DisciplineName name="-" />
                                     <span className="arco-discipline-side">
                                       <span className="arco-discipline-hours">
                                         -
@@ -447,6 +482,58 @@ export function ArcosPage({
   );
 }
 
+function DisciplineName({ name }: { name: string }) {
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [isExpandable, setIsExpandable] = useState(false);
+
+  useEffect(() => {
+    const wrapElement = wrapRef.current;
+    const textElement = textRef.current;
+
+    if (!wrapElement || !textElement) {
+      return;
+    }
+
+    const updateExpandableState = () => {
+      setIsExpandable(
+        textElement.scrollHeight > textElement.clientHeight + 1 ||
+          textElement.scrollWidth > textElement.clientWidth + 1,
+      );
+    };
+
+    updateExpandableState();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateExpandableState);
+
+      return () => window.removeEventListener('resize', updateExpandableState);
+    }
+
+    const observer = new ResizeObserver(() => {
+      window.requestAnimationFrame(updateExpandableState);
+    });
+    observer.observe(wrapElement);
+
+    return () => observer.disconnect();
+  }, [name]);
+
+  return (
+    <span
+      className={
+        isExpandable
+          ? 'arco-discipline-name-wrap expandable'
+          : 'arco-discipline-name-wrap'
+      }
+      ref={wrapRef}
+    >
+      <span className="arco-discipline-name" ref={textRef}>
+        {name}
+      </span>
+    </span>
+  );
+}
+
 function ModuleArrowIcon({ isExpanded }: { isExpanded: boolean }) {
   return (
     <svg
@@ -467,6 +554,18 @@ function LessonsIcon() {
       <path d="M3 6v13" />
       <path d="M21 6v13" />
       <path d="M12 6v13" />
+    </svg>
+  );
+}
+
+function ImportIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3v12" />
+      <path d="m8 11 4 4 4 -4" />
+      <path d="M5 21h14" />
+      <path d="M5 17v4" />
+      <path d="M19 17v4" />
     </svg>
   );
 }

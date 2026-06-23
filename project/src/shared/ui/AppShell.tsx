@@ -425,6 +425,8 @@ export function AppShell({
           '--arcos-column-gap': `${settings.layout.arcosColumnGap}px`,
           '--arcos-first-module-gap': `${settings.layout.arcosFirstModuleGap}px`,
           '--arcos-module-gap': `${settings.layout.arcosModuleGap}px`,
+          '--arcos-module-content-gap': `${settings.layout.arcosModuleContentGap}px`,
+          '--arcos-discipline-gap': `${settings.layout.arcosDisciplineGap}px`,
         } as CSSProperties
       }
     >
@@ -831,12 +833,32 @@ export function AppShell({
                 />
                 <SliderField
                   label="Arcos mÃ³dulos gap"
-                  min={0}
+                  min={-24}
                   max={40}
                   step={1}
                   value={settings.layout.arcosModuleGap}
                   onChange={(value) => updateLayout('arcosModuleGap', value)}
                   onReset={() => resetLayout('arcosModuleGap')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos mÃƒÂ³dulo conteÃƒÂºdo gap"
+                  min={0}
+                  max={48}
+                  step={1}
+                  value={settings.layout.arcosModuleContentGap}
+                  onChange={(value) => updateLayout('arcosModuleContentGap', value)}
+                  onReset={() => resetLayout('arcosModuleContentGap')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Arcos disciplinas gap"
+                  min={0}
+                  max={32}
+                  step={1}
+                  value={settings.layout.arcosDisciplineGap}
+                  onChange={(value) => updateLayout('arcosDisciplineGap', value)}
+                  onReset={() => resetLayout('arcosDisciplineGap')}
                   className="dev-visible-slider-field"
                 />
               </>

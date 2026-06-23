@@ -3,7 +3,7 @@ import {
   GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
 } from '../events';
 import { markGlobalWorkbookAvailable } from '../../ui/GlobalWorkbookToolbar';
-import { fetchRecoveryInfo } from '../workspaceData';
+import { fetchBaseWorkbookFile, fetchRecoveryInfo } from '../workspaceData';
 import { parseEmentaPdf } from './ementaParser';
 import { saveParsedEmentaToWorkbook } from './ementaWorkbook';
 import { EMENTA_PARSER_VERSION } from './ementaTypes';
@@ -66,6 +66,12 @@ const storeEmentaPdf = async (
 };
 
 export const importEmentaFromPicker = async () => {
+  const activeWorkbook = await fetchBaseWorkbookFile().catch(() => null);
+
+  if (!activeWorkbook) {
+    throw new Error('missing-base-workbook');
+  }
+
   const file = await pickEmentaPdf();
 
   if (!file) {

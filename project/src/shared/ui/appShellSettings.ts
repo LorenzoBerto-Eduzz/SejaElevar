@@ -90,6 +90,8 @@ export type LayoutSettings = {
   arcosColumnGap: number;
   arcosFirstModuleGap: number;
   arcosModuleGap: number;
+  arcosModuleContentGap: number;
+  arcosDisciplineGap: number;
 };
 
 export type AppSettings = {
@@ -191,6 +193,8 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     arcosColumnGap: 24,
     arcosFirstModuleGap: 8,
     arcosModuleGap: 8,
+    arcosModuleContentGap: 6,
+    arcosDisciplineGap: 6,
   },
 });
 
