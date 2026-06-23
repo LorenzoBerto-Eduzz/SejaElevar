@@ -6,8 +6,8 @@ import {
 } from '../../shared/data/dataIndex';
 import {
   GLOBAL_DATA_CHANGED_EVENT,
-  GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
+import { importEmentaFromPicker } from '../../shared/data/ementas/ementaImport';
 import {
   ARCOS_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
@@ -19,6 +19,7 @@ import {
   readWorkbookSheetFile,
 } from '../../shared/data/workspaceData';
 import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
+import { useTimedToast } from '../../shared/ui/useTimedToast';
 
 type ArcosPageProps = {
   canInitialize?: boolean;
@@ -143,6 +144,9 @@ export function ArcosPage({
     null,
   );
   const [hasCheckedWorkbook, setHasCheckedWorkbook] = useState(false);
+  const [isImportingEmenta, setIsImportingEmenta] = useState(false);
+  const { message: ementaToast, showToast: showEmentaToast } =
+    useTimedToast();
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     () => new Set(),
   );
@@ -259,9 +263,8 @@ export function ArcosPage({
     };
   }, [canInitialize]);
 
-  const shouldShowImportState = hasCheckedWorkbook && !arcosSheet;
   const shouldShowEmptyState =
-    hasCheckedWorkbook && arcosSheet !== null && arcos.length === 0;
+    hasCheckedWorkbook && (!arcosSheet || arcos.length === 0);
   const toggleModule = (moduleName: string) => {
     const moduleKey = normalizeFieldLabel(moduleName);
 
@@ -277,6 +280,25 @@ export function ArcosPage({
       return next;
     });
   };
+  const addArcoFromEmenta = async () => {
+    if (isImportingEmenta) {
+      return;
+    }
+
+    setIsImportingEmenta(true);
+
+    try {
+      const result = await importEmentaFromPicker();
+
+      if (result) {
+        setExpandedModules(new Set(MODULES.map(normalizeFieldLabel)));
+      }
+    } catch {
+      showEmentaToast('N\u00e3o foi poss\u00edvel ler a ementa');
+    } finally {
+      setIsImportingEmenta(false);
+    }
+  };
 
   return (
     <section className="feature-page" aria-labelledby="arcos-title">
@@ -286,30 +308,22 @@ export function ArcosPage({
         </div>
         <div className="table-toolbar" aria-label="Ações da página">
           <div className="table-toolbar-track">
+            <button
+              className={
+                isImportingEmenta ? 'square-action disabled' : 'square-action'
+              }
+              type="button"
+              aria-label="Adicionar arco"
+              title="Adicionar Arco"
+              disabled={isImportingEmenta}
+              onClick={() => void addArcoFromEmenta()}
+            >
+              <ClipboardPlusIcon />
+            </button>
             {isActive && <GlobalWorkbookToolbar />}
           </div>
         </div>
       </div>
-
-      {shouldShowImportState && (
-        <div
-          className="empty-data-state empty-tool-state"
-          role="region"
-          aria-label="Importar DadosElevar"
-        >
-          <button
-            className="primary-action import-empty-action"
-            type="button"
-            onClick={() =>
-              window.dispatchEvent(
-                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
-              )
-            }
-          >
-            Importar .xlsx
-          </button>
-        </div>
-      )}
 
       {shouldShowEmptyState && (
         <div className="empty-data-state placeholder-state" role="region">
@@ -397,14 +411,6 @@ export function ArcosPage({
                                       >
                                         <LessonsIcon />
                                       </button>
-                                      <button
-                                        className="arco-discipline-corner-action arco-discipline-delete-action"
-                                        type="button"
-                                        aria-label={`Excluir ${discipline.name}`}
-                                        title="Excluir disciplina"
-                                      >
-                                        <DeleteIcon />
-                                      </button>
                                     </div>
                                   ))
                                 ) : (
@@ -430,6 +436,11 @@ export function ArcosPage({
                   </div>
             </div>
           </div>
+        </div>
+      )}
+      {ementaToast && (
+        <div className="app-warning-toast" role="status" aria-live="polite">
+          {ementaToast}
         </div>
       )}
     </section>
@@ -460,11 +471,13 @@ function LessonsIcon() {
   );
 }
 
-function DeleteIcon() {
+function ClipboardPlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M18 6l-12 12" />
-      <path d="M6 6l12 12" />
+      <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+      <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+      <path d="M10 14h4" />
+      <path d="M12 12v4" />
     </svg>
   );
 }

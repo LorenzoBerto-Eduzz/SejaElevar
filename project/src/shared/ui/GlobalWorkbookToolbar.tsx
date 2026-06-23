@@ -22,6 +22,7 @@ import {
   pushGlobalUndoEntry,
 } from '../undo/globalUndo';
 import { ThemeToggleButton } from './ThemeToggleButton';
+import { useTimedToast } from './useTimedToast';
 
 type GlobalToolbarState = {
   hasWorkbook: boolean;
@@ -187,7 +188,11 @@ export function GlobalWorkbookToolbar({
   );
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
-  const [invalidImportToast, setInvalidImportToast] = useState('');
+  const {
+    clearToast: clearInvalidImportToast,
+    message: invalidImportToast,
+    showToast: showInvalidImportToastMessage,
+  } = useTimedToast();
 
   const refreshGlobalDataState = async () => {
     const refreshId = ++globalToolbarRefreshId;
@@ -293,12 +298,9 @@ export function GlobalWorkbookToolbar({
   }, []);
 
   const showInvalidImportToast = (message?: string) => {
-    setInvalidImportToast('');
-    window.setTimeout(() => {
-      setInvalidImportToast(
-        message || 'Arquivo escolhido n\u00e3o possui os valores necess\u00e1rios',
-      );
-    }, 0);
+    showInvalidImportToastMessage(
+      message || 'Arquivo escolhido n\u00e3o possui os valores necess\u00e1rios',
+    );
   };
 
   const importWorkingFile = async (file: File | undefined) => {
@@ -397,6 +399,7 @@ export function GlobalWorkbookToolbar({
     }
 
     try {
+      clearInvalidImportToast();
       const response = await fetch('/api/base-workbook/export', {
         method: 'POST',
       });
@@ -407,7 +410,7 @@ export function GlobalWorkbookToolbar({
 
       await refreshGlobalDataState();
     } catch {
-      setInvalidImportToast('N\u00e3o foi poss\u00edvel exportar os dados.');
+      showInvalidImportToast('N\u00e3o foi poss\u00edvel exportar os dados.');
     }
   };
 

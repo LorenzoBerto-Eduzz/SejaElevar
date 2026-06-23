@@ -31,6 +31,8 @@ export const TURMAS_REQUIRED_COLUMNS = [
 export const ARCOS_REQUIRED_COLUMNS = [
   'ID',
   'Arco',
+  'Ementa ID',
+  'Arquivo Ementa',
 ] as const;
 
 export const DISCIPLINAS_REQUIRED_COLUMNS = [
@@ -39,6 +41,7 @@ export const DISCIPLINAS_REQUIRED_COLUMNS = [
   'Arco',
   'Carga Horária',
   'ID',
+  'Ementa ID',
 ] as const;
 
 export const AULAS_REQUIRED_COLUMNS = [

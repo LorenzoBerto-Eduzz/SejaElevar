@@ -199,17 +199,21 @@ Disciplina Especifica
 
 `Disciplina` also does not need its own main tab for now. Because Arcos are directly composed of their Disciplinas, the user-facing management for Disciplinas should live inside the `Arcos` tab/flow. Keep Disciplina as an internal data concept for Aula mappings, progress tracking, attendance proof, search, and document generation.
 
-Current implementation state: deeper Turma timetable/Aula-instance polish is paused while the upstream Arcos/Disciplinas foundation is built. The first Arcos tab now reads the active `DadosElevar` workbook, displays `Arcos` horizontally, and reads `Disciplinas` grouped by shared module rows. The next solid foundation is turning that view into reliable creation/editing of Arcos and their plano de ensino/ementa Disciplinas, then using those Disciplinas as selectable coverage when building predefined Aulas, then returning to Cronograma blocks so each scheduled event can select a predefined Aula with real coverage.
+Current implementation state: deeper Turma timetable/Aula-instance polish is paused while the upstream Arcos/Disciplinas foundation is built. The first Arcos tab now reads the active `DadosElevar` workbook, displays `Arcos` horizontally, and reads `Disciplinas` grouped by shared module rows. The current direction is that Arcos/Disciplinas are derived from official Ementa PDF documents instead of manually edited in the Arcos UI. The Arcos tab imports an Ementa PDF with `Adicionar Arco`, stores a copy under the runtime `dados/ementas/` folder, parses the official mold, writes/updates the `Arcos` and `Disciplinas` workbook sheets, and displays the result as a read-only academic catalog. If the official PDF mold changes, update the parser rules modularly rather than changing the academic model.
 
 Current Arcos/Disciplinas UI direction:
 
 - `Ementa` is the external/source document concept, not a worksheet/entity name.
-- `Arcos` is a workbook sheet with one row per Arco.
-- `Disciplinas` is a workbook sheet with one row per Disciplina, including `Disciplina`, `Módulo`, `Arco`, `Carga Horária`, and `ID`.
+- `Arcos` is a workbook sheet with one row per Arco, including source-document tracking columns such as `Ementa ID` and `Arquivo Ementa`.
+- `Disciplinas` is a workbook sheet with one row per Disciplina, including `Disciplina`, `M?dulo`, `Arco`, `Carga Hor?ria`, `ID`, and `Ementa ID`.
+- The official Ementa PDF is the source for creating/updating an Arco and its Disciplinas. The parser currently targets the current Elevar official mold: course title line with `T?tulo do curso: Arco Ocupacional ...`, module headings for `M?dulo Inicial`, `M?dulo B?sico`, and `M?dulo Espec?fico`, and table rows with discipline name plus workload hours. It ignores the objective/description column.
+- `Inicial` and `B?sico` Disciplinas parsed from an Ementa are stored/displayed as shared `Arco = Todos`; `Espec?fico` rows are stored/displayed only for the parsed Arco.
 - The Arcos tab displays Arcos as horizontal columns.
-- Module buttons are shared full-width rows (`Inicial`, `Básico`, `Específico`) that expand/collapse across all Arcos at once.
-- `Inicial` and `Básico` rows marked with `Arco = Todos` appear in every Arco column; `Específico` rows appear only in their matching Arco.
-- Disciplina bubbles currently show name and carga horária, with visual-only hover controls for future delete and future "show Aulas covering this Disciplina" actions.
+- Module buttons are shared full-width rows (`Inicial`, `B?sico`, `Espec?fico`) that expand/collapse across all Arcos at once.
+- `Inicial` and `B?sico` rows marked with `Arco = Todos` appear in every Arco column; `Espec?fico` rows appear only under their matching Arco.
+- Disciplina bubbles currently show name and carga hor?ria and are read-only. There should be no manual edit/delete affordance for Arcos or Disciplinas in this tab unless the user reopens that product decision. The remaining hover-only Aulas/book affordance is for future inspection of which Aulas cover that Disciplina.
+- The next Arcos UI work should be visual tuning: columns, spacing, module rows, discipline bubbles, text behavior, hours placement, and the Aulas icon area.
+- After the Arcos visual is acceptable, `Arco de Aprendizagem` in Aprendizes should become a dropdown/reference field sourced from active imported Arcos, mirroring the current `Turma` dropdown behavior. This Aprendiz->Arco link is the later basis for the individual `Plano de Ensino`.
 
 ## Aula To Disciplina Mapping
 

@@ -1672,7 +1672,7 @@ svg {
   border: 0;
   border-radius: 7px;
   padding: 0 10px;
-  color: var(--brand-text);
+  color: #21465d;
   background: transparent;
   font-size: 0.88rem;
   font-weight: 850;
@@ -1684,6 +1684,11 @@ svg {
 .arcos-module-button:focus-visible {
   background: var(--brand-tertiary);
   outline: none;
+}
+
+.dark-mode .arcos-module-button,
+.dark-mode .arco-discipline-row {
+  color: var(--brand-text);
 }
 
 .arcos-module-button-text {
@@ -1737,7 +1742,7 @@ svg {
   border: 0;
   border-radius: 7px;
   padding: 5px 8px 5px 10px;
-  color: var(--brand-text);
+  color: #21465d;
   background: var(--brand-tertiary);
   font-size: 0.82rem;
   font-weight: 700;
@@ -1816,22 +1821,10 @@ svg {
 }
 
 .arco-discipline-lessons-action {
-  right: 5px;
+  right: 16px;
   bottom: 4px;
   opacity: 0;
   pointer-events: none;
-}
-
-.arco-discipline-delete-action {
-  right: 5px;
-  top: 4px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.arco-discipline-row:hover .arco-discipline-delete-action {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .arco-discipline-row:hover .arco-discipline-lessons-action {

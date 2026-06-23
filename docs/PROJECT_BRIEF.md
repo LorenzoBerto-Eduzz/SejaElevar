@@ -54,7 +54,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 - Local-first development is required at the beginning.
 - The app should run as a browser-accessed local web app during early development. The current friendly local entry point is `SejaElevar.exe`, which starts the local provider and opens the browser UI. Opening the raw HTML/address without the provider should not show the app UI.
 - Data starts as files/folders: real operational spreadsheets, structured data files, document templates, generated documents, company logos/images, and related assets.
-- The first data workflow uses real `.xlsx` spreadsheets as active sources. The preferred direction is one unified workbook, `DadosElevar.xlsx`, with tabs such as `Aprendizes` and `Turmas`. Importing asks only for the source `.xlsx`; the local provider copies it directly into `dados/` as a timestamped active workbook such as `DadosElevar_hhmmssddmmyy.xlsx`. Whole-app recovery uses `dados/sistema/controle-global.json` plus up to three checkpoint workbook files under `dados/checkpoints/`. `dados/sistema/` also holds runtime controls and generated indexes such as `data-index.json`; the root of `dados/` should stay limited to the active workbook, `.gitkeep`, `checkpoints/`, and `sistema/`. `Recuperar Dados` restores a chosen whole-app checkpoint and makes the previous active workbook the newest checkpoint, so recovery is reversible and undo-aware.
+- The first data workflow uses real `.xlsx` spreadsheets as active sources. The preferred direction is one unified workbook, `DadosElevar.xlsx`, with tabs such as `Aprendizes` and `Turmas`. Importing asks only for the source `.xlsx`; the local provider copies it directly into `dados/` as a timestamped active workbook such as `DadosElevar_hhmmssddmmyy.xlsx`. Whole-app recovery uses `dados/sistema/controle-global.json` plus up to three checkpoint workbook files under `dados/checkpoints/`. `dados/sistema/` also holds runtime controls and generated indexes such as `data-index.json`; the root of `dados/` should stay limited to the active workbook, `.gitkeep`, `checkpoints/`, `ementas/`, and `sistema/`. `dados/ementas/` stores imported official Ementa PDFs that derive Arcos and Disciplinas. `Recuperar Dados` restores a chosen whole-app checkpoint and makes the previous active workbook the newest checkpoint, so recovery is reversible and undo-aware.
 - The preferred data shape is one active base workbook, `DadosElevar.xlsx`, with multiple worksheet tabs (`Aprendizes`, `Turmas`, `Arcos`, `Empresas`, `Aulas`, future `Cronograma`, future `Presencas`). The current separate workbook endpoints are transition compatibility. Importar/Exportar/Recuperar are global data controls for the whole workbook and should stay friendly for Google Drive/Google Sheets use.
 - The `.xlsx` workbook remains the source of truth. The app also generates `dados/sistema/data-index.json` as disposable working memory for search, document generation, and cross-tool variables. Future tools should consume that generated index or a storage adapter, not scrape visible table cells.
 - Imported/source workbooks can contain a hidden app-owned `ID SejaElevar (não editar)` column. This internal ID is not part of the user-facing table/search fields, but it should be used by the app for stable references and future relationships when available.
@@ -73,8 +73,9 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 1. Continue the first local browser app prototype using the Vite + React + TypeScript scaffold already in `project/`.
 2. Keep the `Aprendizes` section useful for sorting, ordering, visualization, registration/editing, and direct inspection until Turmas can safely absorb some of those workflows.
 3. Move toward the single-base-workbook direction while preserving the current local-first import/export/checkpoint behavior.
-4. Build the search and document-generation foundations on the generated data index while keeping source spreadsheets plain and recoverable.
-5. Shape `Documentos` as the central document/template/generation area and `Calendário` as the global Cronograma visualization area.
+4. Keep Arcos/Disciplinas Ementa-driven: import official Ementa PDFs, parse them into workbook/index data, and show them as a read-only academic catalog before building Aula coverage.
+5. Build the search and document-generation foundations on the generated data index while keeping source spreadsheets plain and recoverable.
+6. Shape `Documentos` as the central document/template/generation area and `Calendário` as the global Cronograma visualization area.
 
 ## Glossary
 
@@ -93,7 +94,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 ## Known Pitfalls
 
 - This repo is initialized as Git on `main` and tracks `origin/main`.
-- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, a first read-only Arcos/Disciplinas foundation, generated data-index foundations, and global undo/recovery foundations, but no full filters, document generation, Calendário, or Aulas implementation yet.
+- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, Ementa-driven read-only Arcos/Disciplinas import/display foundation, generated data-index foundations, and global undo/recovery foundations, but no full filters, document generation, Calendário, or Aulas implementation yet.
 - Do not treat `notes/todos.txt` as instructions unless the user explicitly asks.
 - Do not commit dependency folders, build outputs, local secrets, or real private data.
 - Future AI sessions should inspect `project/` before assuming the current UI state, commands, dependencies, or folder structure.

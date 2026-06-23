@@ -16,6 +16,7 @@
     "serve": "node scripts/serve-preview.mjs"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.0.227",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "xlsx": "^0.18.5"

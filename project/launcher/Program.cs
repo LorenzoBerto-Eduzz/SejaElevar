@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -321,6 +322,20 @@ internal static class Program
             {
                 MarkHeartbeat();
                 await ExportWorkbookAsync(stream, appFolder, GetBaseWorkbookControlPath(appFolder));
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/ementas/pick")
+            {
+                MarkHeartbeat();
+                await PickEmentaPdfAsync(stream);
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/ementas/store")
+            {
+                MarkHeartbeat();
+                await StoreEmentaPdfAsync(stream, request, appFolder);
                 return;
             }
 
@@ -996,6 +1011,120 @@ internal static class Program
         }
 
         return completion.Task;
+    }
+
+    private static Task<string?> PickEmentaPdfPathAsync()
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        var completion = new TaskCompletionSource<string?>();
+
+        try
+        {
+            window.BeginInvoke(() =>
+            {
+                try
+                {
+                    completion.SetResult(window.PickEmentaPdfPath());
+                }
+                catch
+                {
+                    completion.SetResult(null);
+                }
+            });
+        }
+        catch
+        {
+            completion.SetResult(null);
+        }
+
+        return completion.Task;
+    }
+
+    private static async Task PickEmentaPdfAsync(NetworkStream stream)
+    {
+        var pdfPath = await PickEmentaPdfPathAsync();
+
+        if (string.IsNullOrWhiteSpace(pdfPath))
+        {
+            await WriteJsonAsync(stream, 200, new { canceled = true });
+            return;
+        }
+
+        if (!File.Exists(pdfPath) || !pdfPath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Arquivo invalido." });
+            return;
+        }
+
+        await WriteResponseAsync(
+            stream,
+            200,
+            "application/pdf",
+            await File.ReadAllBytesAsync(pdfPath),
+            new Dictionary<string, string>
+            {
+                ["cache-control"] = "no-store",
+                ["x-file-name"] = Uri.EscapeDataString(Path.GetFileName(pdfPath))
+            }
+        );
+    }
+
+    private static async Task StoreEmentaPdfAsync(
+        NetworkStream stream,
+        HttpRequest request,
+        string appFolder
+    )
+    {
+        if (request.Body.Length == 0)
+        {
+            await WriteJsonAsync(stream, 400, new { error = "Arquivo vazio." });
+            return;
+        }
+
+        var originalFileName = DecodeHeaderValue(request.Headers, "x-file-name") ?? "ementa.pdf";
+        var arcoName = DecodeHeaderValue(request.Headers, "x-arco-name") ?? "";
+        var ementaId = DecodeHeaderValue(request.Headers, "x-ementa-id");
+        var parser = DecodeHeaderValue(request.Headers, "x-parser") ?? "ementa-elevar-v1";
+
+        if (string.IsNullOrWhiteSpace(ementaId) || !IsSafeEntityId(ementaId))
+        {
+            ementaId = CreateStableEmentaId(arcoName, request.Body);
+        }
+
+        var ementasFolder = GetEmentasFolder(appFolder);
+        Directory.CreateDirectory(ementasFolder);
+        var storedFileName = $"{ementaId}.pdf";
+        var targetPath = Path.Combine(ementasFolder, storedFileName);
+
+        await File.WriteAllBytesAsync(targetPath, request.Body);
+        UpdateEmentasIndex(
+            appFolder,
+            ementaId,
+            originalFileName,
+            storedFileName,
+            arcoName,
+            parser,
+            request.Body
+        );
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                id = ementaId,
+                fileName = storedFileName,
+                originalFileName,
+                arco = arcoName
+            }
+        );
     }
 
     private static async Task ImportWorkbookAsync(
@@ -1840,6 +1969,11 @@ internal static class Program
         return Path.Combine(appFolder, "dados");
     }
 
+    private static string GetEmentasFolder(string appFolder)
+    {
+        return Path.Combine(GetDadosFolder(appFolder), "ementas");
+    }
+
     private static string GetAssetsFolder(string appFolder)
     {
         return Path.Combine(appFolder, "assets");
@@ -1945,6 +2079,11 @@ internal static class Program
     private static string GetDataIndexPath(string appFolder)
     {
         return Path.Combine(GetDataSystemFolder(appFolder), "data-index.json");
+    }
+
+    private static string GetEmentasIndexPath(string appFolder)
+    {
+        return Path.Combine(GetDataSystemFolder(appFolder), "ementas-index.json");
     }
 
     private static void MigrateRuntimeControlFiles(string appFolder)
@@ -2087,7 +2226,9 @@ internal static class Program
                         requiredColumns = new[]
                         {
                             "ID",
-                            "Arco"
+                            "Arco",
+                            "Ementa ID",
+                            "Arquivo Ementa"
                         }
                     },
                     new
@@ -2103,7 +2244,8 @@ internal static class Program
                             "M\u00f3dulo",
                             "Arco",
                             "Carga Hor\u00e1ria",
-                            "ID"
+                            "ID",
+                            "Ementa ID"
                         }
                     },
                     new
@@ -2274,6 +2416,119 @@ internal static class Program
                 character == '-' ||
                 character == '_'
             );
+    }
+
+    private static string? DecodeHeaderValue(Dictionary<string, string> headers, string name)
+    {
+        if (!headers.TryGetValue(name, out var value) || string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Uri.UnescapeDataString(value).Trim();
+        }
+        catch
+        {
+            return value.Trim();
+        }
+    }
+
+    private static string CreateStableEmentaId(string arcoName, byte[] body)
+    {
+        var normalizedName = NormalizeIdentifierText(arcoName);
+        var hash = Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant()[..10];
+        return string.IsNullOrWhiteSpace(normalizedName)
+            ? $"ementa_{hash}"
+            : $"ementa_{normalizedName}_{hash}";
+    }
+
+    private static string NormalizeIdentifierText(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder();
+        var previousWasSeparator = false;
+
+        foreach (var character in normalized)
+        {
+            var category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(character);
+
+            if (category == System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            var lower = char.ToLowerInvariant(character);
+            var isAllowed =
+                (lower >= 'a' && lower <= 'z') ||
+                (lower >= '0' && lower <= '9');
+
+            if (isAllowed)
+            {
+                builder.Append(lower);
+                previousWasSeparator = false;
+                continue;
+            }
+
+            if (!previousWasSeparator && builder.Length > 0)
+            {
+                builder.Append('_');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('_');
+    }
+
+    private static void UpdateEmentasIndex(
+        string appFolder,
+        string id,
+        string originalFileName,
+        string storedFileName,
+        string arcoName,
+        string parser,
+        byte[] body
+    )
+    {
+        var indexPath = GetEmentasIndexPath(appFolder);
+        JsonObject index;
+
+        try
+        {
+            index = File.Exists(indexPath)
+                ? JsonNode.Parse(File.ReadAllText(indexPath)) as JsonObject ?? new JsonObject()
+                : new JsonObject();
+        }
+        catch
+        {
+            index = new JsonObject();
+        }
+
+        var ementas = index["ementas"] as JsonObject ?? new JsonObject();
+        var importedAt = DateTime.UtcNow.ToString("O");
+
+        index["schemaVersion"] = 1;
+        index["updatedAt"] = importedAt;
+        index["ementas"] = ementas;
+        ementas[id] = new JsonObject
+        {
+            ["id"] = id,
+            ["originalFileName"] = originalFileName,
+            ["fileName"] = storedFileName,
+            ["hash"] = Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant(),
+            ["arco"] = arcoName,
+            ["parser"] = parser,
+            ["status"] = "parsed",
+            ["importedAt"] = importedAt
+        };
+
+        Directory.CreateDirectory(Path.GetDirectoryName(indexPath) ?? GetDataSystemFolder(appFolder));
+        File.WriteAllText(
+            indexPath,
+            index.ToJsonString(PrettyUtf8JsonOptions),
+            Encoding.UTF8
+        );
     }
 
     private static void StartWorkbookSession(string appFolder, string? controlPath = null)
@@ -3691,6 +3946,27 @@ internal static class Program
                 RestoreDirectory = true,
                 SupportMultiDottedExtensions = true,
                 Title = "Exportar planilha"
+            };
+
+            return dialog.ShowDialog(this) == DialogResult.OK
+                ? dialog.FileName
+                : null;
+        }
+
+        public string? PickEmentaPdfPath()
+        {
+            using var dialog = new OpenFileDialog
+            {
+                AddExtension = true,
+                CheckFileExists = true,
+                CheckPathExists = true,
+                DefaultExt = "pdf",
+                Filter = "Ementa PDF (*.pdf)|*.pdf",
+                InitialDirectory = GetDownloadsFolder(),
+                Multiselect = false,
+                RestoreDirectory = true,
+                SupportMultiDottedExtensions = true,
+                Title = "Adicionar ementa"
             };
 
             return dialog.ShowDialog(this) == DialogResult.OK
