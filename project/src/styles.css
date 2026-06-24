@@ -1755,8 +1755,8 @@ svg {
   grid-template-columns: minmax(0, 1fr) 40px;
   align-items: stretch;
   gap: 5px;
-  min-height: 48px;
-  height: 48px;
+  min-height: 52px;
+  height: 52px;
   border: 0;
   border-radius: 7px;
   padding: 5px 5px 7px 8px;
@@ -1810,13 +1810,16 @@ svg {
   outline-offset: 3px;
   border-radius: 6px;
   background: var(--brand-tertiary);
-  box-shadow: 0 3px 8px color-mix(in srgb, #000 16%, transparent);
+  box-shadow:
+    0 0 0 3px var(--brand-tertiary),
+    0 3px 8px color-mix(in srgb, #000 16%, transparent);
   pointer-events: none;
 }
 
 .arco-discipline-side {
   display: grid;
-  grid-template-rows: 20px 1fr;
+  grid-template-rows: 18px 23px;
+  align-content: space-between;
   width: 40px;
   min-width: 40px;
   height: 100%;
@@ -1838,8 +1841,8 @@ svg {
   justify-self: center;
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 23px;
+  height: 23px;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 0;
@@ -1848,8 +1851,8 @@ svg {
 }
 
 .arco-discipline-corner-action svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;

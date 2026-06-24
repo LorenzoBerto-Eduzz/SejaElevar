@@ -36,6 +36,9 @@ const DISCIPLINE_ARCO_COLUMN = 'Arco';
 const DISCIPLINE_HOURS_COLUMN = 'Carga Horária';
 const SHARED_DISCIPLINES_ARCO = 'Todos';
 const MODULES = ['Inicial', 'Básico', 'Específico'] as const;
+const DEFAULT_EXPANDED_MODULE_KEYS = new Set([
+  normalizeFieldLabel('Específico'),
+]);
 
 const getColumnIndex = (sheet: SheetTable, columnName: string) =>
   sheet.columns.findIndex(
@@ -161,7 +164,7 @@ export function ArcosPage({
   const { message: ementaToast, showToast: showEmentaToast } =
     useTimedToast();
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
-    () => new Set(),
+    () => new Set(DEFAULT_EXPANDED_MODULE_KEYS),
   );
 
   const arcos = useMemo<Arco[]>(() => {
@@ -302,15 +305,16 @@ export function ArcosPage({
     setIsImportingEmenta(true);
 
     try {
-      const result = await importEmentaFromPicker();
-
-      if (result) {
-        setExpandedModules(new Set(MODULES.map(normalizeFieldLabel)));
-      }
+      await importEmentaFromPicker();
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '';
       showEmentaToast(
-        error instanceof Error && error.message === 'missing-base-workbook'
+        errorMessage === 'missing-base-workbook'
           ? 'Importe o DadosElevar antes de adicionar uma ementa'
+          : errorMessage === 'specific-disciplines-not-found'
+            ? 'Não foi possível encontrar disciplinas específicas na ementa'
+            : errorMessage === 'disciplines-not-found'
+              ? 'Não foi possível encontrar disciplinas na ementa'
           : 'N\u00e3o foi poss\u00edvel ler a ementa',
       );
     } finally {

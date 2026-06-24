@@ -86,12 +86,12 @@ const isHeaderLine = (line: LineColumns) => {
 };
 
 const extractHours = (value: string) => {
-  const match = normalizeText(value).match(/^(\d+)\s*horas?/i);
+  const match = normalizeText(value).match(/^(\d+)\s*(?:h|horas?)/i);
   return match ? `${match[1]} horas` : '';
 };
 
 const extractHoursFromLine = (value: string) => {
-  const match = normalizeText(value).match(/\b(\d+)\s*horas?\b/i);
+  const match = normalizeText(value).match(/\b(\d+)\s*(?:h|horas?)\b/i);
   return match ? `${match[1]} horas` : '';
 };
 
@@ -268,6 +268,14 @@ export const parseEmentaPdf = async (file: File): Promise<ParsedEmenta> => {
 
   if (disciplines.length === 0) {
     throw new EmentaParseError('disciplines-not-found');
+  }
+
+  if (
+    !disciplines.some(
+      (discipline) => normalizeFieldLabel(discipline.module) === 'especifico',
+    )
+  ) {
+    throw new EmentaParseError('specific-disciplines-not-found');
   }
 
   return {
