@@ -19,7 +19,6 @@ import {
   fetchBaseWorkbookFile,
   readWorkbookSheetFile,
 } from '../../shared/data/workspaceData';
-import { GlobalWorkbookToolbar } from '../../shared/ui/GlobalWorkbookToolbar';
 import { useTimedToast } from '../../shared/ui/useTimedToast';
 
 type ArcosPageProps = {
@@ -344,7 +343,6 @@ export function ArcosPage({
             >
               <ClipboardPlusIcon />
             </button>
-            {isActive && <GlobalWorkbookToolbar />}
           </div>
         </div>
       </div>

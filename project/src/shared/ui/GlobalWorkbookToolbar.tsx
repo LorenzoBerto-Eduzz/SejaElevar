@@ -174,10 +174,12 @@ const getRecoveryDescription = (info: RecoveryInfo | null) => {
 
 type GlobalWorkbookToolbarProps = {
   className?: string;
+  includeThemeToggle?: boolean;
 };
 
 export function GlobalWorkbookToolbar({
   className = '',
+  includeThemeToggle = true,
 }: GlobalWorkbookToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasWorkbook, setHasWorkbook] = useState(
@@ -593,8 +595,8 @@ export function GlobalWorkbookToolbar({
         <button
           className={
             canRecoverBackup
-              ? 'square-action toolbar-section-start'
-              : 'square-action toolbar-section-start disabled'
+              ? 'square-action'
+              : 'square-action disabled'
           }
           type="button"
           aria-label="Recuperar dados"
@@ -604,7 +606,7 @@ export function GlobalWorkbookToolbar({
         >
           <RotateClockwiseIcon />
         </button>
-        <ThemeToggleButton className="toolbar-section-start" />
+        {includeThemeToggle && <ThemeToggleButton />}
       </span>
 
       <input

@@ -1,5 +1,3 @@
-import { GlobalWorkbookToolbar } from './GlobalWorkbookToolbar';
-
 type FeaturePlaceholderPageProps = {
   title: string;
 };
@@ -9,19 +7,11 @@ export function FeaturePlaceholderPage({ title }: FeaturePlaceholderPageProps) {
 
   return (
     <section className="feature-page" aria-labelledby={titleId}>
-      <div className="feature-heading">
-        <div>
-          <h1 id={titleId}>{title}</h1>
-        </div>
-        <div className="table-toolbar" aria-label="Ações da página">
-          <div className="table-toolbar-track">
-            <GlobalWorkbookToolbar />
-          </div>
-        </div>
-      </div>
-
+      <h1 className="visually-hidden" id={titleId}>
+        {title}
+      </h1>
       <div className="empty-data-state placeholder-state" role="region">
-        <h2>Em preparação</h2>
+        <h2>{"Em prepara\u00e7\u00e3o"}</h2>
       </div>
     </section>
   );

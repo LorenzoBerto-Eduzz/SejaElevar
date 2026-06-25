@@ -253,11 +253,15 @@ svg {
 
 .sidebar-actions {
   display: grid;
-  gap: var(--action-button-gap, 6px);
+  grid-template-columns: repeat(4, var(--menu-button-size));
+  justify-content: start;
+  column-gap: 0;
+  row-gap: calc(var(--action-button-gap, 6px) + 3px);
   width: 220px;
+  justify-content: space-between;
   flex: 0 0 auto;
   margin-top: 18px;
-  margin-bottom: calc(var(--menu-button-size) + var(--action-button-gap, 6px));
+  margin-bottom: 0;
   padding-top: 18px;
   transform: translateY(var(--lower-actions-vertical-offset, 0px));
 }
@@ -267,12 +271,116 @@ svg {
   color: #426172;
 }
 
+.sidebar-action-spacer {
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  pointer-events: none;
+}
+
+.sidebar-actions .square-action,
+.mini-menu-button-crop .square-action,
+.actions-popover .square-action,
+.square-menu-action {
+  display: inline-grid;
+  place-items: center;
+  align-items: center;
+  justify-items: center;
+  width: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  max-width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  min-height: var(--menu-button-size);
+  max-height: var(--menu-button-size);
+  border: 0;
+  border-radius: 8px;
+  color: #426172;
+  background: transparent;
+}
+
+.sidebar-actions .square-action svg,
+.mini-menu-button-crop .square-action svg,
+.actions-popover .square-action svg,
+.square-menu-action svg {
+  width: var(--menu-icon-size);
+  height: var(--menu-icon-size);
+  margin: 0;
+}
+
+.history-menu-action svg {
+  transform: translate(1.6px, 9.6px);
+}
+
+.settings-menu-action svg {
+  transform: translateY(9px);
+}
+
+.search-toggle-action.square-menu-action svg {
+  transform: translateY(9px);
+}
+
+.square-menu-action span {
+  margin-left: 0;
+  max-width: 0;
+  opacity: 0;
+}
+
+.sidebar-actions .square-action:hover,
+.sidebar-actions .square-action:focus-visible,
+.sidebar-actions .square-action.active,
+.mini-menu-button-crop .square-action:hover,
+.mini-menu-button-crop .square-action:focus-visible,
+.mini-menu-button-crop .square-action.active,
+.actions-popover .square-action:hover,
+.actions-popover .square-action:focus-visible,
+.actions-popover .square-action.active,
+.square-menu-action:hover,
+.square-menu-action:focus-visible {
+  color: #426172;
+  background: var(--brand-page-background);
+  outline: none;
+}
+
+.sidebar-actions .theme-toggle.active,
+.actions-popover .theme-toggle.active,
+.mini-menu-button-crop .theme-toggle.active {
+  color: #426172;
+  background: transparent;
+}
+
+.sidebar-actions .theme-toggle.active:hover,
+.sidebar-actions .theme-toggle.active:focus-visible,
+.actions-popover .theme-toggle.active:hover,
+.actions-popover .theme-toggle.active:focus-visible,
+.mini-menu-button-crop .theme-toggle.active:hover,
+.mini-menu-button-crop .theme-toggle.active:focus-visible {
+  color: #426172;
+  background: var(--brand-page-background);
+}
+
+.sidebar-actions .square-action:disabled,
+.sidebar-actions .square-action.disabled,
+.sidebar-actions .square-action:disabled:hover,
+.sidebar-actions .square-action.disabled:hover,
+.mini-menu-button-crop .square-action:disabled,
+.mini-menu-button-crop .square-action.disabled,
+.mini-menu-button-crop .square-action:disabled:hover,
+.mini-menu-button-crop .square-action.disabled:hover,
+.actions-popover .square-action:disabled,
+.actions-popover .square-action.disabled,
+.actions-popover .square-action:disabled:hover,
+.actions-popover .square-action.disabled:hover {
+  color: #426172;
+  background: transparent;
+  opacity: 0.28;
+  cursor: default;
+}
+
 .menu-toggle-dock {
   position: fixed;
   z-index: 20;
   bottom: var(--menu-toggle-bottom);
   left: 14px;
-  width: 220px;
+  width: var(--menu-button-size);
   height: var(--menu-button-size);
   transform: translateY(var(--collapse-button-vertical-offset, 0px));
   will-change: width;
@@ -289,6 +397,16 @@ svg {
   height: 760px;
 }
 
+.menu-toggle-dock.mini-menu-open::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  bottom: -108px;
+  left: -6px;
+  width: 760px;
+  height: calc(var(--menu-button-size) + 216px);
+}
+
 .app-shell.sidebar-collapsed .menu-toggle-dock {
   width: var(--menu-button-size);
   min-width: var(--menu-button-size);
@@ -298,15 +416,8 @@ svg {
 .menu-toggle-popover {
   position: absolute;
   z-index: 1;
-  bottom: calc(var(--menu-button-size) + 6px);
-  left: -6px;
   display: flex;
-  flex-direction: column;
   gap: var(--action-button-gap, 6px);
-  width: calc(var(--menu-button-size) + 12px);
-  min-width: calc(var(--menu-button-size) + 12px);
-  max-width: calc(var(--menu-button-size) + 12px);
-  max-height: 0;
   padding: 6px;
   overflow: hidden;
   border-radius: 8px;
@@ -315,6 +426,16 @@ svg {
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
+}
+
+.tabs-popover {
+  bottom: calc(var(--menu-button-size) + 6px);
+  left: -6px;
+  flex-direction: column;
+  width: calc(var(--menu-button-size) + 12px);
+  min-width: calc(var(--menu-button-size) + 12px);
+  max-width: calc(var(--menu-button-size) + 12px);
+  max-height: 0;
   transform-origin: bottom center;
   transition:
     max-height 400ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -322,7 +443,21 @@ svg {
     visibility 0s linear 400ms;
 }
 
-.app-shell.sidebar-collapsed .menu-toggle-dock.mini-menu-open .menu-toggle-popover {
+.actions-popover {
+  bottom: -6px;
+  left: calc(var(--menu-button-size) + 6px);
+  flex-direction: row;
+  width: max-content;
+  max-width: 0;
+  max-height: calc(var(--menu-button-size) + 12px);
+  transform-origin: left center;
+  transition:
+    max-width 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 300ms ease,
+    visibility 0s linear 400ms;
+}
+
+.app-shell.sidebar-collapsed .menu-toggle-dock.mini-menu-open .tabs-popover {
   max-height: 620px;
   opacity: 1;
   pointer-events: auto;
@@ -333,11 +468,24 @@ svg {
     visibility 0s linear;
 }
 
+.app-shell.sidebar-collapsed .menu-toggle-dock.mini-menu-open .actions-popover {
+  max-width: 540px;
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition:
+    max-width 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 300ms ease,
+    visibility 0s linear;
+}
+
 .menu-toggle-button {
   display: flex;
   align-items: center;
   gap: 0;
-  width: 100%;
+  width: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  max-width: var(--menu-button-size);
   height: var(--menu-button-size);
   border: 0;
   border-radius: 8px;
@@ -351,6 +499,51 @@ svg {
   overflow: hidden;
   text-align: left;
   transition: background-color 160ms ease;
+}
+
+.menu-toggle-button .corner-active-tab-icon,
+.menu-toggle-button .corner-toggle-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  max-width: none;
+  min-height: 0;
+  opacity: 1;
+  transform: none;
+  transition: opacity 140ms ease;
+}
+
+.menu-toggle-button .corner-toggle-icon {
+  opacity: 0;
+}
+
+.menu-toggle-button .corner-toggle-icon {
+  transform: translate(3px, 1.6px) scale(1.08);
+}
+
+.menu-toggle-button .corner-active-tab-icon svg,
+.menu-toggle-button .corner-toggle-icon svg {
+  margin: 0;
+}
+
+.menu-toggle-button .corner-toggle-icon svg {
+  width: calc(var(--menu-icon-size) + 1px);
+  height: calc(var(--menu-icon-size) + 1px);
+  stroke-width: 1.65;
+}
+
+.app-shell:not(.sidebar-collapsed) .menu-toggle-button .corner-active-tab-icon,
+.menu-toggle-button:hover .corner-active-tab-icon,
+.menu-toggle-dock.mini-menu-open .menu-toggle-button .corner-active-tab-icon {
+  opacity: 0;
+}
+
+.app-shell:not(.sidebar-collapsed) .menu-toggle-button .corner-toggle-icon,
+.menu-toggle-button:hover .corner-toggle-icon,
+.menu-toggle-dock.mini-menu-open .menu-toggle-button .corner-toggle-icon {
+  opacity: 1;
 }
 
 .mini-menu-button-crop {
@@ -411,11 +604,17 @@ svg {
   padding: 0;
 }
 
-.app-shell.sidebar-collapsed .menu-toggle-button span {
+.app-shell.sidebar-collapsed .menu-toggle-button .collapse-label {
   margin-left: 0;
   max-width: 0;
   opacity: 0;
   transform: translateX(-18px);
+}
+
+.menu-toggle-button .collapse-label {
+  margin-left: 0;
+  max-width: 0;
+  opacity: 0;
 }
 
 .app-content {
@@ -427,7 +626,7 @@ svg {
   height: 100vh;
   background: var(--brand-page-background);
   overflow: visible;
-  padding: var(--page-top-offset, 42px) 42px 42px;
+  padding: 42px;
 }
 
 .app-content > div:not([hidden]) {
@@ -455,13 +654,15 @@ svg {
 }
 
 .sidebar-collapsed .settings-panel {
-  left: 72px;
+  z-index: 19;
+  bottom: calc(var(--menu-toggle-bottom) + var(--menu-button-size) + 11px);
+  left: calc(14px + var(--menu-button-size) + 12px);
 }
 
 .search-panel {
   position: fixed;
   z-index: 40;
-  bottom: calc(18px + 50px + var(--menu-button-size));
+  bottom: 18px;
   left: 262px;
   width: 340px;
   padding: 10px;
@@ -473,7 +674,9 @@ svg {
 }
 
 .sidebar-collapsed .search-panel {
-  left: 72px;
+  z-index: 19;
+  bottom: calc(var(--menu-toggle-bottom) + var(--menu-button-size) + 11px);
+  left: calc(14px + var(--menu-button-size) + 12px);
 }
 
 .search-panel input {
@@ -612,7 +815,7 @@ svg {
 
 .feature-page {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
   flex: 1 1 auto;
   min-height: 0;
@@ -625,7 +828,7 @@ svg {
 .feature-page-main {
   grid-row: 1 / -1;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
   min-height: 0;
   min-width: 0;
@@ -640,7 +843,7 @@ svg {
 }
 
 .feature-heading {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -661,6 +864,16 @@ svg {
   line-height: 1.15;
   letter-spacing: 0;
   white-space: nowrap;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 .empty-data-state {
@@ -1199,7 +1412,7 @@ svg {
   min-height: 0;
   height: calc(100% + var(--table-height-offset, 0px));
   max-height: none;
-  margin-top: var(--table-top-offset, 14px);
+  margin-top: 0;
 }
 
 .data-table-frame {
@@ -3586,11 +3799,51 @@ input.turma-schedule-block-field {
   color: var(--brand-text);
 }
 
+.dark-mode .sidebar-actions .square-action,
+.dark-mode .actions-popover .square-action,
+.dark-mode .mini-menu-button-crop .square-action,
+.dark-mode .square-menu-action {
+  color: var(--brand-text);
+  background: transparent;
+}
+
 .dark-mode .sidebar-link.active,
 .dark-mode .square-action:hover,
 .dark-mode .square-action:focus-visible,
 .dark-mode .square-action.active {
   color: var(--brand-active-icon);
+}
+
+.dark-mode .sidebar-actions .square-action:hover,
+.dark-mode .sidebar-actions .square-action:focus-visible,
+.dark-mode .sidebar-actions .square-action.active,
+.dark-mode .actions-popover .square-action:hover,
+.dark-mode .actions-popover .square-action:focus-visible,
+.dark-mode .actions-popover .square-action.active,
+.dark-mode .mini-menu-button-crop .square-action:hover,
+.dark-mode .mini-menu-button-crop .square-action:focus-visible,
+.dark-mode .mini-menu-button-crop .square-action.active,
+.dark-mode .square-menu-action:hover,
+.dark-mode .square-menu-action:focus-visible {
+  color: var(--brand-text);
+  background: var(--brand-page-background);
+}
+
+.dark-mode .sidebar-actions .theme-toggle.active,
+.dark-mode .actions-popover .theme-toggle.active,
+.dark-mode .mini-menu-button-crop .theme-toggle.active {
+  color: var(--brand-text);
+  background: transparent;
+}
+
+.dark-mode .sidebar-actions .theme-toggle.active:hover,
+.dark-mode .sidebar-actions .theme-toggle.active:focus-visible,
+.dark-mode .actions-popover .theme-toggle.active:hover,
+.dark-mode .actions-popover .theme-toggle.active:focus-visible,
+.dark-mode .mini-menu-button-crop .theme-toggle.active:hover,
+.dark-mode .mini-menu-button-crop .theme-toggle.active:focus-visible {
+  color: var(--brand-text);
+  background: var(--brand-page-background);
 }
 
 .dark-mode .square-action:disabled,
@@ -3599,6 +3852,23 @@ input.turma-schedule-block-field {
 .dark-mode .square-action.disabled:hover {
   color: var(--brand-primary);
   background: var(--brand-panel);
+}
+
+.dark-mode .sidebar-actions .square-action:disabled,
+.dark-mode .sidebar-actions .square-action.disabled,
+.dark-mode .sidebar-actions .square-action:disabled:hover,
+.dark-mode .sidebar-actions .square-action.disabled:hover,
+.dark-mode .actions-popover .square-action:disabled,
+.dark-mode .actions-popover .square-action.disabled,
+.dark-mode .actions-popover .square-action:disabled:hover,
+.dark-mode .actions-popover .square-action.disabled:hover,
+.dark-mode .mini-menu-button-crop .square-action:disabled,
+.dark-mode .mini-menu-button-crop .square-action.disabled,
+.dark-mode .mini-menu-button-crop .square-action:disabled:hover,
+.dark-mode .mini-menu-button-crop .square-action.disabled:hover {
+  color: var(--brand-text);
+  background: transparent;
+  opacity: 0.28;
 }
 
 .dark-mode body {

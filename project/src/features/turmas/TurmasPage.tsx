@@ -64,7 +64,6 @@ import {
   type WorkbookOptions,
 } from '../../shared/data/workbookOptions';
 import {
-  GlobalWorkbookToolbar,
   markGlobalWorkbookAvailable,
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
@@ -6402,7 +6401,6 @@ export function TurmasPage({
             >
               <SquarePlusIcon />
             </button>
-            {isActive && <GlobalWorkbookToolbar />}
           </div>
         </div>
       </div>

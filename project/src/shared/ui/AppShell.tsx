@@ -7,6 +7,9 @@ import {
 } from 'react';
 import type { AppBrand } from '../brand/appBrand';
 import type { AppTab, NavigationIcon, NavigationTab } from '../navigation/tabs';
+import { TOGGLE_ACTION_HISTORY_EVENT } from '../actionLog/ActionLogOverlay';
+import { GlobalWorkbookToolbar } from './GlobalWorkbookToolbar';
+import { ThemeToggleButton } from './ThemeToggleButton';
 import {
   createDefaultAppSettings,
   readSavedAppSettings,
@@ -254,21 +257,7 @@ export function AppShell({
   };
 
   const handleMenuToggleClick = (event: MouseEvent<HTMLButtonElement>) => {
-    if (isSidebarCollapsed && !isMiniMenuOpen) {
-      const icon = event.currentTarget.querySelector('svg');
-      const iconBounds = icon?.getBoundingClientRect();
-
-      if (
-        !iconBounds ||
-        event.clientX < iconBounds.left ||
-        event.clientX > iconBounds.right ||
-        event.clientY < iconBounds.top ||
-        event.clientY > iconBounds.bottom
-      ) {
-        return;
-      }
-    }
-
+    event.preventDefault();
     toggleSidebar();
   };
 
@@ -329,6 +318,13 @@ export function AppShell({
       return nextOpen;
     });
   };
+
+  const toggleActionHistory = () => {
+    window.dispatchEvent(new Event(TOGGLE_ACTION_HISTORY_EVENT));
+  };
+
+  const activeNavigationTab =
+    tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
   return (
     <div
@@ -455,21 +451,27 @@ export function AppShell({
           ))}
         </nav>
 
-        <div className="sidebar-actions" aria-label="Ações do aplicativo">
+        <div className="sidebar-actions" aria-label={"A\u00e7\u00f5es do aplicativo"}>
           <button
-            className="icon-action search-toggle-action"
+            className="icon-action square-menu-action history-menu-action"
             type="button"
-            aria-label="Pesquisar"
-            aria-expanded={isSearchOpen}
-            onClick={toggleSearch}
+            aria-label={"Hist\u00f3rico"}
+            title={"Hist\u00f3rico"}
+            onClick={toggleActionHistory}
           >
-            <SearchIcon />
-            <span>Pesquisar</span>
+            <HistoryIcon />
+            <span>{"Hist\u00f3rico"}</span>
           </button>
+          <GlobalWorkbookToolbar
+            className="sidebar-data-actions"
+            includeThemeToggle={false}
+          />
+          <span className="sidebar-action-spacer" aria-hidden="true" />
           <button
-            className="icon-action"
+            className="icon-action square-menu-action settings-menu-action"
             type="button"
-            aria-label="Configurações"
+            aria-label={"Configura\u00e7\u00f5es"}
+            title={"Configura\u00e7\u00f5es"}
             aria-expanded={isSettingsOpen}
             onClick={() => {
               setIsSearchOpen(false);
@@ -477,8 +479,20 @@ export function AppShell({
             }}
           >
             <GearIcon outerOffset={settings.layout.gearOuterOffset} />
-            <span>Configurações</span>
+            <span>{"Configura\u00e7\u00f5es"}</span>
           </button>
+          <button
+            className="icon-action search-toggle-action square-menu-action"
+            type="button"
+            aria-label="Pesquisar"
+            title="Pesquisar"
+            aria-expanded={isSearchOpen}
+            onClick={toggleSearch}
+          >
+            <SearchIcon />
+            <span>Pesquisar</span>
+          </button>
+          <ThemeToggleButton />
         </div>
       </aside>
 
@@ -500,57 +514,73 @@ export function AppShell({
           }
         }}
       >
-        <div className="menu-toggle-popover" aria-label="Ferramentas">
+        <div className="menu-toggle-popover tabs-popover" aria-label="Abas">
           {tabs.map((tab) => (
             <div className="mini-menu-button-crop tab-crop" key={tab.id}>
               <button
                 className={
                   tab.id === activeTab ? 'sidebar-link active' : 'sidebar-link'
                 }
-              type="button"
-              aria-label={tab.label}
-              title={tab.label}
-              onClick={() => {
-                onTabChange(tab.id);
-              }}
-            >
-              <TabIcon icon={tab.icon} />
-              <span>{tab.label}</span>
-            </button>
+                type="button"
+                aria-label={tab.label}
+                title={tab.label}
+                onClick={() => {
+                  onTabChange(tab.id);
+                }}
+              >
+                <TabIcon icon={tab.icon} />
+                <span>{tab.label}</span>
+              </button>
             </div>
           ))}
-          <div className="mini-menu-button-crop action-crop">
-            <button
-              className="icon-action search-toggle-action"
-              type="button"
-              aria-label="Pesquisar"
-              title="Pesquisar"
-              aria-expanded={isSearchOpen}
-              onClick={() => {
-                setIsMiniMenuArmed(false);
-                toggleSearchFromMiniMenu();
-              }}
-            >
-              <SearchIcon />
-              <span>Pesquisar</span>
-            </button>
-          </div>
-          <div className="mini-menu-button-crop action-crop">
-            <button
-              className="icon-action"
-              type="button"
-              aria-label="Configurações"
-            title="Configurações"
+        </div>
+        <div className="menu-toggle-popover actions-popover" aria-label="Ferramentas">
+          <ThemeToggleButton />
+          <button
+            className="icon-action square-menu-action settings-menu-action"
+            type="button"
+            aria-label={"Configura\u00e7\u00f5es"}
+            title={"Configura\u00e7\u00f5es"}
             aria-expanded={isSettingsOpen}
             onClick={() => {
               setIsMiniMenuArmed(false);
               toggleSettingsFromMiniMenu();
             }}
           >
-              <GearIcon outerOffset={settings.layout.gearOuterOffset} />
-              <span>Configurações</span>
-            </button>
-          </div>
+            <GearIcon outerOffset={settings.layout.gearOuterOffset} />
+            <span>{"Configura\u00e7\u00f5es"}</span>
+          </button>
+          <button
+            className="icon-action search-toggle-action square-menu-action"
+            type="button"
+            aria-label="Pesquisar"
+            title="Pesquisar"
+            aria-expanded={isSearchOpen}
+            onClick={() => {
+              setIsMiniMenuArmed(false);
+              toggleSearchFromMiniMenu();
+            }}
+          >
+            <SearchIcon />
+            <span>Pesquisar</span>
+          </button>
+          <button
+            className="icon-action square-menu-action history-menu-action"
+            type="button"
+            aria-label={"Hist\u00f3rico"}
+            title={"Hist\u00f3rico"}
+            onClick={() => {
+              setIsMiniMenuArmed(false);
+              toggleActionHistory();
+            }}
+          >
+            <HistoryIcon />
+            <span>{"Hist\u00f3rico"}</span>
+          </button>
+          <GlobalWorkbookToolbar
+            className="mini-global-data-actions"
+            includeThemeToggle={false}
+          />
         </div>
 
         <button
@@ -558,7 +588,7 @@ export function AppShell({
           type="button"
           aria-label={isSidebarCollapsed ? 'Mostrar menu' : 'Ocultar menu'}
           aria-pressed={isSidebarCollapsed}
-          title={isSidebarCollapsed ? 'Abrir Menu' : undefined}
+          title={isSidebarCollapsed ? undefined : 'Ocultar Menu'}
           onMouseEnter={() => {
             if (isSidebarCollapsed && isMiniMenuArmed) {
               setIsMiniMenuOpen(true);
@@ -566,10 +596,17 @@ export function AppShell({
           }}
           onClick={handleMenuToggleClick}
         >
-          <CollapseIcon
-            direction={isSidebarCollapsed ? 'show' : 'hide'}
-            offset={settings.layout.collapseIconOffset}
-          />
+          <span className="corner-active-tab-icon" aria-hidden="true">
+            {activeNavigationTab ? (
+              <TabIcon icon={activeNavigationTab.icon} />
+            ) : null}
+          </span>
+          <span className="corner-toggle-icon" aria-hidden="true">
+            <CollapseIcon
+              direction={isSidebarCollapsed ? 'show' : 'hide'}
+              offset={settings.layout.collapseIconOffset}
+            />
+          </span>
           <span className="collapse-label">Ocultar</span>
         </button>
       </div>
@@ -1433,6 +1470,16 @@ function SearchIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
       <path d="M21 21l-6 -6" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3 -6.7" />
+      <path d="M3 4v6h6" />
+      <path d="M12 7v5l3 2" />
     </svg>
   );
 }

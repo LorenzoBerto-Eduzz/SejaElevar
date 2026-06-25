@@ -47,7 +47,6 @@ import {
   responseToWorkbookFile,
 } from '../../shared/data/workspaceData';
 import {
-  GlobalWorkbookToolbar,
   markGlobalWorkbookAvailable,
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
@@ -90,8 +89,10 @@ const ADMISSION_DATE_COLUMN = 'Data de Admissão';
 const END_DATE_COLUMN = 'Data do Término';
 const CLASS_COLUMN = 'Turma';
 const TURMAS_REQUIRED_COLUMNS = ['Turma'] as const;
+const ARCOS_REQUIRED_COLUMNS = ['Arco'] as const;
 const APRENDIZES_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
+const ARCOS_WORKBOOK_SHEET = 'Arcos';
 const TURMAS_WORKBOOK_SHEET = 'Turmas';
 const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
@@ -452,6 +453,7 @@ export function AprendizesPage({
   const [invalidImportToast, setInvalidImportToast] = useState('');
   const globalWorkbookState = useGlobalWorkbookState();
   const [turmaOptions, setTurmaOptions] = useState<string[]>([]);
+  const [arcoOptions, setArcoOptions] = useState<string[]>([]);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -551,30 +553,46 @@ export function AprendizesPage({
   const getCanonicalTurmaValue = (value: string) =>
     getCanonicalDropdownValue(value, turmaOptions);
 
-  const canonicalizeSheetTurmaValues = (sheet: ImportedSheet) => {
-    if (turmaOptions.length === 0) {
-      return null;
-    }
+  const isInvalidArcoValue = (value: string) =>
+    arcoOptions.length > 0 &&
+    value !== '' &&
+    getCanonicalDropdownValue(value, arcoOptions) === null;
 
-    const turmaColumnIndex = sheet.columns.indexOf(CLASS_COLUMN);
+  const getCanonicalArcoValue = (value: string) =>
+    getCanonicalDropdownValue(value, arcoOptions);
 
-    if (turmaColumnIndex < 0) {
-      return null;
-    }
-
+  const canonicalizeSheetReferenceValues = (sheet: ImportedSheet) => {
+    const referenceFields = [
+      { columnName: CLASS_COLUMN, options: turmaOptions },
+      { columnName: LEARNING_ARC_COLUMN, options: arcoOptions },
+    ];
     let didChange = false;
-    const nextRows = sheet.rows.map((row) => {
-      const value = row[turmaColumnIndex] || '';
-      const canonicalValue = getCanonicalTurmaValue(value);
+    let nextRows = sheet.rows;
 
-      if (!canonicalValue || canonicalValue === value) {
-        return row;
+    referenceFields.forEach(({ columnName, options }) => {
+      if (options.length === 0) {
+        return;
       }
 
-      didChange = true;
-      const nextRow = [...row];
-      nextRow[turmaColumnIndex] = canonicalValue;
-      return nextRow;
+      const columnIndex = sheet.columns.indexOf(columnName);
+
+      if (columnIndex < 0) {
+        return;
+      }
+
+      nextRows = nextRows.map((row) => {
+        const value = row[columnIndex] || '';
+        const canonicalValue = getCanonicalDropdownValue(value, options);
+
+        if (!canonicalValue || canonicalValue === value) {
+          return row;
+        }
+
+        didChange = true;
+        const nextRow = [...row];
+        nextRow[columnIndex] = canonicalValue;
+        return nextRow;
+      });
     });
 
     return didChange
@@ -585,14 +603,19 @@ export function AprendizesPage({
       : null;
   };
 
-  const readTurmaOptionsFile = async (file: File) => {
+  const readWorkbookColumnOptionsFile = async (
+    file: File,
+    sheetNameToRead: string,
+    requiredColumns: readonly string[],
+    optionColumnName: string,
+  ) => {
     const { read, utils } = await loadXlsx();
     const workbook = read(await file.arrayBuffer(), {
       cellDates: true,
     });
     const { sheetName, worksheet } = getWorkbookSheet(
       workbook,
-      TURMAS_WORKBOOK_SHEET,
+      sheetNameToRead,
     );
 
     if (!sheetName || !worksheet) {
@@ -607,7 +630,7 @@ export function AprendizesPage({
     });
     const headerIndex = findSchemaHeaderRowIndex(
       sheetRows,
-      TURMAS_REQUIRED_COLUMNS,
+      requiredColumns,
     );
 
     if (headerIndex < 0) {
@@ -620,24 +643,55 @@ export function AprendizesPage({
     );
     const { missingColumns, normalizedColumns } = normalizeColumnsForSchema(
       rawColumns,
-      TURMAS_REQUIRED_COLUMNS,
+      requiredColumns,
     );
 
     if (missingColumns.length > 0) {
       return [];
     }
 
-    const turmaColumnIndex = normalizedColumns.indexOf(CLASS_COLUMN);
+    const optionColumnIndex = normalizedColumns.indexOf(optionColumnName);
 
-    if (turmaColumnIndex < 0) {
+    if (optionColumnIndex < 0) {
       return [];
     }
 
     return getUniqueValues(
       sheetRows
         .slice(headerIndex + 1)
-        .map((row) => normalizeCell(row[turmaColumnIndex])),
+        .map((row) => normalizeCell(row[optionColumnIndex])),
     );
+  };
+
+  const readTurmaOptionsFile = (file: File) =>
+    readWorkbookColumnOptionsFile(
+      file,
+      TURMAS_WORKBOOK_SHEET,
+      TURMAS_REQUIRED_COLUMNS,
+      CLASS_COLUMN,
+    );
+
+  const readArcoOptionsFile = (file: File) =>
+    readWorkbookColumnOptionsFile(
+      file,
+      ARCOS_WORKBOOK_SHEET,
+      ARCOS_REQUIRED_COLUMNS,
+      'Arco',
+    );
+
+  const applyReferenceOptionsFromFile = async (file: File) => {
+    const [nextTurmaOptions, nextArcoOptions] = await Promise.all([
+      readTurmaOptionsFile(file),
+      readArcoOptionsFile(file),
+    ]);
+
+    setTurmaOptions(nextTurmaOptions);
+    setArcoOptions(nextArcoOptions);
+
+    return {
+      turmaOptions: nextTurmaOptions,
+      arcoOptions: nextArcoOptions,
+    };
   };
 
   const loadTurmaOptions = async () => {
@@ -665,6 +719,25 @@ export function AprendizesPage({
     }
   };
 
+  const loadArcoOptions = async () => {
+    try {
+      const response = await fetch('/api/base-workbook/file', {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        setArcoOptions([]);
+        return;
+      }
+
+      const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
+
+      setArcoOptions(await readArcoOptionsFile(file));
+    } catch {
+      setArcoOptions([]);
+    }
+  };
+
   const clearWorkingSheet = () => {
     cellUndoStackRef.current = [];
     activeCellEditRef.current = null;
@@ -682,6 +755,8 @@ export function AprendizesPage({
     applyRowDetailsPanelStyle({});
     setSessionRegisteredRowIndexes([]);
     setHighlightedRegisteredRowIndex(null);
+    setTurmaOptions([]);
+    setArcoOptions([]);
   };
 
   const saveImportedSheet = (
@@ -831,7 +906,7 @@ export function AprendizesPage({
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
       const parsedSheet = await readSheetFile(file);
-      const nextTurmaOptions = await readTurmaOptionsFile(file);
+      const nextReferenceOptions = await applyReferenceOptionsFromFile(file);
       const response = await fetch(
         shouldImportBaseWorkbook
           ? '/api/base-workbook/import'
@@ -865,7 +940,8 @@ export function AprendizesPage({
       saveImportedSheet(importedSheetWithName, {
         resetColumnWidths: true,
       });
-      setTurmaOptions(nextTurmaOptions);
+      setTurmaOptions(nextReferenceOptions.turmaOptions);
+      setArcoOptions(nextReferenceOptions.arcoOptions);
       if (importedSheetWithName.hasGeneratedRecordIds) {
         void writeSheetSystemMetadataToSourceFile({
           ...importedSheetWithName,
@@ -997,12 +1073,13 @@ export function AprendizesPage({
 
     try {
       const nextSheet = await readSheetFile(file);
-      const nextTurmaOptions = await readTurmaOptionsFile(file);
+      const nextReferenceOptions = await applyReferenceOptionsFromFile(file);
 
       saveImportedSheet(nextSheet, {
         resetColumnWidths: options.resetColumnWidths,
       });
-      setTurmaOptions(nextTurmaOptions);
+      setTurmaOptions(nextReferenceOptions.turmaOptions);
+      setArcoOptions(nextReferenceOptions.arcoOptions);
 
       if (nextSheet.hasGeneratedRecordIds) {
         void writeSheetSystemMetadataToSourceFile({
@@ -1143,15 +1220,13 @@ export function AprendizesPage({
 
       if (event?.type === GLOBAL_DATA_CHANGED_EVENT) {
         void fetchRecoveryInfo();
-        if (!changedFile) {
-          void loadTurmaOptions();
-        }
       }
 
       setIsWorkspaceSyncing(true);
       clearImportMessages();
       void (async () => {
         if (changedFile) {
+          await applyReferenceOptionsFromFile(changedFile);
           const didLoadChangedFile = await selectFile(changedFile, {
             clearOnInvalid: false,
             resetColumnWidths: false,
@@ -1163,6 +1238,7 @@ export function AprendizesPage({
           }
         }
 
+        await Promise.all([loadTurmaOptions(), loadArcoOptions()]);
         await fetchProviderFile({
           clearOnMissing: true,
           clearOnInvalid: false,
@@ -1204,6 +1280,7 @@ export function AprendizesPage({
     setIsWorkspaceSyncing(true);
     clearImportMessages();
     void loadTurmaOptions();
+    void loadArcoOptions();
     void fetchProviderFile({
       clearOnMissing: true,
       clearOnInvalid: false,
@@ -1233,11 +1310,14 @@ export function AprendizesPage({
   }, [isEditMode]);
 
   useEffect(() => {
-    if (!importedSheet || turmaOptions.length === 0) {
+    if (
+      !importedSheet ||
+      (turmaOptions.length === 0 && arcoOptions.length === 0)
+    ) {
       return;
     }
 
-    const canonicalSheet = canonicalizeSheetTurmaValues(importedSheet);
+    const canonicalSheet = canonicalizeSheetReferenceValues(importedSheet);
 
     if (!canonicalSheet) {
       return;
@@ -1245,7 +1325,7 @@ export function AprendizesPage({
 
     storeImportedSheet(canonicalSheet);
     void writeSheetToSourceFile(canonicalSheet);
-  }, [importedSheet, turmaOptions]);
+  }, [importedSheet, turmaOptions, arcoOptions]);
 
   useEffect(() => {
     if (!isRegistrationMode) {
@@ -3208,7 +3288,8 @@ export function AprendizesPage({
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() =>
         focusRowDetailsField(selectedDetailsRow.rowIndex, columnName, {
-          openPicker: columnName === CLASS_COLUMN,
+          openPicker:
+            columnName === CLASS_COLUMN || columnName === LEARNING_ARC_COLUMN,
         }),
       );
     });
@@ -3630,30 +3711,36 @@ export function AprendizesPage({
   const rowDetailsClass = isRegistrationDetailsMode
     ? getRegistrationDraftDisplayValue(CLASS_COLUMN)
     : selectedDetailsClass;
-  const renderTurmaSelect = ({
+  const renderReferenceSelect = ({
     ariaLabel,
     className = 'turma-select',
     inputRef,
+    invalidValue,
     onChange,
+    options,
+    placeholder,
     value,
   }: {
     ariaLabel: string;
     className?: string;
     inputRef?: (element: HTMLSelectElement | null) => void;
+    invalidValue: (value: string) => boolean;
     onChange: (event: ChangeEvent<HTMLSelectElement>) => void;
+    options: string[];
+    placeholder: string;
     value: string;
   }) => {
-    const canonicalValue = getCanonicalTurmaValue(value);
+    const canonicalValue = getCanonicalDropdownValue(value, options);
     const selectValue = canonicalValue ?? value;
     const shouldIncludeCurrentValue =
-      value !== '' && canonicalValue === null && !turmaOptions.includes(value);
+      value !== '' && canonicalValue === null && !options.includes(value);
 
     return (
       <select
         aria-label={ariaLabel}
         className={[
           className,
-          isInvalidTurmaValue(value) ? 'invalid-dropdown-value' : '',
+          invalidValue(value) ? 'invalid-dropdown-value' : '',
         ]
           .filter(Boolean)
           .join(' ')}
@@ -3661,16 +3748,40 @@ export function AprendizesPage({
         ref={inputRef}
         onChange={onChange}
       >
-        <option value="">Sem turma</option>
+        <option value="">{placeholder}</option>
         {shouldIncludeCurrentValue && <option value={value}>{value}</option>}
-        {turmaOptions.map((turmaName) => (
-          <option key={turmaName} value={turmaName}>
-            {turmaName}
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
           </option>
         ))}
       </select>
     );
   };
+  const renderTurmaSelect = (
+    props: Omit<
+      Parameters<typeof renderReferenceSelect>[0],
+      'invalidValue' | 'options' | 'placeholder'
+    >,
+  ) =>
+    renderReferenceSelect({
+      ...props,
+      invalidValue: isInvalidTurmaValue,
+      options: turmaOptions,
+      placeholder: 'Sem turma',
+    });
+  const renderArcoSelect = (
+    props: Omit<
+      Parameters<typeof renderReferenceSelect>[0],
+      'invalidValue' | 'options' | 'placeholder'
+    >,
+  ) =>
+    renderReferenceSelect({
+      ...props,
+      invalidValue: isInvalidArcoValue,
+      options: arcoOptions,
+      placeholder: 'Sem arco',
+    });
   const renderRowDetailsField = ({
     className = '',
     columnName,
@@ -3695,7 +3806,15 @@ export function AprendizesPage({
       ? `register-details-${registrationDraftResetKey}-${columnName}`
       : `${selectedDetailsRow?.rowIndex}-${columnName}`;
     const isTurmaField = columnName === CLASS_COLUMN;
-    const isInvalidFieldValue = isTurmaField && isInvalidTurmaValue(value);
+    const isArcoField = columnName === LEARNING_ARC_COLUMN;
+    const isInvalidFieldValue =
+      (isTurmaField && isInvalidTurmaValue(value)) ||
+      (isArcoField && isInvalidArcoValue(value));
+    const renderFieldReferenceSelect = isTurmaField
+      ? renderTurmaSelect
+      : isArcoField
+        ? renderArcoSelect
+        : null;
 
     return (
       <div className={fieldClassName}>
@@ -3711,8 +3830,8 @@ export function AprendizesPage({
         >
           {readOnly ? (
             value
-          ) : isRegistrationDetailsMode && isTurmaField ? (
-            renderTurmaSelect({
+          ) : isRegistrationDetailsMode && renderFieldReferenceSelect ? (
+            renderFieldReferenceSelect({
               ariaLabel: `${label} cadastrar aprendiz`,
               className: 'row-details-field-value-input turma-select',
               value,
@@ -3722,8 +3841,8 @@ export function AprendizesPage({
               onChange: (event) =>
                 updateRegistrationDraft(columnName, event.target.value),
             })
-          ) : !isRegistrationDetailsMode && isTurmaField ? (
-            renderTurmaSelect({
+          ) : !isRegistrationDetailsMode && renderFieldReferenceSelect ? (
+            renderFieldReferenceSelect({
               ariaLabel: `${label} do aprendiz`,
               className: 'row-details-field-value-input turma-select',
               value,
@@ -3928,7 +4047,6 @@ export function AprendizesPage({
             >
               <SquarePlusIcon />
             </button>
-            {isActive && <GlobalWorkbookToolbar />}
             </div>
           </div>
       </div>
@@ -4063,8 +4181,16 @@ export function AprendizesPage({
                         column,
                       );
                       const isTurmaColumn = column === CLASS_COLUMN;
+                      const isArcoColumn = column === LEARNING_ARC_COLUMN;
                       const isInvalidTurmaCell =
                         isTurmaColumn && isInvalidTurmaValue(value);
+                      const isInvalidArcoCell =
+                        isArcoColumn && isInvalidArcoValue(value);
+                      const renderCellReferenceSelect = isTurmaColumn
+                        ? renderTurmaSelect
+                        : isArcoColumn
+                          ? renderArcoSelect
+                          : null;
 
                       return (
                         <td
@@ -4072,7 +4198,9 @@ export function AprendizesPage({
                           className={[
                             orderedColumnIndex === 0 ? 'pinned-column' : '',
                             column === AGE_COLUMN ? 'derived-cell' : '',
-                            isInvalidTurmaCell ? 'invalid-dropdown-cell' : '',
+                            isInvalidTurmaCell || isInvalidArcoCell
+                              ? 'invalid-dropdown-cell'
+                              : '',
                           ]
                             .filter(Boolean)
                             .join(' ')}
@@ -4105,8 +4233,8 @@ export function AprendizesPage({
                             });
                           }}
                         >
-                          {areBodyEditInputsReady && isTurmaColumn ? (
-                            renderTurmaSelect({
+                          {areBodyEditInputsReady && renderCellReferenceSelect ? (
+                            renderCellReferenceSelect({
                               ariaLabel: `${column} linha ${rowIndex + 1}`,
                               className: 'table-cell-select turma-select',
                               value,
