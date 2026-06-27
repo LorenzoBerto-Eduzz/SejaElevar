@@ -50,6 +50,7 @@ import {
   markGlobalWorkbookAvailable,
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
+import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -4052,34 +4053,16 @@ export function AprendizesPage({
       </div>
 
       {shouldShowEmptyImportState && (
-        <div
-          className={
-            isDragging
-              ? 'empty-data-state empty-tool-state dragging'
-              : 'empty-data-state empty-tool-state'
-          }
-          role="region"
-          aria-label="Importar planilha de aprendizes"
+        <EmptyWorkbookImportState
+          ariaLabel="Importar planilha de aprendizes"
+          isDragging={isDragging}
           onDragOver={(event) => {
             event.preventDefault();
             setIsDragging(true);
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
-        >
-          <button
-            className="primary-action import-empty-action"
-            type="button"
-            onClick={() =>
-              window.dispatchEvent(
-                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
-              )
-            }
-          >
-            <ImportIcon />
-            Importar .xlsx
-          </button>
-        </div>
+        />
       )}
 
       {shouldShowNoAprendizesState && (
@@ -4654,18 +4637,6 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
     default:
       return 'Nenhum backup dispon\u00edvel para recuperar.';
   }
-}
-
-function ImportIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3v12" />
-      <path d="m8 11 4 4 4 -4" />
-      <path d="M5 21h14" />
-      <path d="M5 17v4" />
-      <path d="M19 17v4" />
-    </svg>
-  );
 }
 
 function ExportIcon() {

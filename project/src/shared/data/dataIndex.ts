@@ -1,5 +1,6 @@
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   ARCOS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
@@ -15,6 +16,7 @@ export const TURMAS_ENTITY_ID = 'turmas';
 export const ARCOS_ENTITY_ID = 'arcos';
 export const DISCIPLINAS_ENTITY_ID = 'disciplinas';
 export const AULAS_ENTITY_ID = 'aulas';
+export const AULAS_DISCIPLINAS_ENTITY_ID = 'aulas-disciplinas';
 export const CRONOGRAMA_ENTITY_ID = 'cronograma';
 
 export type SheetTable = {
@@ -182,6 +184,15 @@ export const buildAulasDataIndexEntity = (sheet: SheetTable) =>
     getBaseWorkbookSheetByEntity(AULAS_ENTITY_ID)?.label ?? 'Aulas',
     sheet,
     AULAS_REQUIRED_COLUMNS,
+  );
+
+export const buildAulasDisciplinasDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    AULAS_DISCIPLINAS_ENTITY_ID,
+    getBaseWorkbookSheetByEntity(AULAS_DISCIPLINAS_ENTITY_ID)?.label ??
+      'Aulas Disciplinas',
+    sheet,
+    AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   );
 
 export const buildCronogramaDataIndexEntity = (sheet: SheetTable) =>

@@ -1,9 +1,11 @@
 import { BASE_WORKBOOK_SHEETS } from './baseWorkbook';
 import {
+  AULAS_DISCIPLINAS_ENTITY_ID,
   AULAS_ENTITY_ID,
   ARCOS_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
   DISCIPLINAS_ENTITY_ID,
+  buildAulasDisciplinasDataIndexEntity,
   buildAulasDataIndexEntity,
   buildArcosDataIndexEntity,
   buildCronogramaDataIndexEntity,
@@ -13,6 +15,7 @@ import {
 } from './dataIndex';
 import {
   ARCOS_REQUIRED_COLUMNS,
+  AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
@@ -112,6 +115,12 @@ const MANAGED_OPTIONAL_WORKBOOK_SHEETS = [
     sheetName: 'Aulas',
     label: 'Aulas',
     requiredColumns: AULAS_REQUIRED_COLUMNS,
+  },
+  {
+    entityId: AULAS_DISCIPLINAS_ENTITY_ID,
+    sheetName: 'Aulas Disciplinas',
+    label: 'Aulas Disciplinas',
+    requiredColumns: AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   },
   {
     entityId: CRONOGRAMA_ENTITY_ID,
@@ -582,6 +591,15 @@ export const persistManagedWorkbookDataIndexes = async (file: File | null) => {
         return sheet
           ? buildAulasDataIndexEntity(sheet)
           : buildEmptyDataIndexEntity(AULAS_ENTITY_ID, 'Aulas');
+      }
+
+      if (sheetDefinition.entityId === AULAS_DISCIPLINAS_ENTITY_ID) {
+        return sheet
+          ? buildAulasDisciplinasDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(
+              AULAS_DISCIPLINAS_ENTITY_ID,
+              'Aulas Disciplinas',
+            );
       }
 
       return sheet

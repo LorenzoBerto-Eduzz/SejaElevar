@@ -67,6 +67,7 @@ import {
   markGlobalWorkbookAvailable,
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
+import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -791,6 +792,48 @@ const getTurmaPeriodRange = (value: string) => {
     startMinutes,
     endMinutes,
   };
+};
+
+const areEquivalentTurmaHeaderValues = (
+  columnName: string,
+  previousValue: string,
+  nextValue: string,
+) => {
+  const previousTrimmed = previousValue.trim();
+  const nextTrimmed = nextValue.trim();
+
+  if (previousTrimmed === nextTrimmed) {
+    return true;
+  }
+
+  if (normalizeFieldLabel(columnName) === normalizeFieldLabel(TURMA_PERIOD_COLUMN)) {
+    const previousDigits = getPeriodDigits(previousTrimmed);
+    const nextDigits = getPeriodDigits(nextTrimmed);
+
+    if (
+      previousDigits.length === 8 &&
+      nextDigits.length === 8 &&
+      previousDigits === nextDigits
+    ) {
+      return true;
+    }
+
+    const previousRange = getTurmaPeriodRange(previousTrimmed);
+    const nextRange = getTurmaPeriodRange(nextTrimmed);
+
+    return (
+      previousRange !== null &&
+      nextRange !== null &&
+      previousRange.startMinutes === nextRange.startMinutes &&
+      previousRange.endMinutes === nextRange.endMinutes
+    );
+  }
+
+  if (normalizeFieldLabel(columnName) === normalizeFieldLabel(TURMA_DAY_COLUMN)) {
+    return normalizeFieldLabel(previousTrimmed) === normalizeFieldLabel(nextTrimmed);
+  }
+
+  return false;
 };
 
 const getScheduleTimeSlots = (startMinutes: number, endMinutes: number) => {
@@ -2382,7 +2425,7 @@ export function TurmasPage({
       currentTurmasSheet.rows[rowIndex]?.[columnIndex] ?? '';
     const nextValue = value.trim();
 
-    if (previousValue === nextValue) {
+    if (areEquivalentTurmaHeaderValues(columnName, previousValue, nextValue)) {
       return false;
     }
 
@@ -6406,14 +6449,9 @@ export function TurmasPage({
       </div>
 
       {shouldShowEmptyImportState && (
-        <div
-          className={
-            isDragging
-              ? 'empty-data-state empty-tool-state dragging'
-              : 'empty-data-state empty-tool-state'
-          }
-          role="region"
-          aria-label="Importar planilha de turmas"
+        <EmptyWorkbookImportState
+          ariaLabel="Importar planilha de turmas"
+          isDragging={isDragging}
           onDragOver={(event) => {
             event.preventDefault();
             setIsDragging(true);
@@ -6421,20 +6459,8 @@ export function TurmasPage({
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
         >
-          <button
-            className="primary-action import-empty-action"
-            type="button"
-            onClick={() =>
-              window.dispatchEvent(
-                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
-              )
-            }
-          >
-            <ImportIcon />
-            Importar .xlsx
-          </button>
           {importError && <p className="import-error">{importError}</p>}
-        </div>
+        </EmptyWorkbookImportState>
       )}
 
       {shouldShowNoTurmasState && (
@@ -7689,18 +7715,6 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       aria-hidden="true"
     >
       <path d="m9 6 6 6 -6 6" />
-    </svg>
-  );
-}
-
-function ImportIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3v12" />
-      <path d="m8 11 4 4 4 -4" />
-      <path d="M5 21h14" />
-      <path d="M5 17v4" />
-      <path d="M19 17v4" />
     </svg>
   );
 }

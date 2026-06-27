@@ -1,5 +1,6 @@
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   ARCOS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
@@ -67,6 +68,13 @@ export const BASE_WORKBOOK_SHEETS = [
     sheetName: 'Aulas',
     label: 'Aulas',
     requiredColumns: AULAS_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
+  },
+  {
+    entityId: 'aulas-disciplinas',
+    sheetName: 'Aulas Disciplinas',
+    label: 'Aulas Disciplinas',
+    requiredColumns: AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
     status: 'planned-index-ready',
   },
   {

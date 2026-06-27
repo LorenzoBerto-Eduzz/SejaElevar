@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AprendizesPage } from './features/aprendizes/AprendizesPage';
 import { ArcosPage } from './features/arcos/ArcosPage';
+import { AulasPage } from './features/aulas/AulasPage';
 import { TurmasPage } from './features/turmas/TurmasPage';
 import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
@@ -263,9 +264,16 @@ export function App() {
           isActive={activeTab === 'arcos'}
         />
       </div>
+      <div hidden={activeTab !== 'aulas'}>
+        <AulasPage
+          canInitialize={isInitialPageReady || activeTab === 'aulas'}
+          isActive={activeTab === 'aulas'}
+        />
+      </div>
       {activeTab !== 'aprendizes' &&
         activeTab !== 'turmas' &&
-        activeTab !== 'arcos' && (
+        activeTab !== 'arcos' &&
+        activeTab !== 'aulas' && (
         <FeaturePlaceholderPage
           title={appTabs.find((tab) => tab.id === activeTab)?.label ?? ''}
         />

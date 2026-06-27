@@ -4,10 +4,7 @@ import {
   DISCIPLINAS_ENTITY_ID,
   type SheetTable,
 } from '../../shared/data/dataIndex';
-import {
-  GLOBAL_DATA_CHANGED_EVENT,
-  GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
-} from '../../shared/data/events';
+import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
 import { importEmentaFromPicker } from '../../shared/data/ementas/ementaImport';
 import {
   ARCOS_REQUIRED_COLUMNS,
@@ -19,6 +16,7 @@ import {
   fetchBaseWorkbookFile,
   readWorkbookSheetFile,
 } from '../../shared/data/workspaceData';
+import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
 import { useTimedToast } from '../../shared/ui/useTimedToast';
 
 type ArcosPageProps = {
@@ -279,8 +277,12 @@ export function ArcosPage({
   }, [canInitialize]);
 
   const shouldShowEmptyImportState = hasCheckedWorkbook && !arcosSheet;
-  const shouldShowEmptyState =
-    hasCheckedWorkbook && Boolean(arcosSheet) && arcos.length === 0;
+  const shouldShowArcosBoard = hasCheckedWorkbook && Boolean(arcosSheet);
+  const arcosGridTemplateColumns = `${
+    arcos.length > 0
+      ? `repeat(${arcos.length}, var(--arcos-column-width, 280px)) `
+      : ''
+  }var(--menu-button-size)`;
   const toggleModule = (moduleName: string) => {
     const moduleKey = normalizeFieldLabel(moduleName);
 
@@ -347,41 +349,16 @@ export function ArcosPage({
         </div>
       </div>
 
-      {shouldShowEmptyImportState && (
-        <div
-          className="empty-data-state empty-tool-state"
-          role="region"
-          aria-label="Importar dados"
-        >
-          <button
-            className="primary-action import-empty-action"
-            type="button"
-            onClick={() =>
-              window.dispatchEvent(
-                new Event(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT),
-              )
-            }
-          >
-            <ImportIcon />
-            Importar .xlsx
-          </button>
-        </div>
-      )}
+      {shouldShowEmptyImportState && <EmptyWorkbookImportState />}
 
-      {shouldShowEmptyState && (
-        <div className="empty-data-state placeholder-state" role="region">
-          <h2>Nenhum arco cadastrado</h2>
-        </div>
-      )}
-
-      {arcosSheet && arcos.length > 0 && (
+      {shouldShowArcosBoard && (
         <div className="data-table-panel arcos-data-panel">
           <div className="data-table-frame arcos-board-frame">
             <div className="arcos-board" role="region" tabIndex={0}>
               <div
                 className="arcos-board-content"
                 style={{
-                  gridTemplateColumns: `repeat(${arcos.length}, var(--arcos-column-width, 280px))`,
+                  gridTemplateColumns: arcosGridTemplateColumns,
                 }}
               >
                 {arcos.map((arco) => (
@@ -395,8 +372,24 @@ export function ArcosPage({
                     </div>
                   </section>
                 ))}
+                <section
+                  className="arco-header-cell arco-add-header-cell"
+                  role="listitem"
+                >
+                  <button
+                    className="arco-add-button"
+                    type="button"
+                    aria-label="Adicionar arco"
+                    title="Adicionar Arco"
+                    disabled={isImportingEmenta || !arcosSheet}
+                    onClick={() => void addArcoFromEmenta()}
+                  >
+                    <ClipboardPlusIcon />
+                  </button>
+                </section>
 
-                {MODULES.map((moduleName) => {
+                {arcos.length > 0 &&
+                  MODULES.map((moduleName) => {
                   const moduleKey = normalizeFieldLabel(moduleName);
                   const isExpanded = expandedModules.has(moduleKey);
 
@@ -556,18 +549,6 @@ function LessonsIcon() {
       <path d="M3 6v13" />
       <path d="M21 6v13" />
       <path d="M12 6v13" />
-    </svg>
-  );
-}
-
-function ImportIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3v12" />
-      <path d="m8 11 4 4 4 -4" />
-      <path d="M5 21h14" />
-      <path d="M5 17v4" />
-      <path d="M19 17v4" />
     </svg>
   );
 }

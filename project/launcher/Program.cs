@@ -2270,7 +2270,24 @@ internal static class Program
                             "Cor",
                             "Instrutor Padr\u00e3o",
                             "Sala Padr\u00e3o",
-                            "Disciplinas",
+                            "ID"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "aulas-disciplinas",
+                        sheetName = "Aulas Disciplinas",
+                        label = "Aulas Disciplinas",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
+                            "Aula ID",
+                            "Aula",
+                            "Arco",
+                            "M\u00f3dulo",
+                            "Disciplina",
+                            "Disciplina ID",
                             "ID"
                         }
                     },

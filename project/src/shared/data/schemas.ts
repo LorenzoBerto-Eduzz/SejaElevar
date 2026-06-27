@@ -49,7 +49,16 @@ export const AULAS_REQUIRED_COLUMNS = [
   'Cor',
   'Instrutor Padrão',
   'Sala Padrão',
-  'Disciplinas',
+  'ID',
+] as const;
+
+export const AULAS_DISCIPLINAS_REQUIRED_COLUMNS = [
+  'Aula ID',
+  'Aula',
+  'Arco',
+  'MÃ³dulo',
+  'Disciplina',
+  'Disciplina ID',
   'ID',
 ] as const;
 

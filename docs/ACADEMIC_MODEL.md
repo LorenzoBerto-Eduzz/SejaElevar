@@ -125,25 +125,35 @@ The Turma page can display a filtered monthly timetable. For a Turma whose day i
 
 ## Aulas
 
-`Aula` should become its own tab/item type later, because workers need a friendly place to define and manage reusable Aula content.
+`Aula` is its own tab/item type because workers need a friendly place to define and manage reusable Aula content.
 
 An Aula item defines what content/activity exists and which Disciplinas it can cover. The date, time, duration, Sala, and Funcionario are defined by the Cronograma block where that Aula is scheduled.
 
 Current planned workbook/catalog fields for reusable Aulas:
 
 ```text
-ID
 Aula
 Cor
 Instrutor Padrao
 Sala Padrao
-Disciplinas
+ID
+```
+
+Current planned workbook fields for Aula coverage:
+
+```text
+Aula ID
+Aula
+Arco
+Modulo
+Disciplina
+Disciplina ID
+ID
 ```
 
 Current planned workbook fields for scheduled Aula/Cronograma instances:
 
 ```text
-ID
 Turma
 Data
 Inicio
@@ -154,7 +164,10 @@ Aula
 Instrutor
 Sala
 Cor
+ID
 ```
+
+Current implementation state: the Aulas tab has the first editable catalog foundation. It reads/writes the active workbook `Aulas` sheet, shows Aula rows/cards, lets the user create a draft Aula by committing a unique non-empty name, edit the Aula name/default Instrutor/default Sala/color, and delete an Aula with confirmation. Deleting an Aula currently also removes linked `Aulas Disciplinas` and `Cronograma` rows that reference it, and the undo entry stores those linked rows so undo/redo can restore the whole linked operation. The next step is to build the `Aulas Disciplinas` coverage assignment UI from the current imported Disciplinas catalog.
 
 Current alignment: Cronograma blocks should select a predefined Aula from the Aula catalog. The timetable should not create new Aula definitions directly. `Aula ID` may be blank only while a newly placed scheduled block is still an incomplete draft waiting for the user to select a predefined Aula. Once an Aula is selected, the Cronograma row stores the `Aula ID` plus copied values such as Aula name, color, default instructor, and default room. The scheduled instance can later override instance values such as instructor and room without rewriting the Aula catalog item.
 
@@ -201,6 +214,8 @@ Disciplina Especifica
 
 Current implementation state: deeper Turma timetable/Aula-instance polish is paused while the upstream Arcos/Disciplinas foundation is built. The first Arcos tab now reads the active `DadosElevar` workbook, displays `Arcos` horizontally, and reads `Disciplinas` grouped by shared module rows. The current direction is that Arcos/Disciplinas are derived from official Ementa PDF documents instead of manually edited in the Arcos UI. The Arcos tab imports an Ementa PDF with `Adicionar Arco`, stores a copy under the runtime `dados/ementas/` folder, parses the official mold, writes/updates the `Arcos` and `Disciplinas` workbook sheets, and displays the result as a read-only academic catalog. If the official PDF mold changes, update the parser rules modularly rather than changing the academic model.
 
+Durable live-data rule: Arcos and Disciplinas are not a one-time setup step. The user can import another Ementa/Arco at any point during real app use. When that happens, the app must update the active workbook, rebuild/refresh the generated data index, broadcast the global data change, and immediately refresh all dependent UI/data paths: Arcos display columns, Aprendizes `Arco de Aprendizagem` dropdown options, Aulas coverage options, future Cronograma/Aula validation, and future Plano de Ensino/document generation. Do not let Aulas, Cronograma, attendance, or document flows keep stale startup snapshots of Arcos/Disciplinas.
+
 Current Arcos/Disciplinas UI direction:
 
 - `Ementa` is the external/source document concept, not a worksheet/entity name.
@@ -219,11 +234,17 @@ Current Arcos/Disciplinas UI direction:
 
 When creating/editing an Aula, the user defines which Disciplinas that Aula covers.
 
+Implementation direction: keep Aula coverage in a separate `Aulas Disciplinas` worksheet/entity rather than a comma-separated field inside `Aulas`. `Aulas` is the template/catalog row; `Aulas Disciplinas` is the link table from Aula to Disciplina. Store both readable labels and stable IDs where available so the workbook stays understandable in Google Sheets while the app can keep relationships stable.
+
+The Aula coverage picker should always read the current active Disciplinas catalog from the workbook/generated index. If the user imports a new Ementa after the Aulas tab is already open, the Aulas coverage choices must update from the same live data source without requiring an app restart.
+
 Important rule:
 
 - An Aula may cover equivalent/related Disciplinas across different Arcos.
 - An Aula should not count twice inside the same Arco.
-- If the user tries to map one Aula to more than one Disciplina in the same Arco, the app should warn or block unless a future explicit split-time rule is designed.
+- For `Modulo Especifico`, an Aula should have at most one selected Disciplina per Arco.
+- For shared/general `Inicial` and `Basico` Disciplinas, the Aula can cover the shared Disciplina and it applies to all Arcos that share it.
+- If the user tries to map one Aula to more than one Especifico Disciplina in the same Arco, the app should warn or block unless a future explicit split-time rule is designed.
 
 Example:
 
@@ -266,6 +287,8 @@ Sala
 Completed hours and future documents should be generated from these historical records, not directly from mutable planned Cronograma blocks alone.
 
 This protects old student records. If an Aula definition, Disciplina mapping, or Cronograma block changes months later, past completed records should not silently change.
+
+The same protection applies when Arcos/Disciplinas are later removed or become unresolved. Future removal flows should warn, preserve historical attendance/progress records with their copied snapshot values, and mark unresolved references for future planned data instead of silently deleting or rewriting old proof records.
 
 ## Editing Rules After Attendance Exists
 

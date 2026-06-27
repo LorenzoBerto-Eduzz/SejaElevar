@@ -417,6 +417,7 @@ export function AppShell({
           '--row-details-class-width': `${settings.layout.rowDetailsClassWidth}px`,
           '--row-details-close-icon-horizontal-offset': `${settings.layout.rowDetailsCloseIconHorizontalOffset}px`,
           '--settings-close-icon-horizontal-offset': `${settings.layout.settingsCloseIconHorizontalOffset}px`,
+          '--aula-card-action-icon-horizontal-offset': `${settings.layout.aulaCardActionIconHorizontalOffset}px`,
           '--arcos-column-width': `${settings.layout.arcosColumnWidth}px`,
           '--arcos-column-gap': `${settings.layout.arcosColumnGap}px`,
           '--arcos-first-module-gap': `${settings.layout.arcosFirstModuleGap}px`,
@@ -580,6 +581,7 @@ export function AppShell({
           <GlobalWorkbookToolbar
             className="mini-global-data-actions"
             includeThemeToggle={false}
+            listenForImportRequests={false}
           />
         </div>
 
@@ -838,6 +840,18 @@ export function AppShell({
             />
             {!isReleaseMode && (
               <>
+                <SliderField
+                  label="Aulas icones X"
+                  min={-8}
+                  max={8}
+                  step={0.1}
+                  value={settings.layout.aulaCardActionIconHorizontalOffset}
+                  onChange={(value) =>
+                    updateLayout('aulaCardActionIconHorizontalOffset', value)
+                  }
+                  onReset={() => resetLayout('aulaCardActionIconHorizontalOffset')}
+                  className="dev-visible-slider-field"
+                />
                 <SliderField
                   label="Arcos largura"
                   min={180}

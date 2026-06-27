@@ -175,11 +175,13 @@ const getRecoveryDescription = (info: RecoveryInfo | null) => {
 type GlobalWorkbookToolbarProps = {
   className?: string;
   includeThemeToggle?: boolean;
+  listenForImportRequests?: boolean;
 };
 
 export function GlobalWorkbookToolbar({
   className = '',
   includeThemeToggle = true,
+  listenForImportRequests = true,
 }: GlobalWorkbookToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasWorkbook, setHasWorkbook] = useState(
@@ -277,10 +279,12 @@ export function GlobalWorkbookToolbar({
       GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
       handleGlobalToolbarRefreshRequested,
     );
-    window.addEventListener(
-      GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
-      handleImportRequest,
-    );
+    if (listenForImportRequests) {
+      window.addEventListener(
+        GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
+        handleImportRequest,
+      );
+    }
 
     return () => {
       window.removeEventListener(
@@ -291,10 +295,12 @@ export function GlobalWorkbookToolbar({
         GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
         handleGlobalToolbarRefreshRequested,
       );
-      window.removeEventListener(
-        GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
-        handleImportRequest,
-      );
+      if (listenForImportRequests) {
+        window.removeEventListener(
+          GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
+          handleImportRequest,
+        );
+      }
       unsubscribe();
     };
   }, []);

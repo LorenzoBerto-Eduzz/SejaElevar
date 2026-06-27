@@ -733,7 +733,7 @@ svg {
 
 .settings-close:hover,
 .settings-close:focus-visible {
-  color: var(--brand-active-icon);
+  color: var(--light-active-icon, #fff);
   background: var(--brand-primary);
   outline: none;
 }
@@ -1766,6 +1766,7 @@ svg {
 }
 
 .arcos-board-frame {
+  position: relative;
   grid-template-rows: minmax(0, 1fr);
   border: 0;
   border-radius: 0;
@@ -1831,6 +1832,19 @@ svg {
   min-width: 0;
 }
 
+.arco-add-header-cell {
+  position: sticky;
+  right: 0;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--menu-button-size);
+  height: calc(var(--table-header-height, 40px) + 16px);
+  margin-left: calc(var(--arcos-column-gap, 24px) * -0.55);
+  background: var(--brand-page-background);
+}
+
 .arco-group-header {
   display: flex;
   align-items: center;
@@ -1842,6 +1856,620 @@ svg {
   border-radius: 7px;
   color: var(--brand-header-text);
   background: var(--brand-primary);
+}
+
+.arco-add-button {
+  display: grid;
+  place-items: center;
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--brand-primary);
+  background: var(--brand-page-background);
+  cursor: pointer;
+}
+
+.arco-add-button svg {
+  width: var(--menu-icon-size);
+  height: var(--menu-icon-size);
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: translateY(-1px);
+}
+
+.arco-add-button:hover,
+.arco-add-button:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.arco-add-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.arco-add-button:disabled:hover {
+  border-color: transparent;
+}
+
+.aulas-data-panel {
+  min-height: 0;
+}
+
+.aulas-board-frame {
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  padding: 0;
+}
+
+.aulas-board {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
+  scrollbar-width: thin;
+}
+
+.aulas-board::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.aulas-board::-webkit-scrollbar-track,
+.aulas-board::-webkit-scrollbar-corner,
+.aulas-board::-webkit-scrollbar-button {
+  background: var(--brand-scroll-track);
+}
+
+.aulas-board::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.aulas-board::-webkit-scrollbar-thumb,
+.aulas-board::-webkit-scrollbar-thumb:hover {
+  border: 3px solid var(--brand-scroll-track);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.aulas-board:focus,
+.aulas-board:focus-visible {
+  outline: none;
+}
+
+.aulas-list-column {
+  display: grid;
+  align-content: start;
+  gap: var(--arcos-discipline-gap, 6px);
+  width: max(var(--arcos-column-width, 280px), 560px);
+  min-width: 0;
+  max-width: 100%;
+  padding-bottom: 12px;
+  overflow: visible;
+}
+
+.aula-list-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(0, 0.7fr) 34px 20px 20px;
+  grid-template-rows: 24px;
+  align-items: stretch;
+  column-gap: 2px;
+  row-gap: 0;
+  min-height: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  padding: 3px 4px;
+  color: var(--light-active-icon, #fff);
+  background: var(--aula-color, var(--brand-primary));
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: visible;
+}
+
+.aula-list-card.preview {
+  opacity: 0.92;
+}
+
+.aula-list-card:focus-within {
+  z-index: 120;
+}
+
+.aula-color-button,
+.aula-delete-button,
+.aula-room-field,
+.aula-instructor-field {
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+
+.aula-color-button,
+.aula-delete-button,
+.aula-room-field,
+.aula-instructor-field {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.aula-room-field,
+.aula-instructor-field {
+  position: relative;
+}
+
+.aula-field-layer {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  min-height: 20px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aula-field-full {
+  position: absolute;
+  inset: 0 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.aula-field-compact {
+  opacity: 1;
+}
+
+.has-compact-display:hover .aula-field-compact,
+.has-compact-display:focus-visible .aula-field-compact {
+  opacity: 0;
+}
+
+.has-compact-display:hover .aula-field-full,
+.has-compact-display:focus-visible .aula-field-full {
+  opacity: 1;
+}
+
+.aula-color-button {
+  justify-self: center;
+  align-self: center;
+  grid-column: 4;
+  grid-row: 1;
+  width: 20px;
+  height: 20px;
+  background: var(--aula-color, var(--brand-primary));
+}
+
+.aula-delete-button {
+  justify-self: center;
+  align-self: center;
+  grid-column: 5;
+  grid-row: 1;
+  width: 20px;
+  height: 20px;
+}
+
+.aula-room-field {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  grid-column: 3;
+  grid-row: 1;
+  height: 24px;
+  padding: 0 4px;
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aula-color-button svg,
+.aula-delete-button svg {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  transform: translateX(var(--aula-card-action-icon-horizontal-offset, -1px));
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aula-color-button svg {
+  width: 13px;
+  height: 13px;
+  transform: translate(-3px, -1px);
+}
+
+.aula-color-popup {
+  position: fixed;
+  z-index: 45;
+  padding: 6px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 7px;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 22%, transparent);
+}
+
+.dark-mode .aula-color-popup {
+  color: var(--brand-active-icon);
+  background: var(--brand-menu);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 46%, transparent);
+}
+
+.aula-native-color-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.aula-color-history {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  grid-auto-rows: 18px;
+  gap: 3px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 5px;
+}
+
+.aula-color-history-swatch {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 3px;
+  background: var(--aula-history-color);
+  cursor: pointer;
+}
+
+.aula-color-history-swatch:disabled {
+  opacity: 0.26;
+  cursor: default;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 47%,
+      color-mix(in srgb, currentColor 26%, transparent) 48%,
+      color-mix(in srgb, currentColor 26%, transparent) 52%,
+      transparent 53%
+    );
+}
+
+.aula-color-history-swatch.add-color {
+  position: relative;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  background: color-mix(in srgb, var(--brand-panel) 78%, currentColor 10%);
+}
+
+.dark-mode .aula-color-history-swatch.add-color {
+  background: color-mix(in srgb, var(--brand-menu) 78%, currentColor 10%);
+}
+
+.aula-color-history-swatch.add-color svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aula-instructor-field {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  grid-column: 2;
+  grid-row: 1;
+  height: 24px;
+  padding: 0 4px;
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aula-room-field.editing,
+.aula-instructor-field.editing {
+  overflow: visible;
+  cursor: text;
+}
+
+.aula-room-field:hover,
+.aula-room-field.editing,
+.aula-instructor-field:hover,
+.aula-instructor-field.editing {
+  z-index: 90;
+  width: min(
+    var(--aula-field-expanded-width, 100%),
+    calc(100vw - 180px),
+    680px
+  );
+  min-width: 100%;
+  overflow: visible;
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+  background: var(--aula-color, var(--brand-primary));
+  box-shadow:
+    0 0 0 2px var(--aula-color, var(--brand-primary)),
+    0 3px 8px color-mix(in srgb, #000 16%, transparent);
+}
+
+.aula-room-field:hover,
+.aula-room-field.editing {
+  justify-self: start;
+}
+
+.aula-field-input,
+.aula-name-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  outline: none;
+}
+
+.aula-field-input {
+  display: block;
+  height: 22px;
+  line-height: 22px;
+  transform: translateY(-1px);
+}
+
+.aula-room-field .aula-field-input {
+  text-align: left;
+}
+
+.aula-field-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 80;
+  display: grid;
+  width: 100%;
+  min-width: 92px;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+  border-radius: 6px;
+  padding: 0;
+  color: inherit;
+  background: var(--aula-color, var(--brand-primary));
+  box-shadow: 0 8px 18px color-mix(in srgb, #000 24%, transparent);
+}
+
+.aula-room-field .aula-field-dropdown {
+  right: auto;
+  left: 0;
+  min-width: 100%;
+  text-align: left;
+}
+
+.aula-field-option {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 4px;
+  overflow: hidden;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aula-room-field .aula-field-option {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.aula-field-option:hover,
+.aula-field-option:focus-visible {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  outline: none;
+}
+
+.aula-color-button:hover,
+.aula-color-button:focus-visible,
+.aula-delete-button:hover,
+.aula-delete-button:focus-visible,
+.aula-room-field:hover,
+.aula-room-field:focus-visible,
+.aula-instructor-field:hover,
+.aula-instructor-field:focus-visible {
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+  outline: none;
+}
+
+.aula-name-wrap {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  margin-bottom: 0;
+  min-width: 0;
+  min-height: 24px;
+  height: 24px;
+  overflow: visible;
+}
+
+.aula-name-wrap.editable {
+  cursor: text;
+}
+
+.aula-name-wrap.editing {
+  display: block;
+  z-index: 100;
+}
+
+.aula-name {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  max-height: 24px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.aula-name-input {
+  display: block;
+  position: absolute;
+  right: auto;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  min-height: 24px;
+  height: 24px;
+  max-height: none;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
+  border-radius: 6px;
+  appearance: none;
+  overflow: visible;
+  text-align: left;
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 22px;
+  transform: translateY(-1px);
+  z-index: 100;
+}
+
+.aula-name-wrap.editing .aula-name-input {
+  width: min(
+    var(--aula-name-edit-width, 100%),
+    calc(100vw - 180px),
+    680px
+  );
+}
+
+.aula-name-input::-webkit-scrollbar {
+  display: none;
+}
+
+.aula-name-wrap:hover .aula-name {
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.aula-name-wrap.expandable:hover .aula-name {
+  position: absolute;
+  top: 0;
+  right: auto;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(680px, calc(100vw - 180px));
+  height: 24px;
+  max-height: 24px;
+  overflow: visible;
+  min-height: 24px;
+  padding: 1px 4px;
+  border-radius: 6px;
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+  background: var(--aula-color, var(--brand-primary));
+  box-shadow:
+    0 0 0 2px var(--aula-color, var(--brand-primary)),
+    0 3px 8px color-mix(in srgb, #000 16%, transparent);
+  pointer-events: none;
+}
+
+.aula-create-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 16;
+  display: grid;
+  place-items: center;
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  margin-top: 2px;
+  background: var(--brand-page-background);
+}
+
+.aula-create-button {
+  display: grid;
+  place-items: center;
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  min-width: var(--menu-button-size);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--brand-primary);
+  background: var(--brand-page-background);
+  cursor: pointer;
+}
+
+.aula-create-button svg {
+  width: var(--menu-icon-size);
+  height: var(--menu-icon-size);
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aula-create-button:hover,
+.aula-create-button:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
 }
 
 .arco-header-title {
@@ -2406,23 +3034,29 @@ svg {
   color: var(--brand-active-icon);
 }
 
-.turma-delete-confirm-action {
+.turma-delete-confirm-action,
+.aula-delete-confirm-action {
   background: var(--brand-delete-hint);
 }
 
 .turma-delete-confirm-action:hover,
-.turma-delete-confirm-action:focus-visible {
+.turma-delete-confirm-action:focus-visible,
+.aula-delete-confirm-action:hover,
+.aula-delete-confirm-action:focus-visible {
   background: var(--brand-delete-hint);
   filter: brightness(0.94);
 }
 
-.dark-mode .turma-delete-confirm-action {
+.dark-mode .turma-delete-confirm-action,
+.dark-mode .aula-delete-confirm-action {
   color: #000;
   background: color-mix(in srgb, var(--brand-delete-hint) 72%, #000 28%);
 }
 
 .dark-mode .turma-delete-confirm-action:hover,
-.dark-mode .turma-delete-confirm-action:focus-visible {
+.dark-mode .turma-delete-confirm-action:focus-visible,
+.dark-mode .aula-delete-confirm-action:hover,
+.dark-mode .aula-delete-confirm-action:focus-visible {
   background: color-mix(in srgb, var(--brand-delete-hint) 72%, #000 28%);
   filter: brightness(0.9);
 }
