@@ -90,8 +90,10 @@ Current UI direction for the Turma expanded body:
 - The left list is the assigned-Aprendizes view, with `+ Adicionar Aprendiz` behaving like the fixed bottom row for that list.
 - The right timetable is currently the visual/planning surface for Aula/Cronograma blocks filtered to the Turma. It stores scheduled blocks in the global `Cronograma` worksheet and should keep reusable Aula definitions separate from scheduled instances.
 - The timetable header shows the selected month/year and the dates for the Turma's selected weekday in that month.
-- The timetable visual grid renders real 15-minute rows aligned to the Aprendizes row height. It intentionally does not render 5-minute DOM/visual rows; future block movement/resizing should snap to thirds inside each 15-minute row to represent 5-minute increments.
+- The timetable visual grid renders real 15-minute rows using a compact schedule-specific row height, currently independent from the Aprendizes row height so long periods fit with less vertical bulk. It intentionally does not render 5-minute DOM/visual rows; block movement/resizing snaps to thirds inside each 15-minute row to represent 5-minute increments.
 - Timetable vertical scrolling should not be used. The expanded body should grow to fit the Turma's configured period plus a small visual tail after the end time, while the left Aprendizes list can scroll vertically when many Aprendizes are assigned.
+- Overnight Periodos are valid. A range such as `23:00h - 10:00h` should be interpreted as starting at 23:00 and ending at 10:00 on the next day, with timetable labels wrapping through `00:00`, `01:00`, and so on instead of treating the range as invalid.
+- Turmas value edits, including selecting an existing Periodo from the dropdown, should commit to the unified active `DadosElevar` workbook and immediately update the visible Turma row/timetable. The Turmas save path should replace only the `Turmas` sheet inside the active workbook, serialize writes, rebuild indexes, and never let tab switching or stale re-reads erase recently created/edited Turmas.
 
 For now a Turma is expected to have one weekday. The model should remain open to multiple weekdays later, where the same control could allow multiple checked days and the timetable could show multiple columns.
 

@@ -3333,6 +3333,10 @@ svg {
   overflow: visible;
 }
 
+.turma-schedule-panel-empty {
+  min-height: 100%;
+}
+
 .turma-schedule-month-controls {
   display: grid;
   place-items: center;
@@ -3395,6 +3399,7 @@ svg {
 }
 
 .turma-schedule-grid {
+  --turma-schedule-row-height: 22px;
   display: grid;
   grid-template-columns:
     62px repeat(var(--turma-schedule-date-count, 1), minmax(78px, 1fr));
@@ -3471,8 +3476,8 @@ svg {
 .turma-schedule-time-label,
 .turma-schedule-slot {
   box-sizing: border-box;
-  min-height: var(--table-row-height, 30px);
-  height: var(--table-row-height, 30px);
+  min-height: var(--turma-schedule-row-height, 22px);
+  height: var(--turma-schedule-row-height, 22px);
   border-right: 1px solid var(--cell-line-color);
   border-bottom: 1px solid transparent;
   background: var(--brand-panel);
@@ -3480,8 +3485,8 @@ svg {
 
 .turma-schedule-time-label.first-slot,
 .turma-schedule-slot.first-slot {
-  min-height: calc(var(--table-row-height, 30px) - 1px);
-  height: calc(var(--table-row-height, 30px) - 1px);
+  min-height: calc(var(--turma-schedule-row-height, 22px) - 1px);
+  height: calc(var(--turma-schedule-row-height, 22px) - 1px);
 }
 
 .turma-schedule-time-label {
@@ -3538,8 +3543,8 @@ svg {
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
-  min-height: var(--table-row-height, 30px);
-  height: var(--table-row-height, 30px);
+  min-height: var(--turma-schedule-row-height, 22px);
+  height: var(--turma-schedule-row-height, 22px);
   padding: 0 10px;
   border-bottom: 1px solid var(--cell-line-color);
   background: var(--brand-panel);
@@ -3566,7 +3571,7 @@ svg {
 
 .turma-schedule-slot-add {
   position: absolute;
-  inset: 4px;
+  inset: 0 4px;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -3615,7 +3620,7 @@ svg {
   right: 1px;
   z-index: 5;
   display: flex;
-  min-height: var(--table-row-height, 30px);
+  min-height: var(--turma-schedule-row-height, 22px);
   height: var(--schedule-block-height, 100%);
   flex-direction: column;
   justify-content: flex-start;
@@ -3638,8 +3643,8 @@ svg {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  min-height: calc(var(--table-row-height, 30px) / 2);
-  height: calc(var(--table-row-height, 30px) / 2);
+  min-height: calc(var(--turma-schedule-row-height, 22px) / 2);
+  height: calc(var(--turma-schedule-row-height, 22px) / 2);
   gap: 4px;
 }
 
@@ -3670,7 +3675,7 @@ svg {
   align-items: center;
   width: 100%;
   min-width: 0;
-  height: calc(var(--table-row-height, 30px) / 2 - 2px);
+  height: calc(var(--turma-schedule-row-height, 22px) / 2 - 2px);
   border: 0;
   border-radius: 2px;
   padding: 0 1px;
@@ -3721,8 +3726,8 @@ input.turma-schedule-block-field {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: calc(var(--table-row-height, 30px) / 2 - 3px);
-  height: calc(var(--table-row-height, 30px) / 2 - 3px);
+  width: calc(var(--turma-schedule-row-height, 22px) / 2 - 3px);
+  height: calc(var(--turma-schedule-row-height, 22px) / 2 - 3px);
   border: 0;
   border-radius: 2px;
   padding: 0;
@@ -3853,7 +3858,7 @@ input.turma-schedule-block-field {
 .turma-schedule-empty-state {
   display: grid;
   place-items: center;
-  min-height: 160px;
+  min-height: 100%;
   padding: 20px;
   color: var(--brand-text);
   font-size: 0.88rem;

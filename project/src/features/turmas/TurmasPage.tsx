@@ -117,7 +117,7 @@ const TURMA_HEADER_DETAIL_HORIZONTAL_PADDING =
   TURMA_HEADER_ICON_GAP;
 const TURMA_HEADER_TITLE_MIN_WIDTH = 62;
 const TURMA_HEADER_COUNT_MIN_WIDTH = 44;
-const TURMA_HEADER_DAY_MIN_WIDTH = 54;
+const TURMA_HEADER_DAY_MIN_WIDTH = 76;
 const TURMA_HEADER_PERIOD_MIN_WIDTH = 148;
 const TURMA_HEADER_INSTRUCTOR_MIN_WIDTH = 118;
 const TURMA_HEADER_ROOM_MIN_WIDTH = 72;
@@ -789,17 +789,14 @@ const getTurmaPeriodRange = (value: string) => {
   const startMinutes = getTurmaPeriodStartMinutes(value);
   const endMinutes = getTurmaPeriodEndMinutes(value);
 
-  if (
-    startMinutes === null ||
-    endMinutes === null ||
-    endMinutes <= startMinutes
-  ) {
+  if (startMinutes === null || endMinutes === null) {
     return null;
   }
 
   return {
     startMinutes,
-    endMinutes,
+    endMinutes:
+      endMinutes <= startMinutes ? endMinutes + 24 * 60 : endMinutes,
   };
 };
 
@@ -856,8 +853,9 @@ const getScheduleTimeSlots = (startMinutes: number, endMinutes: number) => {
 };
 
 const formatMinutesAsTime = (minutes: number) => {
-  const hour = Math.floor(minutes / 60);
-  const minute = minutes % 60;
+  const normalizedMinutes = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hour = Math.floor(normalizedMinutes / 60);
+  const minute = normalizedMinutes % 60;
 
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 };
@@ -1126,7 +1124,7 @@ const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
     const startMinutes = parseScheduleTimeValue(
       getCronogramaCellValue(sheet, row, CRONOGRAMA_START_COLUMN),
     );
-    const endMinutes = parseScheduleTimeValue(
+    const rawEndMinutes = parseScheduleTimeValue(
       getCronogramaCellValue(sheet, row, CRONOGRAMA_END_COLUMN),
     );
     const dateKey = getCronogramaCellValue(sheet, row, CRONOGRAMA_DATE_COLUMN);
@@ -1136,11 +1134,13 @@ const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
       !turma ||
       !dateKey ||
       startMinutes === null ||
-      endMinutes === null ||
-      endMinutes <= startMinutes
+      rawEndMinutes === null
     ) {
       return [];
     }
+
+    const endMinutes =
+      rawEndMinutes <= startMinutes ? rawEndMinutes + 24 * 60 : rawEndMinutes;
 
     return [
       {
@@ -3880,8 +3880,8 @@ export function TurmasPage({
 
     const rowHeight = readPixelCustomProperty(
       grid,
-      '--table-row-height',
-      30,
+      '--turma-schedule-row-height',
+      22,
     );
     const blockRect = event.currentTarget.getBoundingClientRect();
     const grabbedOffsetMinutes =
@@ -4764,7 +4764,71 @@ export function TurmasPage({
     }
   };
 
-  const writeTurmasSheetToSourceFile = async (
+  const saveTurmasSheetToBaseWorkbook = async (sheet: SheetTable) => {
+    const sourceResponse = await fetch('/api/base-workbook/file', {
+      cache: 'no-store',
+    });
+
+    if (sourceResponse.status === 404) {
+      return null;
+    }
+
+    if (!sourceResponse.ok) {
+      throw new Error('read-failed');
+    }
+
+    const { read, utils, write } = await loadXlsx();
+    const sourceFile = await responseToWorkbookFile(
+      sourceResponse,
+      'DadosElevar.xlsx',
+    );
+    const workbook = read(await sourceFile.arrayBuffer(), {
+      cellDates: true,
+    });
+    const preferredSheetName =
+      sheet.sheetName || TURMAS_WORKBOOK_SHEET || 'Turmas';
+    const workbookSheetName =
+      workbook.SheetNames.find(
+        (name) =>
+          normalizeFieldLabel(name) === normalizeFieldLabel(preferredSheetName),
+      ) ?? preferredSheetName.slice(0, 31);
+
+    workbook.Sheets[workbookSheetName] = utils.aoa_to_sheet([
+      sheet.columns,
+      ...sheet.rows,
+    ]);
+
+    if (!workbook.SheetNames.includes(workbookSheetName)) {
+      workbook.SheetNames.push(workbookSheetName);
+    }
+
+    const output = write(workbook, {
+      bookType: 'xlsx',
+      type: 'array',
+    }) as ArrayBuffer;
+    const saveResponse = await fetch('/api/base-workbook/file', {
+      method: 'PUT',
+      headers: {
+        'content-type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+      body: output,
+    });
+
+    if (!saveResponse.ok) {
+      throw new Error('save-failed');
+    }
+
+    const savedFile = await fetchBaseWorkbookFile();
+
+    return savedFile
+      ? await readSheetFile(savedFile, TURMAS_ENTITY_ID, TURMAS_REQUIRED_COLUMNS, {
+          preferredSheetName: TURMAS_WORKBOOK_SHEET,
+        })
+      : sheet;
+  };
+
+  const performTurmasSheetSourceWrite = async (
     sheet: SheetTable,
     nextStudentsByClass?: Map<string, string[]>,
   ) => {
@@ -4773,6 +4837,27 @@ export function TurmasPage({
         sheet,
         TURMAS_ENTITY_ID,
       );
+      const savedBaseWorkbookSheet =
+        await saveTurmasSheetToBaseWorkbook(sheetWithIds);
+
+      if (savedBaseWorkbookSheet) {
+        const savedSheet = {
+          ...sheetWithIds,
+          sheetName: savedBaseWorkbookSheet.sheetName || sheetWithIds.sheetName,
+          fileName: savedBaseWorkbookSheet.fileName || sheetWithIds.fileName,
+        };
+
+        latestTurmasSheetRef.current = savedSheet;
+        setTurmasSheet(savedSheet);
+        await persistTurmasDataIndex(savedSheet, nextStudentsByClass);
+        await fetchRecoveryInfo();
+        suppressNextGlobalDataChangeEventRef.current = true;
+        window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+        window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+        setImportError('');
+        return savedSheet;
+      }
+
       const saveResponse = await fetch('/api/turmas/values', {
         method: 'PUT',
         headers: {
@@ -4810,6 +4895,23 @@ export function TurmasPage({
       );
       return null;
     }
+  };
+
+  const writeTurmasSheetToSourceFile = (
+    sheet: SheetTable,
+    nextStudentsByClass?: Map<string, string[]>,
+  ) => {
+    const queuedWrite = sourceWriteQueueRef.current
+      .catch(() => {
+        // The write path owns its visible error state.
+      })
+      .then(() => performTurmasSheetSourceWrite(sheet, nextStudentsByClass));
+
+    sourceWriteQueueRef.current = queuedWrite.catch(() => {
+      // Keep the queue alive after a failed write.
+    });
+
+    return queuedWrite;
   };
 
   const syncTurmasWorkbookFromAprendizes = async (sheet: SheetTable) => {
@@ -6079,7 +6181,16 @@ export function TurmasPage({
     const periodRange = getTurmaPeriodRange(turmaPeriodValue);
 
     if (weekdayIndex === null || !periodRange) {
-      return null;
+      return (
+        <section
+          className="turma-schedule-panel turma-schedule-panel-empty"
+          aria-label="Cronograma da turma"
+        >
+          <div className="turma-schedule-empty-state">
+            Nenhum Período Definido
+          </div>
+        </section>
+      );
     }
 
     const scheduleDates = getScheduleDatesForWeekday(
@@ -6153,7 +6264,8 @@ export function TurmasPage({
           {timeSlots.map((slotMinutes) => {
             const isInsidePeriod = slotMinutes <= periodRange.endMinutes;
             const isFooterSlot = slotMinutes === periodRange.endMinutes;
-            const isMajorSlot = slotMinutes % 30 === 0;
+            const elapsedMinutes = slotMinutes - periodRange.startMinutes;
+            const isMajorSlot = elapsedMinutes % 30 === 0;
             const isPeriodStartSlot = slotMinutes === periodRange.startMinutes;
             const isFirstScheduleSlot = slotMinutes === periodRange.startMinutes;
             const scheduleLineClass = isInsidePeriod && isMajorSlot && !isPeriodStartSlot
@@ -6366,8 +6478,8 @@ export function TurmasPage({
                               key={block.id}
                               style={
                                 {
-                                  '--schedule-block-top': `calc(var(--table-row-height, 30px) * ${topRowUnits})`,
-                                  '--schedule-block-height': `calc(var(--table-row-height, 30px) * ${heightRowUnits})`,
+                                  '--schedule-block-top': `calc(var(--turma-schedule-row-height, 22px) * ${topRowUnits})`,
+                                  '--schedule-block-height': `calc(var(--turma-schedule-row-height, 22px) * ${heightRowUnits})`,
                                 } as CSSProperties
                               }
                               onPointerDown={(event) =>
@@ -6809,18 +6921,24 @@ export function TurmasPage({
                         </span>
                         <span className="turma-header-actions">
                           {isDraft ? (
-                            <button
-                              className="turma-header-action-button turma-header-delete-button"
-                              type="button"
-                              aria-label="Descartar nova turma"
-                              title="Descartar"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                discardTurmaDraft();
-                              }}
-                            >
-                              <CloseIcon />
-                            </button>
+                            <>
+                              <span
+                                className="turma-header-arrow-slot"
+                                aria-hidden="true"
+                              />
+                              <button
+                                className="turma-header-action-button turma-header-delete-button"
+                                type="button"
+                                aria-label="Descartar nova turma"
+                                title="Descartar"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  discardTurmaDraft();
+                                }}
+                              >
+                                <CloseIcon />
+                              </button>
+                            </>
                           ) : (
                             <>
                               <span
