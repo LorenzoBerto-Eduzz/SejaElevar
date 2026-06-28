@@ -548,14 +548,28 @@ export const fetchBaseWorkbookFileWithRetry = async (
   attempts = 3,
   retryDelayMs = 220,
 ) => {
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const file = await fetchBaseWorkbookFile();
+  let lastError: unknown = null;
 
-    if (file || attempt === attempts) {
-      return file;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const file = await fetchBaseWorkbookFile();
+
+      if (file || attempt === attempts) {
+        return file;
+      }
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === attempts) {
+        throw error;
+      }
     }
 
     await waitForWorkbookRetry(retryDelayMs);
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 
   return null;
@@ -652,7 +666,9 @@ export const persistManagedWorkbookDataIndexes = async (file: File | null) => {
   }
 };
 
-export const ensureActiveWorkbookManagedSheets = async () => {
+let activeWorkbookManagedSheetsPromise: Promise<boolean> | null = null;
+
+const ensureActiveWorkbookManagedSheetsOnce = async () => {
   const sourceResponse = await fetch('/api/base-workbook/file', {
     cache: 'no-store',
   });
@@ -686,6 +702,15 @@ export const ensureActiveWorkbookManagedSheets = async () => {
 
   await persistManagedWorkbookDataIndexes(preparedWorkbook.file);
   return preparedWorkbook.didChange;
+};
+
+export const ensureActiveWorkbookManagedSheets = async () => {
+  activeWorkbookManagedSheetsPromise ??=
+    ensureActiveWorkbookManagedSheetsOnce().finally(() => {
+      activeWorkbookManagedSheetsPromise = null;
+    });
+
+  return activeWorkbookManagedSheetsPromise;
 };
 
 export const fetchRecoveryInfo = async () => {

@@ -40,7 +40,7 @@ This gives the worker a simple Google Drive/Google Sheets experience: open one s
 
 The current multi-workbook implementation should be treated as an intermediate local-first implementation, not the ideal final shape. Future refactors should move toward a storage adapter that reads/writes named worksheets inside one active workbook while preserving the app's separate generated entities.
 
-The operational data model is one living app state. Tabs are only views/controllers over that state. Switching tabs must never discard, downgrade, or replace user edits with an older workbook snapshot. When a page has a pending save, stale reloads must be ignored or queued until the save settles. Background/system writes, such as hidden ID seeding, are non-authoritative and must abort if their sheet snapshot is no longer the current visible/source data.
+The operational data model is one living app state. Tabs are only views/controllers over that state. Switching tabs must never discard, downgrade, or replace user edits with an older workbook snapshot. When a page has a pending save, stale reloads must be ignored or queued until the save settles. Background/system writes, such as hidden ID seeding, are non-authoritative and must abort if their sheet snapshot is no longer the current visible/source data. Startup/load paths must follow the same rule: managed workbook normalization should be single-flight, base-workbook reads should retry transient provider errors, and optional-sheet pages such as Arcos/Aulas/Turmas must not replace a real active workbook state with add-button-only empty UI merely because the first provider read was late.
 
 Current migration anchor:
 
@@ -156,11 +156,15 @@ Aprendizes, Turmas, Arcos, Disciplinas, Aulas, Aulas Disciplinas, and Cronograma
 
 The `Aulas` catalog is now a real editable workbook flow, not a placeholder. Aula edits save to the active `DadosElevar` workbook, then re-read the saved workbook, refresh generated indexes, and broadcast the global data-change event. Aula creation is draft-first: no row is written until the user commits a non-empty unique `Aula` name. Aula deletion is linked: the delete action removes the Aula row and any matching `Aulas Disciplinas` / `Cronograma` rows that reference it by `Aula ID` or fallback Aula name, and the undo entry stores those linked rows so undo/redo can restore or remove the whole linked change together.
 
+The Aulas coverage UI is now the next active foundation, not a future blank slate. Coverage rows are edited through `Aulas Disciplinas`: the UI adds/selects existing Disciplinas from the current imported Arcos/Disciplinas catalog, displays them as `Modulo  |  Disciplina`, excludes already-selected coverage options for that Aula, and keeps the workbook/index as the source. Selecting or changing a coverage item must update `Aulas Disciplinas`, refresh generated entities, and remain in sync if the user imports another Ementa while Aulas is mounted. Shared `Inicial`/`Basico` coverage uses the module label; `Especifico` coverage should use the relevant Arco context rather than a generic "Especifico" label when it helps the user choose.
+
 Future deletion/removal of imported Arcos/Ementas/Disciplinas must be designed as a linked-data operation. It should warn about affected Aprendizes, Aulas, Cronograma blocks, and historical records, preserve completed attendance/proof snapshots, and mark unresolved future references rather than silently erasing dependent data.
 
 When implementing any new data-changing feature, define the whole data path before wiring the UI: which source workbook/file changes, how the generated data index refreshes, what action-history text appears, how undo/redo applies and refreshes linked data, and whether the action creates or uses a global recovery checkpoint. If any of those pieces are intentionally not affected, note why in the implementation or focused docs.
 
 The empty-workbook import state is shared UI, not page-specific UI. Aprendizes, Turmas, Arcos, Aulas, and future workbook-backed pages should show the same `Importar .xlsx` content page element when there is no active `DadosElevar` workbook, while page-specific empty states such as `Nenhuma aula cadastrada` appear only after an active workbook exists.
+
+Page-specific add/register actions have moved into the content areas instead of the old page header buttons. `Cadastrar Aprendiz`, `Adicionar Turma`, `Adicionar Arco`, and `Criar Aula` should appear as inline add buttons near their respective lists, with an expanded icon+text shape when the list is empty and compact square shape when there are existing items. These buttons should remain reachable when scrolling would otherwise hide them, but they still act through the same workbook/source-data paths and global undo/checkpoint logic as normal edits.
 
 ## Linked Records And Dropdown Fields
 

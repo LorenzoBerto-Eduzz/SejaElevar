@@ -56,7 +56,7 @@ export const AULAS_DISCIPLINAS_REQUIRED_COLUMNS = [
   'Aula ID',
   'Aula',
   'Arco',
-  'MÃ³dulo',
+  'Módulo',
   'Disciplina',
   'Disciplina ID',
   'ID',

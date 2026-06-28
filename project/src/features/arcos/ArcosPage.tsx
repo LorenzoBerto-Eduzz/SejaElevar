@@ -113,6 +113,18 @@ const readDisciplinasFromFile = async (file: File) => {
   }
 };
 
+const readArcosWorkbookBundle = async (file: File) => {
+  const [arcosSheet, disciplinasSheet] = await Promise.all([
+    readArcosFromFile(file),
+    readDisciplinasFromFile(file),
+  ]);
+
+  return {
+    arcosSheet,
+    disciplinasSheet,
+  };
+};
+
 type Arco = {
   id: string;
   name: string;
@@ -164,12 +176,22 @@ export function ArcosPage({
   const [hasActiveWorkbook, setHasActiveWorkbook] = useState(false);
   const [hasCheckedWorkbook, setHasCheckedWorkbook] = useState(false);
   const [isImportingEmenta, setIsImportingEmenta] = useState(false);
+  const latestArcosSheetRef = useRef<SheetTable | null>(null);
+  const latestDisciplinasSheetRef = useRef<SheetTable | null>(null);
   const globalWorkbookState = useGlobalWorkbookState();
   const { message: ementaToast, showToast: showEmentaToast } =
     useTimedToast();
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     () => new Set(DEFAULT_EXPANDED_MODULE_KEYS),
   );
+
+  useEffect(() => {
+    latestArcosSheetRef.current = arcosSheet;
+  }, [arcosSheet]);
+
+  useEffect(() => {
+    latestDisciplinasSheetRef.current = disciplinasSheet;
+  }, [disciplinasSheet]);
 
   const arcos = useMemo<Arco[]>(() => {
     if (!arcosSheet) {
@@ -241,10 +263,10 @@ export function ArcosPage({
           return;
         }
 
-        const [nextArcosSheet, nextDisciplinasSheet] = await Promise.all([
-          readArcosFromFile(file),
-          readDisciplinasFromFile(file),
-        ]);
+        const {
+          arcosSheet: nextArcosSheet,
+          disciplinasSheet: nextDisciplinasSheet,
+        } = await readArcosWorkbookBundle(file);
 
         if (!isMounted) {
           return;
@@ -257,6 +279,40 @@ export function ArcosPage({
         markGlobalWorkbookAvailable(await fetchRecoveryInfo().catch(() => null));
       } catch {
         if (!isMounted) {
+          return;
+        }
+
+        const retryFile = await fetchBaseWorkbookFileWithRetry(6, 260).catch(
+          () => null,
+        );
+
+        if (retryFile) {
+          try {
+            const {
+              arcosSheet: nextArcosSheet,
+              disciplinasSheet: nextDisciplinasSheet,
+            } = await readArcosWorkbookBundle(retryFile);
+
+            if (!isMounted) {
+              return;
+            }
+
+            setArcosSheet(nextArcosSheet);
+            setDisciplinasSheet(nextDisciplinasSheet);
+            setHasActiveWorkbook(true);
+            setHasCheckedWorkbook(true);
+            markGlobalWorkbookAvailable(
+              await fetchRecoveryInfo().catch(() => null),
+            );
+            return;
+          } catch {
+            // Keep the current visible workbook state below if one already exists.
+          }
+        }
+
+        if (latestArcosSheetRef.current || latestDisciplinasSheetRef.current) {
+          setHasActiveWorkbook(true);
+          setHasCheckedWorkbook(true);
           return;
         }
 

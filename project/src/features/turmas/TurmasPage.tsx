@@ -49,6 +49,7 @@ import {
 import {
   MissingRequiredColumnsError,
   fetchBaseWorkbookFile,
+  fetchBaseWorkbookFileWithRetry,
   fetchRecoveryInfo as fetchWorkspaceRecoveryInfo,
   isUnifiedWorkbookFile,
   loadXlsx,
@@ -4047,9 +4048,25 @@ export function TurmasPage({
 
       return nextSheet;
     } catch (error) {
-      clearWorkingSheet();
+      const retryFile = await fetchBaseWorkbookFileWithRetry(6, 260).catch(
+        () => null,
+      );
+
+      if (retryFile) {
+        try {
+          return await applyTurmasFile(retryFile, currentAprendizesSheet);
+        } catch {
+          // Fall through to preserving any current visible sheet below.
+        }
+      }
+
+      if (latestTurmasSheetRef.current) {
+        setImportError('');
+        return latestTurmasSheetRef.current;
+      }
 
       if (error instanceof MissingRequiredColumnsError) {
+        clearWorkingSheet();
         setImportError('');
         return null;
       }
@@ -4077,11 +4094,15 @@ export function TurmasPage({
       await Promise.all([
         loadProviderFile(nextAprendizesSheet),
         (async () => {
-          const response = await fetch('/api/base-workbook/file', {
-            cache: 'no-store',
-          });
+          const file = await fetchBaseWorkbookFileWithRetry(6, 260).catch(
+            () => null,
+          );
 
-          if (!response.ok) {
+          if (!file) {
+            if (latestAulasSheetRef.current || latestCronogramaSheetRef.current) {
+              return;
+            }
+
             latestAulasSheetRef.current = null;
             setAulasSheet(null);
             await persistAulasDataIndex(null);
@@ -4091,7 +4112,6 @@ export function TurmasPage({
             return;
           }
 
-          const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
           await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
         })(),
       ]);
@@ -4113,11 +4133,15 @@ export function TurmasPage({
       await Promise.all([
         loadProviderFile(nextAprendizesSheet),
         (async () => {
-          const response = await fetch('/api/base-workbook/file', {
-            cache: 'no-store',
-          });
+          const file = await fetchBaseWorkbookFileWithRetry(6, 260).catch(
+            () => null,
+          );
 
-          if (!response.ok) {
+          if (!file) {
+            if (latestAulasSheetRef.current || latestCronogramaSheetRef.current) {
+              return;
+            }
+
             latestAulasSheetRef.current = null;
             setAulasSheet(null);
             await persistAulasDataIndex(null);
@@ -4127,7 +4151,6 @@ export function TurmasPage({
             return;
           }
 
-          const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
           await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
         })(),
       ]);
@@ -5227,7 +5250,12 @@ export function TurmasPage({
       rowIndex,
       field,
       columnName,
-      draftValue: field === 'period' ? getPeriodDigits(currentValue) : currentValue,
+      draftValue:
+        rowIndex === 'draft'
+          ? field === 'period'
+            ? getPeriodDigits(currentValue)
+            : currentValue
+          : '',
       style: {
         left: Math.round(anchorRect.left),
         top: Math.round(anchorRect.bottom + 4),

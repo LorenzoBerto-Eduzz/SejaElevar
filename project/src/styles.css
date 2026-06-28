@@ -2052,10 +2052,18 @@ svg {
   display: grid;
   align-content: start;
   gap: var(--arcos-discipline-gap, 6px);
-  width: max(var(--arcos-column-width, 280px), 560px);
+  width: max-content;
   min-width: 0;
-  max-width: 100%;
+  max-width: none;
   padding-bottom: 12px;
+  overflow: visible;
+}
+
+.aula-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--aulas-coverage-gap, 6px);
+  min-width: max-content;
   overflow: visible;
 }
 
@@ -2078,6 +2086,257 @@ svg {
   font-weight: 700;
   line-height: 1.25;
   overflow: visible;
+  width: 560px;
+  flex: 0 0 560px;
+}
+
+.aula-coverage-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--aulas-coverage-gap, 6px);
+  min-width: 0;
+  overflow: visible;
+}
+
+.aula-coverage-chip {
+  position: relative;
+  display: block;
+  --aula-coverage-surface: var(--brand-tertiary);
+  --aula-coverage-text: #426172;
+  height: 30px;
+  min-height: 30px;
+  width: 300px;
+  border-radius: 7px;
+  color: var(--aula-coverage-text);
+  background: var(--aula-coverage-surface);
+  font-size: 0.76rem;
+  font-weight: 780;
+  line-height: 1;
+  overflow: visible;
+}
+
+.aula-coverage-name {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  height: 24px;
+  margin: 3px 0;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aula-coverage-name {
+  justify-content: flex-start;
+}
+
+.aula-coverage-name[role="button"] {
+  cursor: text;
+}
+
+.aula-coverage-name[role="button"]:focus-visible {
+  z-index: 110;
+  border-color: color-mix(in srgb, currentColor 44%, transparent);
+  outline: none;
+  background: var(--aula-coverage-surface);
+}
+
+.aula-coverage-name:hover {
+  z-index: 110;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(760px, calc(100vw - 180px));
+  border-color: color-mix(in srgb, currentColor 44%, transparent);
+  overflow: visible;
+  background: var(--aula-coverage-surface);
+  box-shadow:
+    0 0 0 2px var(--aula-coverage-surface),
+    0 3px 8px color-mix(in srgb, #000 14%, transparent);
+}
+
+.aula-coverage-remove {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  color: inherit;
+  background: var(--aula-coverage-surface);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+}
+
+.aula-coverage-chip:hover .aula-coverage-remove,
+.aula-coverage-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  border-color: color-mix(in srgb, currentColor 48%, transparent);
+}
+
+.aula-coverage-remove:hover,
+.aula-coverage-remove:focus-visible {
+  border-color: color-mix(in srgb, currentColor 48%, transparent);
+  outline: none;
+}
+
+.aula-coverage-remove svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
+}
+
+.aula-coverage-chip-draft {
+  z-index: 145;
+  color: var(--aula-coverage-text);
+  background: var(--aula-coverage-surface);
+}
+
+.aula-coverage-name.editing {
+  z-index: 145;
+  width: min(
+    var(--aula-coverage-edit-width, 100%),
+    calc(100vw - 180px),
+    760px
+  );
+  min-width: 100%;
+  overflow: visible;
+  border-color: color-mix(in srgb, currentColor 44%, transparent);
+  background: var(--aula-coverage-surface);
+  box-shadow:
+    0 0 0 2px var(--aula-coverage-surface),
+    0 3px 8px color-mix(in srgb, #000 14%, transparent);
+}
+
+.aula-coverage-name.editing input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  outline: none;
+}
+
+.aula-coverage-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 150;
+  display: grid;
+  width: max-content;
+  min-width: 300px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+  border-radius: 7px;
+  padding: 2px;
+  color: var(--aula-coverage-text);
+  background: var(--aula-coverage-surface);
+  box-shadow: 0 9px 20px color-mix(in srgb, #000 20%, transparent);
+}
+
+.aula-coverage-option {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.aula-coverage-option .aula-coverage-name {
+  width: 100%;
+  margin: 0;
+}
+
+.aula-coverage-option:hover,
+.aula-coverage-option:focus-visible {
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  outline: none;
+}
+
+.aula-coverage-empty-option {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 7px;
+  color: inherit;
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+.aula-coverage-add-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin-left: calc(6px - var(--aulas-coverage-gap, 6px));
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--brand-primary);
+  background: var(--brand-page-background);
+  cursor: pointer;
+}
+
+.aula-coverage-add-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  transform: translateX(1.5px);
+  pointer-events: none;
+}
+
+.aula-coverage-add-button:hover,
+.aula-coverage-add-button:focus-visible {
+  outline: none;
+}
+
+.aula-coverage-add-button:hover::before,
+.aula-coverage-add-button:focus-visible::before {
+  border-color: var(--brand-primary);
+}
+
+.aula-coverage-add-button svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+  transform: translate(0.5px, 0.5px);
+}
+
+.dark-mode .aula-coverage-chip {
+  --aula-coverage-text: var(--brand-text);
 }
 
 .aula-list-card:focus-within {
@@ -2305,7 +2564,7 @@ svg {
 .aula-room-field.editing,
 .aula-instructor-field:hover,
 .aula-instructor-field.editing {
-  z-index: 90;
+  z-index: 140;
   width: min(
     var(--aula-field-expanded-width, 100%),
     calc(100vw - 180px),
@@ -2354,7 +2613,7 @@ svg {
   position: absolute;
   top: calc(100% + 3px);
   left: 0;
-  z-index: 80;
+  z-index: 150;
   display: grid;
   width: 100%;
   min-width: 92px;
@@ -2436,7 +2695,7 @@ svg {
 
 .aula-name-wrap.editing {
   display: block;
-  z-index: 100;
+  z-index: 145;
 }
 
 .aula-name {
@@ -2479,7 +2738,11 @@ svg {
   font-weight: 750;
   line-height: 22px;
   transform: translateY(-1px);
-  z-index: 100;
+  z-index: 145;
+  background: var(--aula-color, var(--brand-primary));
+  box-shadow:
+    0 0 0 2px var(--aula-color, var(--brand-primary)),
+    0 3px 8px color-mix(in srgb, #000 16%, transparent);
 }
 
 .aula-name-wrap.editing .aula-name-input {
@@ -2503,7 +2766,7 @@ svg {
   top: 0;
   right: auto;
   left: 0;
-  z-index: 100;
+  z-index: 145;
   display: flex;
   align-items: center;
   width: max-content;

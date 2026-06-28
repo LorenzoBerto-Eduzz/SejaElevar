@@ -93,6 +93,7 @@ export type LayoutSettings = {
   arcosModuleGap: number;
   arcosModuleContentGap: number;
   arcosDisciplineGap: number;
+  aulasCoverageGap: number;
 };
 
 export type AppSettings = {
@@ -197,6 +198,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     arcosModuleGap: 8,
     arcosModuleContentGap: 6,
     arcosDisciplineGap: 6,
+    aulasCoverageGap: 6,
   },
 });
 

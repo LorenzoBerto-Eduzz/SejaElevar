@@ -424,6 +424,7 @@ export function AppShell({
           '--arcos-module-gap': `${settings.layout.arcosModuleGap}px`,
           '--arcos-module-content-gap': `${settings.layout.arcosModuleContentGap}px`,
           '--arcos-discipline-gap': `${settings.layout.arcosDisciplineGap}px`,
+          '--aulas-coverage-gap': `${settings.layout.aulasCoverageGap}px`,
         } as CSSProperties
       }
     >
@@ -910,6 +911,16 @@ export function AppShell({
                   value={settings.layout.arcosDisciplineGap}
                   onChange={(value) => updateLayout('arcosDisciplineGap', value)}
                   onReset={() => resetLayout('arcosDisciplineGap')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Aulas disciplinas gap"
+                  min={0}
+                  max={48}
+                  step={1}
+                  value={settings.layout.aulasCoverageGap}
+                  onChange={(value) => updateLayout('aulasCoverageGap', value)}
+                  onReset={() => resetLayout('aulasCoverageGap')}
                   className="dev-visible-slider-field"
                 />
               </>

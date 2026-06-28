@@ -9,19 +9,31 @@ import {
 import {
   AULAS_DISCIPLINAS_ENTITY_ID,
   AULAS_ENTITY_ID,
+  ARCOS_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
+  DISCIPLINAS_ENTITY_ID,
   type SheetTable,
 } from '../../shared/data/dataIndex';
 import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
 import {
   AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
+  ARCOS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
+  DISCIPLINAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
 import {
+  AULA_COVERAGE_ARC_COLUMN,
+  AULA_COVERAGE_DISCIPLINE_COLUMN,
+  AULA_COVERAGE_DISCIPLINE_ID_COLUMN,
+  AULA_COVERAGE_ID_COLUMN,
   AULA_COVERAGE_LESSON_COLUMN,
   AULA_COVERAGE_LESSON_ID_COLUMN,
+  AULA_COVERAGE_MODULE_COLUMN,
+  buildAulaCoverageOptions,
+  isSpecificDisciplineModule,
+  type AulaCoverageOption,
 } from '../../shared/data/aulaCoverage';
 import {
   ensureActiveWorkbookManagedSheets,
@@ -60,6 +72,18 @@ type AulaItem = {
   id: string;
   isDraft?: boolean;
   name: string;
+  rowIndex: number;
+};
+
+type AulaCoverageItem = {
+  id: string;
+  aulaId: string;
+  aulaName: string;
+  arco: string;
+  discipline: string;
+  disciplineId: string;
+  module: string;
+  row: string[];
   rowIndex: number;
 };
 
@@ -178,10 +202,27 @@ const createEmptyWorkbookSheet = (
   rows: [],
 });
 
-const getColumnIndex = (sheet: SheetTable, columnName: string) =>
-  sheet.columns.findIndex(
-    (column) => normalizeFieldLabel(column) === normalizeFieldLabel(columnName),
+const normalizeAulasColumnLabel = (value: string) => {
+  const normalizedValue = normalizeFieldLabel(value);
+
+  if (normalizedValue === normalizeFieldLabel('MÃ³dulo')) {
+    return normalizeFieldLabel('Módulo');
+  }
+
+  if (normalizedValue === normalizeFieldLabel('Carga HorÃ¡ria')) {
+    return normalizeFieldLabel('Carga Horária');
+  }
+
+  return normalizedValue;
+};
+
+const getColumnIndex = (sheet: SheetTable, columnName: string) => {
+  const columnKey = normalizeAulasColumnLabel(columnName);
+
+  return sheet.columns.findIndex(
+    (column) => normalizeAulasColumnLabel(column) === columnKey,
   );
+};
 
 const getCellValue = (
   sheet: SheetTable,
@@ -261,23 +302,84 @@ const fetchAulasWorkbookFile = async () => {
   );
 };
 
+const readAulasWorkbookBundle = async (file: File) => {
+  const [
+    aulasSheet,
+    coverageSheet,
+    arcosSheet,
+    disciplinasSheet,
+    workbookOptions,
+  ] = await Promise.all([
+    readAulasFromFile(file),
+    readWorkbookSheetWithFallback(
+      file,
+      AULAS_DISCIPLINAS_ENTITY_ID,
+      AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+      AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+    ),
+    readWorkbookSheetWithFallback(
+      file,
+      ARCOS_ENTITY_ID,
+      'Arcos',
+      ARCOS_REQUIRED_COLUMNS,
+    ),
+    readWorkbookSheetWithFallback(
+      file,
+      DISCIPLINAS_ENTITY_ID,
+      'Disciplinas',
+      DISCIPLINAS_REQUIRED_COLUMNS,
+    ),
+    readWorkbookOptions(file).catch(emptyWorkbookOptions),
+  ]);
+
+  return {
+    arcosSheet,
+    aulasSheet,
+    coverageSheet,
+    disciplinasSheet,
+    workbookOptions,
+  };
+};
+
 export function AulasPage({
   canInitialize = true,
   isActive = true,
 }: AulasPageProps) {
   const [aulasSheet, setAulasSheet] = useState<SheetTable | null>(null);
+  const [coverageSheet, setCoverageSheet] = useState<SheetTable | null>(null);
+  const [arcosSheet, setArcosSheet] = useState<SheetTable | null>(null);
+  const [disciplinasSheet, setDisciplinasSheet] = useState<SheetTable | null>(
+    null,
+  );
   const [workbookOptions, setWorkbookOptions] = useState(emptyWorkbookOptions);
   const [hasActiveWorkbook, setHasActiveWorkbook] = useState(false);
   const [hasCheckedWorkbook, setHasCheckedWorkbook] = useState(false);
   const [draftAula, setDraftAula] = useState<AulaItem | null>(null);
+  const [draftCoverageAulaId, setDraftCoverageAulaId] = useState('');
+  const [editingCoverageId, setEditingCoverageId] = useState('');
   const [aulaDeleteConfirmation, setAulaDeleteConfirmation] = useState<{
     aula: AulaItem;
   } | null>(null);
   const latestAulasSheetRef = useRef<SheetTable | null>(null);
+  const latestCoverageSheetRef = useRef<SheetTable | null>(null);
+  const latestArcosSheetRef = useRef<SheetTable | null>(null);
+  const latestDisciplinasSheetRef = useRef<SheetTable | null>(null);
 
   useEffect(() => {
     latestAulasSheetRef.current = aulasSheet;
   }, [aulasSheet]);
+
+  useEffect(() => {
+    latestCoverageSheetRef.current = coverageSheet;
+  }, [coverageSheet]);
+
+  useEffect(() => {
+    latestArcosSheetRef.current = arcosSheet;
+  }, [arcosSheet]);
+
+  useEffect(() => {
+    latestDisciplinasSheetRef.current = disciplinasSheet;
+  }, [disciplinasSheet]);
 
   const aulas = useMemo<AulaItem[]>(() => {
     if (!aulasSheet) {
@@ -304,6 +406,78 @@ export function AulasPage({
     return sheetAulas;
   }, [aulasSheet]);
 
+  const coverageOptions = useMemo(
+    () => buildAulaCoverageOptions(disciplinasSheet, arcosSheet),
+    [arcosSheet, disciplinasSheet],
+  );
+
+  const coverageItems = useMemo<AulaCoverageItem[]>(() => {
+    if (!coverageSheet) {
+      return [];
+    }
+
+    return coverageSheet.rows
+      .map((row, rowIndex) => {
+        const discipline = getCellValue(
+          coverageSheet,
+          row,
+          AULA_COVERAGE_DISCIPLINE_COLUMN,
+        );
+
+        if (!discipline) {
+          return null;
+        }
+
+        const disciplineId = getCellValue(
+          coverageSheet,
+          row,
+          AULA_COVERAGE_DISCIPLINE_ID_COLUMN,
+        );
+        const matchingOption = coverageOptions.find((option) => {
+          const optionIdKey = normalizeWorkbookOptionKey(option.disciplineId);
+          const rowIdKey = normalizeWorkbookOptionKey(disciplineId);
+
+          if (optionIdKey && rowIdKey && optionIdKey === rowIdKey) {
+            return true;
+          }
+
+          return (
+            normalizeWorkbookOptionKey(option.discipline) ===
+            normalizeWorkbookOptionKey(discipline)
+          );
+        });
+
+        return {
+          id:
+            getCellValue(coverageSheet, row, AULA_COVERAGE_ID_COLUMN) ||
+            `aula-disciplina#${rowIndex + 1}`,
+          aulaId: getCellValue(
+            coverageSheet,
+            row,
+            AULA_COVERAGE_LESSON_ID_COLUMN,
+          ),
+          aulaName: getCellValue(
+            coverageSheet,
+            row,
+            AULA_COVERAGE_LESSON_COLUMN,
+          ),
+          discipline,
+          disciplineId: disciplineId || matchingOption?.disciplineId || '',
+          module:
+            getCellValue(coverageSheet, row, AULA_COVERAGE_MODULE_COLUMN) ||
+            matchingOption?.module ||
+            '',
+          arco:
+            getCellValue(coverageSheet, row, AULA_COVERAGE_ARC_COLUMN) ||
+            matchingOption?.arco ||
+            '',
+          row,
+          rowIndex,
+        };
+      })
+      .filter((item): item is AulaCoverageItem => Boolean(item));
+  }, [coverageOptions, coverageSheet]);
+
   const instructorOptions = useMemo(
     () =>
       mergeWorkbookOptionValues(
@@ -320,6 +494,112 @@ export function AulasPage({
       ),
     [aulas, workbookOptions.sala],
   );
+  const getCoverageContextLabel = (coverage: {
+    arco: string;
+    module: string;
+  }) => {
+    if (isSpecificDisciplineModule(coverage.module)) {
+      return coverage.arco.trim().split(/\s+/).filter(Boolean)[0] || 'Arco';
+    }
+
+    const moduleKey = normalizeFieldLabel(coverage.module);
+
+    if (moduleKey === 'basico') {
+      return 'Básico';
+    }
+
+    if (moduleKey === 'inicial') {
+      return 'Inicial';
+    }
+
+    return coverage.module || '-';
+  };
+  const getCoverageContextOrder = (coverage: { arco: string; module: string }) => {
+    const moduleKey = normalizeFieldLabel(coverage.module);
+
+    if (moduleKey === 'inicial') {
+      return 0;
+    }
+
+    if (moduleKey === 'basico') {
+      return 1;
+    }
+
+    return 2;
+  };
+  const sortCoverageOptions = (options: AulaCoverageOption[]) =>
+    [...options].sort((left, right) => {
+      const orderDifference =
+        getCoverageContextOrder(left) - getCoverageContextOrder(right);
+
+      if (orderDifference !== 0) {
+        return orderDifference;
+      }
+
+      const contextComparison = getCoverageContextLabel(left).localeCompare(
+        getCoverageContextLabel(right),
+        'pt-BR',
+        { sensitivity: 'base' },
+      );
+
+      if (contextComparison !== 0) {
+        return contextComparison;
+      }
+
+      return left.discipline.localeCompare(right.discipline, 'pt-BR', {
+        sensitivity: 'base',
+      });
+    });
+  const getAulaCoverageItems = (aula: AulaItem) =>
+    coverageItems.filter((coverage) => {
+      if (coverage.aulaId && aula.id) {
+        return coverage.aulaId === aula.id;
+      }
+
+      return (
+        !coverage.aulaId &&
+        normalizeWorkbookOptionKey(coverage.aulaName) ===
+          normalizeWorkbookOptionKey(aula.name)
+      );
+    });
+  const getAvailableCoverageOptions = (
+    aula: AulaItem,
+    ignoredCoverageId = '',
+  ) => {
+    const selectedCoverage = getAulaCoverageItems(aula).filter(
+      (coverage) => coverage.id !== ignoredCoverageId,
+    );
+    const selectedDisciplineKeys = new Set(
+      selectedCoverage.map((coverage) =>
+        normalizeWorkbookOptionKey(
+          coverage.disciplineId || coverage.discipline,
+        ),
+      ),
+    );
+    const selectedSpecificArcos = new Set(
+      selectedCoverage
+        .filter((coverage) => isSpecificDisciplineModule(coverage.module))
+        .map((coverage) => normalizeFieldLabel(coverage.arco))
+        .filter(Boolean),
+    );
+
+    return sortCoverageOptions(
+      coverageOptions.filter((option) => {
+        const optionKey = normalizeWorkbookOptionKey(
+          option.disciplineId || option.discipline,
+        );
+
+        if (selectedDisciplineKeys.has(optionKey)) {
+          return false;
+        }
+
+        return !(
+          isSpecificDisciplineModule(option.module) &&
+          selectedSpecificArcos.has(normalizeFieldLabel(option.arco))
+        );
+      }),
+    );
+  };
   const isDuplicateAulaName = (name: string, ignoredRowIndex = -1) => {
     const nameKey = normalizeWorkbookOptionKey(name);
 
@@ -452,6 +732,211 @@ export function AulasPage({
     setAulasSheet(savedSheet);
 
     return savedSheet;
+  };
+
+  const saveCoverageSheet = async (nextSheet: SheetTable) => {
+    latestCoverageSheetRef.current = nextSheet;
+    setCoverageSheet(nextSheet);
+
+    const savedFile = await saveWorkbookSheetSet([nextSheet]);
+    const savedSheet = savedFile
+      ? await readWorkbookSheetWithFallback(
+          savedFile,
+          AULAS_DISCIPLINAS_ENTITY_ID,
+          AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+          AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+        )
+      : nextSheet;
+
+    latestCoverageSheetRef.current = savedSheet;
+    setCoverageSheet(savedSheet);
+
+    return savedSheet;
+  };
+
+  const buildCoverageRow = (
+    sheet: SheetTable,
+    aula: AulaItem,
+    option: AulaCoverageOption,
+    id = generateStableRecordId(AULAS_DISCIPLINAS_ENTITY_ID),
+  ) =>
+    sheet.columns.map((column) => {
+      const columnKey = normalizeFieldLabel(column);
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_LESSON_ID_COLUMN)) {
+        return aula.id;
+      }
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_LESSON_COLUMN)) {
+        return aula.name;
+      }
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_ARC_COLUMN)) {
+        return option.arco;
+      }
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_MODULE_COLUMN)) {
+        return option.module;
+      }
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_DISCIPLINE_COLUMN)) {
+        return option.discipline;
+      }
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_DISCIPLINE_ID_COLUMN)) {
+        return option.disciplineId;
+      }
+
+      if (columnKey === normalizeFieldLabel(AULA_COVERAGE_ID_COLUMN)) {
+        return id;
+      }
+
+      return '';
+    });
+
+  const addAulaCoverage = async (aula: AulaItem, option: AulaCoverageOption) => {
+    const currentSheet =
+      latestCoverageSheetRef.current ??
+      coverageSheet ??
+      createEmptyWorkbookSheet(
+        aulasSheet?.fileName ?? 'DadosElevar.xlsx',
+        AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+        AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+      );
+
+    if (!aula.name || aula.isDraft) {
+      return false;
+    }
+
+    const nextRow = buildCoverageRow(currentSheet, aula, option);
+    const nextRowIndex = currentSheet.rows.length;
+    setDraftCoverageAulaId('');
+    const savedSheet = await saveCoverageSheet({
+      ...currentSheet,
+      rows: [...currentSheet.rows.map((row) => [...row]), nextRow],
+    });
+
+    pushGlobalUndoEntry({
+      originTab: 'aulas',
+      kind: 'aula-coverage-insert',
+      itemLabel: aula.name,
+      rowIndex: nextRowIndex,
+      rowData: nextRow,
+      recordId: getCellValue(savedSheet, nextRow, AULA_COVERAGE_ID_COLUMN),
+      nextValue: option.discipline,
+    });
+
+    return true;
+  };
+
+  const updateAulaCoverage = async (
+    aula: AulaItem,
+    coverage: AulaCoverageItem,
+    option: AulaCoverageOption,
+  ) => {
+    const currentSheet = latestCoverageSheetRef.current ?? coverageSheet;
+
+    if (!currentSheet || !aula.name || aula.isDraft) {
+      setEditingCoverageId('');
+      return false;
+    }
+
+    const optionKey = normalizeWorkbookOptionKey(
+      option.disciplineId || option.discipline,
+    );
+    const currentKey = normalizeWorkbookOptionKey(
+      coverage.disciplineId || coverage.discipline,
+    );
+
+    if (optionKey && optionKey === currentKey) {
+      setEditingCoverageId('');
+      return true;
+    }
+
+    const idColumnIndex = getColumnIndex(currentSheet, AULA_COVERAGE_ID_COLUMN);
+    const currentRowIndex =
+      coverage.id && idColumnIndex >= 0
+        ? currentSheet.rows.findIndex(
+            (row) => String(row[idColumnIndex] ?? '').trim() === coverage.id,
+          )
+        : coverage.rowIndex;
+    const previousRow = currentSheet.rows[currentRowIndex];
+
+    if (currentRowIndex < 0 || !previousRow) {
+      setEditingCoverageId('');
+      return false;
+    }
+
+    const nextRow = buildCoverageRow(currentSheet, aula, option, coverage.id);
+    const nextRows = currentSheet.rows.map((row) => [...row]);
+
+    nextRows[currentRowIndex] = nextRow;
+
+    await saveCoverageSheet({
+      ...currentSheet,
+      rows: nextRows,
+    });
+
+    setEditingCoverageId('');
+
+    pushGlobalUndoEntry({
+      originTab: 'aulas',
+      kind: 'aula-coverage-update',
+      itemLabel: aula.name,
+      rowIndex: currentRowIndex,
+      recordId: coverage.id,
+      previousRowData: previousRow,
+      nextRowData: nextRow,
+      previousValue: coverage.discipline,
+      nextValue: option.discipline,
+    });
+
+    return true;
+  };
+
+  const removeAulaCoverage = async (
+    coverage: AulaCoverageItem,
+    options: { registerUndo?: boolean } = {},
+  ) => {
+    const currentSheet = latestCoverageSheetRef.current ?? coverageSheet;
+
+    if (!currentSheet) {
+      return false;
+    }
+
+    const idColumnIndex = getColumnIndex(currentSheet, AULA_COVERAGE_ID_COLUMN);
+    const currentRowIndex =
+      coverage.id && idColumnIndex >= 0
+        ? currentSheet.rows.findIndex(
+            (row) => String(row[idColumnIndex] ?? '').trim() === coverage.id,
+          )
+        : coverage.rowIndex;
+    const deletedRow = currentSheet.rows[currentRowIndex];
+
+    if (currentRowIndex < 0 || !deletedRow) {
+      return false;
+    }
+
+    await saveCoverageSheet({
+      ...currentSheet,
+      rows: currentSheet.rows
+        .filter((_, rowIndex) => rowIndex !== currentRowIndex)
+        .map((row) => [...row]),
+    });
+
+    if (options.registerUndo !== false) {
+      pushGlobalUndoEntry({
+        originTab: 'aulas',
+        kind: 'aula-coverage-delete',
+        itemLabel: coverage.aulaName || coverage.aulaId,
+        rowIndex: currentRowIndex,
+        rowData: deletedRow,
+        recordId: coverage.id,
+        previousValue: coverage.discipline,
+      });
+    }
+
+    return true;
   };
 
   const buildAulaRow = (
@@ -874,6 +1359,92 @@ export function AulasPage({
       });
     };
 
+    if (
+      entry.kind === 'aula-coverage-insert' ||
+      entry.kind === 'aula-coverage-delete'
+    ) {
+      const rowData = normalizeStoredRow(entry.rowData);
+      const sourceFile = await fetchBaseWorkbookFile();
+
+      if (!rowData || !sourceFile) {
+        return false;
+      }
+
+      const currentCoverageSheet =
+        latestCoverageSheetRef.current ??
+        (await readWorkbookSheetWithFallback(
+          sourceFile,
+          AULAS_DISCIPLINAS_ENTITY_ID,
+          AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+          AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+        ));
+      const rowIndex = typeof entry.rowIndex === 'number' ? entry.rowIndex : -1;
+      const storedRows = [{ rowIndex, row: rowData }];
+      const shouldInsert =
+        (entry.kind === 'aula-coverage-insert' && valueKey === 'nextValue') ||
+        (entry.kind === 'aula-coverage-delete' && valueKey === 'previousValue');
+      const nextCoverageSheet = {
+        ...currentCoverageSheet,
+        rows: shouldInsert
+          ? insertStoredRows(currentCoverageSheet.rows, storedRows)
+          : removeStoredRows(currentCoverageSheet, storedRows),
+      };
+
+      await saveCoverageSheet(nextCoverageSheet);
+
+      return true;
+    }
+
+    if (entry.kind === 'aula-coverage-update') {
+      const previousRowData = normalizeStoredRow(entry.previousRowData);
+      const nextRowData = normalizeStoredRow(entry.nextRowData);
+      const rowData = valueKey === 'previousValue' ? previousRowData : nextRowData;
+      const sourceFile = await fetchBaseWorkbookFile();
+
+      if (!rowData || !sourceFile) {
+        return false;
+      }
+
+      const currentCoverageSheet =
+        latestCoverageSheetRef.current ??
+        (await readWorkbookSheetWithFallback(
+          sourceFile,
+          AULAS_DISCIPLINAS_ENTITY_ID,
+          AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+          AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+        ));
+      const recordId = typeof entry.recordId === 'string' ? entry.recordId : '';
+      const rowIndex = typeof entry.rowIndex === 'number' ? entry.rowIndex : -1;
+      const idColumnIndex = getColumnIndex(
+        currentCoverageSheet,
+        AULA_COVERAGE_ID_COLUMN,
+      );
+      const currentRowIndex =
+        recordId && idColumnIndex >= 0
+          ? currentCoverageSheet.rows.findIndex(
+              (row) => String(row[idColumnIndex] ?? '').trim() === recordId,
+            )
+          : rowIndex;
+
+      if (currentRowIndex < 0) {
+        return false;
+      }
+
+      const nextRows = currentCoverageSheet.rows.map((row) => [...row]);
+
+      nextRows[currentRowIndex] = rowData.slice(
+        0,
+        currentCoverageSheet.columns.length,
+      );
+
+      await saveCoverageSheet({
+        ...currentCoverageSheet,
+        rows: nextRows,
+      });
+
+      return true;
+    }
+
     if (entry.kind === 'row-create') {
       const currentSheet = latestAulasSheetRef.current ?? aulasSheet;
 
@@ -1041,21 +1612,30 @@ export function AulasPage({
 
         if (!file) {
           setAulasSheet(null);
+          setCoverageSheet(null);
+          setArcosSheet(null);
+          setDisciplinasSheet(null);
           setHasActiveWorkbook(false);
           setHasCheckedWorkbook(true);
           return;
         }
 
-        const nextAulasSheet = await readAulasFromFile(file);
-        const nextWorkbookOptions = await readWorkbookOptions(file).catch(
-          emptyWorkbookOptions,
-        );
+        const {
+          arcosSheet: nextArcosSheet,
+          aulasSheet: nextAulasSheet,
+          coverageSheet: nextCoverageSheet,
+          disciplinasSheet: nextDisciplinasSheet,
+          workbookOptions: nextWorkbookOptions,
+        } = await readAulasWorkbookBundle(file);
 
         if (!isMounted) {
           return;
         }
 
         setAulasSheet(nextAulasSheet);
+        setCoverageSheet(nextCoverageSheet);
+        setArcosSheet(nextArcosSheet);
+        setDisciplinasSheet(nextDisciplinasSheet);
         setWorkbookOptions(nextWorkbookOptions);
         setHasActiveWorkbook(true);
         setHasCheckedWorkbook(true);
@@ -1064,8 +1644,71 @@ export function AulasPage({
           return;
         }
 
+        const retryFile = await fetchBaseWorkbookFileWithRetry(6, 260).catch(
+          () => null,
+        );
+
+        if (retryFile) {
+          try {
+            const {
+              arcosSheet: nextArcosSheet,
+              aulasSheet: nextAulasSheet,
+              coverageSheet: nextCoverageSheet,
+              disciplinasSheet: nextDisciplinasSheet,
+              workbookOptions: nextWorkbookOptions,
+            } = await readAulasWorkbookBundle(retryFile);
+
+            if (!isMounted) {
+              return;
+            }
+
+            setAulasSheet(nextAulasSheet);
+            setCoverageSheet(nextCoverageSheet);
+            setArcosSheet(nextArcosSheet);
+            setDisciplinasSheet(nextDisciplinasSheet);
+            setWorkbookOptions(nextWorkbookOptions);
+            setHasActiveWorkbook(true);
+            setHasCheckedWorkbook(true);
+            return;
+          } catch {
+            // Keep the current visible workbook state below if one already exists.
+          }
+        }
+
+        if (
+          latestAulasSheetRef.current ||
+          latestCoverageSheetRef.current ||
+          latestArcosSheetRef.current ||
+          latestDisciplinasSheetRef.current
+        ) {
+          setHasActiveWorkbook(true);
+          setHasCheckedWorkbook(true);
+          return;
+        }
+
         const fallbackSheet = createEmptyAulasSheet();
         setAulasSheet(fallbackSheet);
+        setCoverageSheet(
+          createEmptyWorkbookSheet(
+            fallbackSheet.fileName,
+            AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+            AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+          ),
+        );
+        setArcosSheet(
+          createEmptyWorkbookSheet(
+            fallbackSheet.fileName,
+            'Arcos',
+            ARCOS_REQUIRED_COLUMNS,
+          ),
+        );
+        setDisciplinasSheet(
+          createEmptyWorkbookSheet(
+            fallbackSheet.fileName,
+            'Disciplinas',
+            DISCIPLINAS_REQUIRED_COLUMNS,
+          ),
+        );
         setWorkbookOptions(emptyWorkbookOptions());
         setHasActiveWorkbook(true);
         setHasCheckedWorkbook(true);
@@ -1116,56 +1759,92 @@ export function AulasPage({
           <div className="data-table-frame aulas-board-frame">
             <div className="aulas-board" role="region" tabIndex={0}>
               <div className="aulas-list-column" role="list">
-                {listedAulas.map((aula) => (
-                  <AulaCard
-                    aula={aula}
-                    autoEditName={Boolean(aula.isDraft)}
-                    instructorOptions={instructorOptions}
-                    key={aula.id}
-                    onChangeColor={async (value) => {
-                      if (!aula.isDraft) {
-                        await updateAulaItemField(aula, AULA_COLOR_COLUMN, value);
-                      }
-                    }}
-                    onChangeInstructor={(value) =>
-                      aula.isDraft
-                        ? undefined
-                        : updateAulaOption(
-                            aula,
-                            AULA_DEFAULT_INSTRUCTOR_COLUMN,
-                            'instrutor',
-                            value,
-                          )
-                    }
-                    onChangeName={async (value) => {
-                      if (aula.isDraft) {
-                        await commitDraftAulaName(value);
-                        return;
-                      }
+                {listedAulas.map((aula) => {
+                  const aulaCoverageItems = getAulaCoverageItems(aula);
+                  const availableCoverageOptions =
+                    getAvailableCoverageOptions(aula);
 
-                      await updateAulaName(aula, value);
-                    }}
-                    onRequestDelete={() => {
-                      if (aula.isDraft) {
-                        setDraftAula(null);
-                        return;
-                      }
+                  return (
+                    <div className="aula-list-row" key={aula.id}>
+                      <AulaCard
+                        aula={aula}
+                        autoEditName={Boolean(aula.isDraft)}
+                        instructorOptions={instructorOptions}
+                        onChangeColor={async (value) => {
+                          if (!aula.isDraft) {
+                            await updateAulaItemField(aula, AULA_COLOR_COLUMN, value);
+                          }
+                        }}
+                        onChangeInstructor={(value) =>
+                          aula.isDraft
+                            ? undefined
+                            : updateAulaOption(
+                                aula,
+                                AULA_DEFAULT_INSTRUCTOR_COLUMN,
+                                'instrutor',
+                                value,
+                              )
+                        }
+                        onChangeName={async (value) => {
+                          if (aula.isDraft) {
+                            await commitDraftAulaName(value);
+                            return;
+                          }
 
-                      setAulaDeleteConfirmation({ aula });
-                    }}
-                    onChangeRoom={(value) =>
-                      aula.isDraft
-                        ? undefined
-                        : updateAulaOption(
-                            aula,
-                            AULA_DEFAULT_ROOM_COLUMN,
-                            'sala',
-                            value,
-                          )
-                    }
-                    roomOptions={roomOptions}
-                  />
-                ))}
+                          await updateAulaName(aula, value);
+                        }}
+                        onRequestDelete={() => {
+                          if (aula.isDraft) {
+                            setDraftAula(null);
+                            return;
+                          }
+
+                          setAulaDeleteConfirmation({ aula });
+                        }}
+                        onChangeRoom={(value) =>
+                          aula.isDraft
+                            ? undefined
+                            : updateAulaOption(
+                                aula,
+                                AULA_DEFAULT_ROOM_COLUMN,
+                                'sala',
+                                value,
+                              )
+                        }
+                        roomOptions={roomOptions}
+                      />
+                      {!aula.isDraft && (
+                        <AulaCoverageStrip
+                          availableOptions={availableCoverageOptions}
+                          coverageItems={aulaCoverageItems}
+                          editingCoverageId={editingCoverageId}
+                          getContextLabel={getCoverageContextLabel}
+                          getEditOptions={(coverage) =>
+                            getAvailableCoverageOptions(aula, coverage.id)
+                          }
+                          isDraftActive={draftCoverageAulaId === aula.id}
+                          onAddCoverage={(option) => addAulaCoverage(aula, option)}
+                          onCancelDraft={() => setDraftCoverageAulaId('')}
+                          onCancelEdit={() => setEditingCoverageId('')}
+                          onRemoveCoverage={(coverage) =>
+                            removeAulaCoverage(coverage)
+                          }
+                          onStartDraft={() => {
+                            setEditingCoverageId('');
+                            setDraftCoverageAulaId(aula.id);
+                          }}
+                          onStartEdit={(coverage) => {
+                            setDraftCoverageAulaId('');
+                            setEditingCoverageId(coverage.id);
+                          }}
+                          onUpdateCoverage={(coverage, option) =>
+                            updateAulaCoverage(aula, coverage, option)
+                          }
+                        />
+                      )}
+                    </div>
+                  );
+                })}
                 <div className="aula-create-row">
                   <button
                     className={
@@ -1248,6 +1927,241 @@ type AulaCardProps = {
   onChangeRoom: (value: string) => void | Promise<void>;
   roomOptions: string[];
 };
+
+type AulaCoverageStripProps = {
+  availableOptions: AulaCoverageOption[];
+  coverageItems: AulaCoverageItem[];
+  editingCoverageId: string;
+  getContextLabel: (coverage: { arco: string; module: string }) => string;
+  getEditOptions: (coverage: AulaCoverageItem) => AulaCoverageOption[];
+  isDraftActive: boolean;
+  onAddCoverage: (option: AulaCoverageOption) => void | Promise<boolean>;
+  onCancelDraft: () => void;
+  onCancelEdit: () => void;
+  onRemoveCoverage: (coverage: AulaCoverageItem) => void | Promise<boolean>;
+  onStartDraft: () => void;
+  onStartEdit: (coverage: AulaCoverageItem) => void;
+  onUpdateCoverage: (
+    coverage: AulaCoverageItem,
+    option: AulaCoverageOption,
+  ) => void | Promise<boolean>;
+};
+
+function AulaCoverageStrip({
+  availableOptions,
+  coverageItems,
+  editingCoverageId,
+  getContextLabel,
+  getEditOptions,
+  isDraftActive,
+  onAddCoverage,
+  onCancelDraft,
+  onCancelEdit,
+  onRemoveCoverage,
+  onStartDraft,
+  onStartEdit,
+  onUpdateCoverage,
+}: AulaCoverageStripProps) {
+  return (
+    <div className="aula-coverage-strip">
+      {coverageItems.map((coverage) =>
+        editingCoverageId === coverage.id ? (
+          <AulaCoverageDraft
+            getContextLabel={getContextLabel}
+            key={coverage.id}
+            options={getEditOptions(coverage)}
+            onCancel={onCancelEdit}
+            onSelect={(option) => onUpdateCoverage(coverage, option)}
+          />
+        ) : (
+          <AulaCoverageChip
+            coverage={coverage}
+            contextLabel={getContextLabel(coverage)}
+            key={coverage.id}
+            onEdit={() => onStartEdit(coverage)}
+            onRemove={() => onRemoveCoverage(coverage)}
+          />
+        ),
+      )}
+      {isDraftActive ? (
+        <AulaCoverageDraft
+          getContextLabel={getContextLabel}
+          options={availableOptions}
+          onCancel={onCancelDraft}
+          onSelect={onAddCoverage}
+        />
+      ) : (
+        <button
+          className="aula-coverage-add-button"
+          type="button"
+          aria-label="Adicionar disciplina"
+          title="Adicionar Disciplina"
+          onClick={onStartDraft}
+        >
+          <NewSectionIcon />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AulaCoverageChip({
+  contextLabel,
+  coverage,
+  onEdit,
+  onRemove,
+}: {
+  contextLabel: string;
+  coverage: AulaCoverageItem;
+  onEdit: () => void;
+  onRemove: () => void | Promise<boolean>;
+}) {
+  const label = `${contextLabel}\u00a0\u00a0|\u00a0\u00a0${coverage.discipline}`;
+
+  return (
+    <span className="aula-coverage-chip">
+      <span
+        className="aula-coverage-name"
+        role="button"
+        tabIndex={0}
+        onClick={onEdit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onEdit();
+          }
+        }}
+      >
+        {label}
+      </span>
+      <button
+        className="aula-coverage-remove"
+        type="button"
+        aria-label={`Remover ${coverage.discipline}`}
+        title="Remover Disciplina"
+        onClick={() => void onRemove()}
+      >
+        <DeleteIcon />
+      </button>
+    </span>
+  );
+}
+
+function AulaCoverageDraft({
+  getContextLabel,
+  options,
+  onCancel,
+  onSelect,
+}: {
+  getContextLabel: (coverage: { arco: string; module: string }) => string;
+  options: AulaCoverageOption[];
+  onCancel: () => void;
+  onSelect: (option: AulaCoverageOption) => void | Promise<boolean>;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const chipRef = useRef<HTMLSpanElement | null>(null);
+  const [searchValue, setSearchValue] = useState('');
+  const [editWidth, setEditWidth] = useState<number | null>(null);
+  const normalizedSearch = normalizeWorkbookOptionKey(searchValue);
+  const visibleOptions = normalizedSearch
+    ? options.filter((option) =>
+        normalizeWorkbookOptionKey(option.discipline).includes(normalizedSearch),
+      )
+    : options;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useLayoutEffect(() => {
+    const chipElement = chipRef.current;
+    const inputElement = inputRef.current;
+
+    if (!chipElement || !inputElement) {
+      return;
+    }
+
+    const computedStyle = window.getComputedStyle(inputElement);
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      setEditWidth(chipElement.clientWidth);
+      return;
+    }
+
+    context.font = computedStyle.font;
+
+    const horizontalPadding =
+      Number.parseFloat(computedStyle.paddingLeft) +
+      Number.parseFloat(computedStyle.paddingRight) +
+      Number.parseFloat(computedStyle.borderLeftWidth) +
+      Number.parseFloat(computedStyle.borderRightWidth) +
+      18;
+    const measuredTextWidth = context.measureText(searchValue || ' ').width;
+
+    setEditWidth(
+      Math.max(chipElement.clientWidth, Math.ceil(measuredTextWidth + horizontalPadding)),
+    );
+  }, [searchValue]);
+
+  return (
+    <span
+      className="aula-coverage-chip aula-coverage-chip-draft"
+      ref={chipRef}
+      style={
+        editWidth
+          ? ({ '--aula-coverage-edit-width': `${editWidth}px` } as CSSProperties)
+          : undefined
+      }
+    >
+      <span className="aula-coverage-name editing">
+        <input
+          ref={inputRef}
+          aria-label="Selecionar disciplina"
+          value={searchValue}
+          onBlur={onCancel}
+          onChange={(event) => setSearchValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              onCancel();
+            }
+
+            if (event.key === 'Enter' && visibleOptions.length === 1) {
+              event.preventDefault();
+              void onSelect(visibleOptions[0]);
+            }
+          }}
+        />
+        <span className="aula-coverage-dropdown" role="listbox">
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((option) => (
+              <button
+                className="aula-coverage-option"
+                key={`${option.disciplineId}-${option.arco}`}
+                type="button"
+                role="option"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void onSelect(option)}
+              >
+                <span className="aula-coverage-name">
+                  {getContextLabel(option)}
+                  {'\u00a0\u00a0|\u00a0\u00a0'}
+                  {option.discipline}
+                </span>
+              </button>
+            ))
+          ) : (
+            <span className="aula-coverage-empty-option">
+              Nenhuma disciplina encontrada
+            </span>
+          )}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 function AulaCard({
   aula,
@@ -1797,7 +2711,14 @@ function EditableOptionField({
 
   const commit = (nextValue = draftValue) => {
     setIsEditing(false);
-    void onCommit(nextValue.trim());
+    const normalizedNextValue = nextValue.trim();
+
+    if (!normalizedNextValue) {
+      setDraftValue(value);
+      return;
+    }
+
+    void onCommit(normalizedNextValue);
   };
 
   if (isEditing) {
@@ -1872,7 +2793,10 @@ function EditableOptionField({
           ? ({ '--aula-field-expanded-width': `${expandedWidth}px` } as CSSProperties)
           : undefined
       }
-      onClick={() => setIsEditing(true)}
+      onClick={() => {
+        setDraftValue('');
+        setIsEditing(true);
+      }}
     >
       <span className="aula-field-layer aula-field-compact">{compactValue}</span>
       <span className="aula-field-layer aula-field-full">{fieldValue}</span>
@@ -1908,6 +2832,23 @@ function PlusIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 5v14" />
       <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function NewSectionIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 12h6" />
+      <path d="M12 9v6" />
+      <path d="M4 6v-1a1 1 0 0 1 1 -1h1" />
+      <path d="M10 4h4" />
+      <path d="M18 4h1a1 1 0 0 1 1 1v1" />
+      <path d="M20 10v4" />
+      <path d="M20 18v1a1 1 0 0 1 -1 1h-1" />
+      <path d="M14 20h-4" />
+      <path d="M6 20h-1a1 1 0 0 1 -1 -1v-1" />
+      <path d="M4 14v-4" />
     </svg>
   );
 }

@@ -244,6 +244,28 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
     return formatHistoryLine(tabLabel, itemLabel, 'aula deletada');
   }
 
+  if (entry.kind === 'aula-coverage-insert') {
+    const discipline = stringifyActionValue(entry.nextValue) || 'disciplina';
+    return formatHistoryLine(
+      tabLabel,
+      itemLabel,
+      `disciplina adicionada: ${discipline}`,
+    );
+  }
+
+  if (entry.kind === 'aula-coverage-delete') {
+    const discipline = stringifyActionValue(entry.previousValue) || 'disciplina';
+    return formatHistoryLine(
+      tabLabel,
+      itemLabel,
+      `disciplina removida: ${discipline}`,
+    );
+  }
+
+  if (entry.kind === 'aula-coverage-update') {
+    return formatHistoryLine(tabLabel, itemLabel, describeChangedValue(entry));
+  }
+
   return `${prefix} ação`;
 };
 
