@@ -39,6 +39,7 @@ import {
 } from '../../shared/data/workbookSheets';
 import {
   MissingRequiredColumnsError,
+  fetchBaseWorkbookFile,
   fetchRecoveryInfo as fetchWorkspaceRecoveryInfo,
   isUnifiedWorkbookFile,
   loadXlsx,
@@ -436,6 +437,7 @@ export function AprendizesPage({
   const wasRegistrationModeRef = useRef(false);
   const didSignalInitialReadyRef = useRef(false);
   const registrationDraftRef = useRef<Record<string, string>>({});
+  const pendingSourceWriteCountRef = useRef(0);
   const suppressNextAprendizesChangeEventRef = useRef(false);
   const suppressNextGlobalDataChangeEventRef = useRef(false);
   const [importedSheet, setImportedSheet] = useState<ImportedSheet | null>(null);
@@ -522,6 +524,40 @@ export function AprendizesPage({
   const storeImportedSheet = (sheet: ImportedSheet) => {
     latestSheetRef.current = sheet;
     setImportedSheet(sheet);
+  };
+  const isSameSheetData = (
+    firstSheet: ImportedSheet | null,
+    secondSheet: ImportedSheet,
+  ) => {
+    if (!firstSheet) {
+      return false;
+    }
+
+    if (
+      firstSheet.sheetName !== secondSheet.sheetName ||
+      firstSheet.columns.length !== secondSheet.columns.length ||
+      firstSheet.rows.length !== secondSheet.rows.length
+    ) {
+      return false;
+    }
+
+    const hasSameColumns = firstSheet.columns.every(
+      (column, index) => column === secondSheet.columns[index],
+    );
+
+    if (!hasSameColumns) {
+      return false;
+    }
+
+    return firstSheet.rows.every((row, rowIndex) => {
+      const otherRow = secondSheet.rows[rowIndex] ?? [];
+
+      if (row.length !== otherRow.length) {
+        return false;
+      }
+
+      return row.every((cell, columnIndex) => cell === otherRow[columnIndex]);
+    });
   };
   const showInvalidImportToast = () => {
     setInvalidImportToast(invalidImportedFileMessage);
@@ -1075,6 +1111,15 @@ export function AprendizesPage({
     try {
       const nextSheet = await readSheetFile(file);
       const nextReferenceOptions = await applyReferenceOptionsFromFile(file);
+      const currentSheet = latestSheetRef.current;
+
+      if (
+        pendingSourceWriteCountRef.current > 0 &&
+        currentSheet &&
+        currentSheet.rows.length > nextSheet.rows.length
+      ) {
+        return false;
+      }
 
       saveImportedSheet(nextSheet, {
         resetColumnWidths: options.resetColumnWidths,
@@ -1241,7 +1286,7 @@ export function AprendizesPage({
 
         await Promise.all([loadTurmaOptions(), loadArcoOptions()]);
         await fetchProviderFile({
-          clearOnMissing: true,
+          clearOnMissing: false,
           clearOnInvalid: false,
           resetColumnWidths: false,
         });
@@ -1901,8 +1946,12 @@ export function AprendizesPage({
     }
   };
 
-  const writeSheetSystemMetadataToSourceFile = async (sheet: ImportedSheet) => {
+  const performSheetSystemMetadataWrite = async (sheet: ImportedSheet) => {
     if (!isLocalProviderActiveRef.current) {
+      return;
+    }
+
+    if (!isSameSheetData(latestSheetRef.current, sheet)) {
       return;
     }
 
@@ -1924,9 +1973,17 @@ export function AprendizesPage({
         return;
       }
 
+      if (!isSameSheetData(latestSheetRef.current, sheet)) {
+        return;
+      }
+
       const workbook = read(await sourceResponse.arrayBuffer(), {
         cellDates: true,
       });
+
+      if (!isSameSheetData(latestSheetRef.current, sheet)) {
+        return;
+      }
 
       const sheetName =
         sheet.sheetName || workbook.SheetNames[0] || 'Aprendizes';
@@ -1961,6 +2018,83 @@ export function AprendizesPage({
     }
   };
 
+  const writeSheetSystemMetadataToSourceFile = (sheet: ImportedSheet) => {
+    const queuedWrite = sourceWriteQueueRef.current
+      .catch(() => {
+        // A failed write already surfaced in the UI; keep later saves moving.
+      })
+      .then(() => performSheetSystemMetadataWrite(sheet));
+
+    sourceWriteQueueRef.current = queuedWrite.catch(() => {
+      // Keep the queue alive after a failed write.
+    });
+
+    return queuedWrite;
+  };
+
+  const saveAprendizesSheetToBaseWorkbook = async (sheet: ImportedSheet) => {
+    const sourceResponse = await fetch('/api/base-workbook/file', {
+      cache: 'no-store',
+    });
+
+    if (sourceResponse.status === 404) {
+      return null;
+    }
+
+    if (!sourceResponse.ok) {
+      throw new Error('read-failed');
+    }
+
+    const { read, utils, write } = await loadXlsx();
+    const sourceFile = await responseToWorkbookFile(
+      sourceResponse,
+      'DadosElevar.xlsx',
+    );
+    const workbook = read(await sourceFile.arrayBuffer(), {
+      cellDates: true,
+    });
+    const preferredSheetName =
+      sheet.sheetName || APRENDIZES_WORKBOOK_SHEET || 'Aprendizes';
+    const workbookSheetName =
+      workbook.SheetNames.find(
+        (name) =>
+          normalizeFieldLabel(name) === normalizeFieldLabel(preferredSheetName),
+      ) ?? preferredSheetName.slice(0, 31);
+    const previousWorksheet = workbook.Sheets[workbookSheetName];
+    const nextWorksheet = utils.aoa_to_sheet([
+      sheet.columns,
+      ...sheet.rows,
+    ]);
+
+    preserveAgeFormulas(utils, previousWorksheet, nextWorksheet, sheet);
+    workbook.Sheets[workbookSheetName] = nextWorksheet;
+
+    if (!workbook.SheetNames.includes(workbookSheetName)) {
+      workbook.SheetNames.push(workbookSheetName);
+    }
+
+    const output = write(workbook, {
+      bookType: 'xlsx',
+      type: 'array',
+    }) as ArrayBuffer;
+    const saveResponse = await fetch('/api/base-workbook/file', {
+      method: 'PUT',
+      headers: {
+        'content-type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+      body: output,
+    });
+
+    if (!saveResponse.ok) {
+      throw new Error('save-failed');
+    }
+
+    const savedFile = await fetchBaseWorkbookFile();
+
+    return savedFile ? await readSheetFile(savedFile) : sheet;
+  };
+
   const performSheetSourceWrite = async (sheet: ImportedSheet) => {
     if (!isLocalProviderActiveRef.current) {
       setImportError('');
@@ -1972,6 +2106,23 @@ export function AprendizesPage({
         sheet,
         APRENDIZES_ENTITY_ID,
       );
+      const savedBaseWorkbookSheet =
+        await saveAprendizesSheetToBaseWorkbook(sheetWithIds);
+
+      if (savedBaseWorkbookSheet) {
+        storeImportedSheet(savedBaseWorkbookSheet);
+        void persistAprendizesDataIndex(savedBaseWorkbookSheet);
+        await fetchRecoveryInfo();
+        suppressNextAprendizesChangeEventRef.current = true;
+        suppressNextGlobalDataChangeEventRef.current = true;
+        window.dispatchEvent(new Event(APRENDIZES_DATA_CHANGED_EVENT));
+        window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+        window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+
+        setImportError('');
+        return;
+      }
+
       const saveResponse = await fetch('/api/aprendizes/values', {
         method: 'PUT',
         headers: {
@@ -2014,11 +2165,18 @@ export function AprendizesPage({
   };
 
   const writeSheetToSourceFile = (sheet: ImportedSheet) => {
+    pendingSourceWriteCountRef.current += 1;
     const queuedWrite = sourceWriteQueueRef.current
       .catch(() => {
         // A failed write already surfaced in the UI; keep later saves moving.
       })
-      .then(() => performSheetSourceWrite(sheet));
+      .then(() => performSheetSourceWrite(sheet))
+      .finally(() => {
+        pendingSourceWriteCountRef.current = Math.max(
+          0,
+          pendingSourceWriteCountRef.current - 1,
+        );
+      });
 
     sourceWriteQueueRef.current = queuedWrite.catch(() => {
       // Keep the queue alive after a failed write.
@@ -3511,6 +3669,17 @@ export function AprendizesPage({
       return nextMode;
     });
   };
+  const startRegistrationMode = () => {
+    if (!hasWorkingSheet) {
+      return;
+    }
+
+    setIsEditMode(false);
+    setSelectedDetailsRow(null);
+    applyRowDetailsPanelStyle({});
+    setIsRegistrationMode(true);
+    focusFirstRegistrationDetailsField();
+  };
   const recoveryDescription = getRecoveryDescription(recoveryInfo);
   const selectedDetailsRowValues =
     importedSheet && selectedDetailsRow
@@ -4012,9 +4181,226 @@ export function AprendizesPage({
       sortState?.columnName === column
         ? `sorted-${sortState.direction === 'asc' ? 'ascending' : 'descending'}`
         : '',
-    ]
+      ]
       .filter(Boolean)
       .join(' ');
+  const renderCadastrarAprendizButton = (withLabel: boolean) => (
+    <button
+      className={
+        withLabel
+          ? 'aula-create-button aprendiz-create-button with-label'
+          : 'aula-create-button aprendiz-create-button'
+      }
+      type="button"
+      aria-label="Cadastrar aprendiz"
+      title="Cadastrar Aprendiz"
+      onClick={startRegistrationMode}
+    >
+      <SquarePlusIcon />
+      {withLabel && (
+        <span className="aula-create-label">Cadastrar Aprendiz</span>
+      )}
+    </button>
+  );
+  const renderRowDetailsPanel = () => {
+    if (!shouldShowRowDetailsPanel || isEditMode) {
+      return null;
+    }
+
+    return (
+      <aside
+        className="row-details-panel"
+        style={{
+          visibility: isRowDetailsPanelPositioned ? 'visible' : 'hidden',
+          ...rowDetailsPanelStyle,
+        }}
+        aria-label={
+          isRegistrationDetailsMode
+            ? 'Cadastrar aprendiz'
+            : 'Detalhes do aprendiz'
+        }
+      >
+        <div className="row-details-content">
+          <section
+            className="row-details-info-section"
+            aria-label="Informações do aprendiz"
+          >
+            <div className="row-details-field-layer row-details-primary-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-name',
+                columnName: selectedDetailsNameColumn,
+                label: 'Nome',
+                value: rowDetailsName,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-sex',
+                columnName: SEX_COLUMN,
+                label: 'Sexo',
+                value: rowDetailsSex,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-birthdate',
+                columnName: BIRTHDATE_COLUMN,
+                label: 'Data Nascimento',
+                value: rowDetailsBirthdate,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-age',
+                columnName: AGE_COLUMN,
+                label: 'Idade',
+                readOnly: true,
+                value: rowDetailsAge,
+              })}
+            </div>
+            <div className="row-details-field-layer row-details-secondary-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-email',
+                columnName: EMAIL_COLUMN,
+                label: 'E-mail',
+                value: rowDetailsEmail,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-contact',
+                columnName: CONTACT_COLUMN,
+                label: 'Contato',
+                value: rowDetailsContact,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-cpf',
+                columnName: CPF_COLUMN,
+                label: 'CPF',
+                value: rowDetailsCpf,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-rg',
+                columnName: RG_COLUMN,
+                label: 'RG',
+                value: rowDetailsRg,
+              })}
+            </div>
+            <div className="row-details-field-layer row-details-tertiary-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-responsible-name',
+                columnName: RESPONSIBLE_COLUMN,
+                label: 'Nome Responsável',
+                value: rowDetailsResponsible,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-responsible-email',
+                columnName: RESPONSIBLE_EMAIL_COLUMN,
+                label: 'Email Responsável',
+                value: rowDetailsResponsibleEmail,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-responsible-contact',
+                columnName: RESPONSIBLE_CONTACT_COLUMN,
+                label: 'Contato Responsável',
+                value: rowDetailsResponsibleContact,
+              })}
+            </div>
+            <div className="row-details-field-layer row-details-address-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-address',
+                columnName: ADDRESS_COLUMN,
+                label: 'Endereço',
+                value: rowDetailsAddress,
+              })}
+            </div>
+            <div className="row-details-field-layer row-details-company-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-company',
+                columnName: COMPANY_COLUMN,
+                label: 'Empresa',
+                value: rowDetailsCompany,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-institution',
+                columnName: INSTITUTION_COLUMN,
+                label: 'Instituição Ensino',
+                value: rowDetailsInstitution,
+              })}
+            </div>
+            <div className="row-details-field-layer row-details-learning-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-learning-arc',
+                columnName: LEARNING_ARC_COLUMN,
+                label: 'Arco Aprendizagem',
+                value: rowDetailsLearningArc,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-role',
+                columnName: ROLE_COLUMN,
+                label: 'Função',
+                value: rowDetailsRole,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-admission-date',
+                columnName: ADMISSION_DATE_COLUMN,
+                label: 'Data Admissão',
+                value: rowDetailsAdmissionDate,
+              })}
+              {renderRowDetailsField({
+                className: 'row-details-field-end-date',
+                columnName: END_DATE_COLUMN,
+                label: 'Data Término',
+                value: rowDetailsEndDate,
+              })}
+            </div>
+            <div className="row-details-field-layer row-details-class-layer">
+              {renderRowDetailsField({
+                className: 'row-details-field-class',
+                columnName: CLASS_COLUMN,
+                label: 'Turma',
+                value: rowDetailsClass,
+              })}
+            </div>
+          </section>
+          <footer className="row-details-actions" aria-label="Ações do aprendiz">
+            {isRegistrationDetailsMode ? (
+              <button
+                className="row-details-action-button row-details-delete-button"
+                type="button"
+                aria-label="Cadastrar aprendiz"
+                title="Cadastrar Aprendiz"
+                disabled={!hasRegistrationDraftValue}
+                onClick={() => {
+                  finalizeActiveRegistrationDraftEdit();
+                  void commitRegistrationDraft();
+                }}
+              >
+                <UserPlusIcon />
+              </button>
+            ) : selectedDetailsRow ? (
+              <button
+                className="row-details-action-button row-details-delete-button"
+                type="button"
+                aria-label="Descadastrar aprendiz"
+                title="Descadastrar Aprendiz"
+                onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
+              >
+                <UserXIcon />
+              </button>
+            ) : null}
+          </footer>
+        </div>
+        <button
+          className="row-details-close-button"
+          type="button"
+          aria-label="Fechar detalhes"
+          onClick={() => {
+            if (isRegistrationDetailsMode) {
+              setIsRegistrationMode(false);
+            } else {
+              setSelectedDetailsRow(null);
+            }
+            applyRowDetailsPanelStyle({});
+          }}
+        >
+          <CloseIcon />
+        </button>
+      </aside>
+    );
+  };
 
   return (
     <section className="feature-page" aria-labelledby="aprendizes-title">
@@ -4066,8 +4452,16 @@ export function AprendizesPage({
       )}
 
       {shouldShowNoAprendizesState && (
-        <div className="empty-data-state placeholder-state" role="region">
-          <h2>Nenhum aprendiz cadastrado</h2>
+        <div className="data-table-panel aprendiz-empty-create-panel">
+          <div
+            className="data-table-frame aprendiz-empty-create-frame"
+            ref={tableFrameRef}
+          >
+            <div className="aprendiz-empty-create-surface" role="region">
+              {renderCadastrarAprendizButton(true)}
+            </div>
+            {renderRowDetailsPanel()}
+          </div>
         </div>
       )}
 
@@ -4311,6 +4705,23 @@ export function AprendizesPage({
                     })}
                   </tr>
                 ))}
+                <tr className="aprendiz-create-table-row">
+                  {orderedColumns.map((column, orderedColumnIndex) => (
+                    <td
+                      key={`aprendiz-create-${column}`}
+                      className={
+                        orderedColumnIndex === 0
+                          ? 'pinned-column aprendiz-create-table-cell'
+                          : 'aprendiz-create-table-spacer'
+                      }
+                      style={getColumnWidthStyle(column)}
+                    >
+                      {orderedColumnIndex === 0
+                        ? renderCadastrarAprendizButton(false)
+                        : null}
+                    </td>
+                  ))}
+                </tr>
               </tbody>
               </table>
             </div>

@@ -26,6 +26,7 @@ import {
 import {
   ensureActiveWorkbookManagedSheets,
   fetchBaseWorkbookFile,
+  fetchBaseWorkbookFileWithRetry,
   loadXlsx,
   persistManagedWorkbookDataIndexes,
   readWorkbookSheetFile,
@@ -58,7 +59,6 @@ type AulaItem = {
   defaultRoom: string;
   id: string;
   isDraft?: boolean;
-  isPreview?: boolean;
   name: string;
   rowIndex: number;
 };
@@ -79,15 +79,6 @@ const AULA_COLOR_POPUP_WIDTH = 220;
 const AULA_COLOR_POPUP_HEIGHT = 72;
 const AULA_COLOR_POPUP_GAP = 8;
 const AULA_COLOR_POPUP_EDGE_GAP = 8;
-const PREVIEW_AULA: AulaItem = {
-  color: DEFAULT_AULA_COLOR,
-  defaultInstructor: 'Instrutor',
-  defaultRoom: 'Sala',
-  id: 'aula-preview',
-  isPreview: true,
-  name: 'Aula teste',
-  rowIndex: -1,
-};
 const DRAFT_AULA: AulaItem = {
   color: DEFAULT_AULA_COLOR,
   defaultInstructor: '',
@@ -250,7 +241,7 @@ const fetchLegacyWorkbookFile = async (path: string, fallbackFileName: string) =
 };
 
 const fetchAulasWorkbookFile = async () => {
-  const baseFile = await fetchBaseWorkbookFile();
+  const baseFile = await fetchBaseWorkbookFileWithRetry();
 
   if (baseFile) {
     return baseFile;
@@ -268,25 +259,6 @@ const fetchAulasWorkbookFile = async () => {
   return fetchLegacyWorkbookFile('/api/turmas/file', 'Turmas.xlsx').catch(
     () => null,
   );
-};
-
-const wait = (milliseconds: number) =>
-  new Promise((resolve) => {
-    window.setTimeout(resolve, milliseconds);
-  });
-
-const fetchAulasWorkbookFileWithRetry = async () => {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const file = await fetchAulasWorkbookFile();
-
-    if (file || attempt === 2) {
-      return file;
-    }
-
-    await wait(220);
-  }
-
-  return null;
 };
 
 export function AulasPage({
@@ -329,7 +301,7 @@ export function AulasPage({
       }))
       .filter(({ name }) => name !== '');
 
-    return sheetAulas.length > 0 ? sheetAulas : [PREVIEW_AULA];
+    return sheetAulas;
   }, [aulasSheet]);
 
   const instructorOptions = useMemo(
@@ -389,7 +361,19 @@ export function AulasPage({
       ),
     }));
 
-    await persistWorkbookOption(type, normalizedValue).catch(() => false);
+    const didPersist = await persistWorkbookOption(type, normalizedValue).catch(
+      () => false,
+    );
+
+    if (didPersist) {
+      const refreshedFile = await fetchBaseWorkbookFile().catch(() => null);
+
+      window.dispatchEvent(
+        new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+          detail: refreshedFile ? { file: refreshedFile } : undefined,
+        }),
+      );
+    }
   };
 
   const saveWorkbookSheetSet = async (sheets: SheetTable[]) => {
@@ -488,7 +472,7 @@ export function AulasPage({
       [normalizeFieldLabel(AULA_DEFAULT_ROOM_COLUMN), seed.defaultRoom ?? ''],
       [
         normalizeFieldLabel('ID'),
-        seed.isPreview ? generateStableRecordId(AULAS_ENTITY_ID) : seed.id ?? generateStableRecordId(AULAS_ENTITY_ID),
+        seed.id ?? generateStableRecordId(AULAS_ENTITY_ID),
       ],
     ]);
 
@@ -537,7 +521,7 @@ export function AulasPage({
   };
 
   const ensureAulaRow = async (aula: AulaItem) => {
-    if (!aula.isPreview && aula.rowIndex >= 0) {
+    if (aula.rowIndex >= 0) {
       return aula.rowIndex;
     }
 
@@ -1049,7 +1033,7 @@ export function AulasPage({
           await ensureActiveWorkbookManagedSheets().catch(() => false);
         }
 
-        const file = changedFile ?? (await fetchAulasWorkbookFileWithRetry());
+        const file = changedFile ?? (await fetchAulasWorkbookFile());
 
         if (!isMounted) {
           return;
@@ -1112,9 +1096,8 @@ export function AulasPage({
   const shouldShowImportState = hasCheckedWorkbook && !hasActiveWorkbook;
   const shouldShowAulasBoard = hasCheckedWorkbook && hasActiveWorkbook;
   const titleId = 'aulas-title';
-  const listedAulas = draftAula
-    ? [...aulas.filter((aula) => !aula.isPreview), draftAula]
-    : aulas;
+  const listedAulas = draftAula ? [...aulas, draftAula] : aulas;
+  const shouldShowCreateLabel = aulas.length === 0 && !draftAula;
 
   return (
     <section
@@ -1185,7 +1168,11 @@ export function AulasPage({
                 ))}
                 <div className="aula-create-row">
                   <button
-                    className="aula-create-button"
+                    className={
+                      shouldShowCreateLabel
+                        ? 'aula-create-button with-label'
+                        : 'aula-create-button'
+                    }
                     type="button"
                     aria-label="Criar aula"
                     title="Criar Aula"
@@ -1194,6 +1181,9 @@ export function AulasPage({
                     }}
                   >
                     <SquarePlusIcon />
+                    {shouldShowCreateLabel && (
+                      <span className="aula-create-label">Criar Aula</span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -1386,7 +1376,7 @@ function AulaCard({
 
   return (
     <article
-      className={aula.isPreview ? 'aula-list-card preview' : 'aula-list-card'}
+      className="aula-list-card"
       ref={cardRef}
       role="listitem"
       style={style}

@@ -539,6 +539,28 @@ export const fetchBaseWorkbookFile = async () => {
   return responseToWorkbookFile(response, 'DadosElevar.xlsx');
 };
 
+const waitForWorkbookRetry = (milliseconds: number) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+
+export const fetchBaseWorkbookFileWithRetry = async (
+  attempts = 3,
+  retryDelayMs = 220,
+) => {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const file = await fetchBaseWorkbookFile();
+
+    if (file || attempt === attempts) {
+      return file;
+    }
+
+    await waitForWorkbookRetry(retryDelayMs);
+  }
+
+  return null;
+};
+
 const readManagedWorkbookSheetFile = async (
   file: File,
   sheetDefinition: (typeof MANAGED_OPTIONAL_WORKBOOK_SHEETS)[number],

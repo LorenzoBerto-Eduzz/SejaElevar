@@ -13,10 +13,15 @@ import {
 } from '../../shared/data/schemas';
 import {
   ensureActiveWorkbookManagedSheets,
-  fetchBaseWorkbookFile,
+  fetchBaseWorkbookFileWithRetry,
+  fetchRecoveryInfo,
   readWorkbookSheetFile,
 } from '../../shared/data/workspaceData';
 import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
+import {
+  markGlobalWorkbookAvailable,
+  useGlobalWorkbookState,
+} from '../../shared/ui/GlobalWorkbookToolbar';
 import { useTimedToast } from '../../shared/ui/useTimedToast';
 
 type ArcosPageProps = {
@@ -156,8 +161,10 @@ export function ArcosPage({
   const [disciplinasSheet, setDisciplinasSheet] = useState<SheetTable | null>(
     null,
   );
+  const [hasActiveWorkbook, setHasActiveWorkbook] = useState(false);
   const [hasCheckedWorkbook, setHasCheckedWorkbook] = useState(false);
   const [isImportingEmenta, setIsImportingEmenta] = useState(false);
+  const globalWorkbookState = useGlobalWorkbookState();
   const { message: ementaToast, showToast: showEmentaToast } =
     useTimedToast();
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
@@ -220,7 +227,7 @@ export function ArcosPage({
           await ensureActiveWorkbookManagedSheets().catch(() => false);
         }
 
-        const file = changedFile ?? (await fetchBaseWorkbookFile());
+        const file = changedFile ?? (await fetchBaseWorkbookFileWithRetry());
 
         if (!isMounted) {
           return;
@@ -228,6 +235,8 @@ export function ArcosPage({
 
         if (!file) {
           setArcosSheet(null);
+          setDisciplinasSheet(null);
+          setHasActiveWorkbook(false);
           setHasCheckedWorkbook(true);
           return;
         }
@@ -243,14 +252,20 @@ export function ArcosPage({
 
         setArcosSheet(nextArcosSheet);
         setDisciplinasSheet(nextDisciplinasSheet);
+        setHasActiveWorkbook(true);
         setHasCheckedWorkbook(true);
+        markGlobalWorkbookAvailable(await fetchRecoveryInfo().catch(() => null));
       } catch {
         if (!isMounted) {
           return;
         }
 
-        setArcosSheet(null);
-        setDisciplinasSheet(null);
+        if (globalWorkbookState.hasWorkbook) {
+          setArcosSheet(createEmptyArcosSheet());
+          setDisciplinasSheet(createEmptyDisciplinasSheet());
+          setHasActiveWorkbook(true);
+        }
+
         setHasCheckedWorkbook(true);
       }
     };
@@ -274,15 +289,17 @@ export function ArcosPage({
         handleGlobalDataChanged,
       );
     };
-  }, [canInitialize]);
+  }, [canInitialize, globalWorkbookState.hasWorkbook]);
 
-  const shouldShowEmptyImportState = hasCheckedWorkbook && !arcosSheet;
-  const shouldShowArcosBoard = hasCheckedWorkbook && Boolean(arcosSheet);
+  const hasWorkbookForPage = hasActiveWorkbook || globalWorkbookState.hasWorkbook;
+  const shouldShowEmptyImportState = hasCheckedWorkbook && !hasWorkbookForPage;
+  const shouldShowArcosBoard = hasCheckedWorkbook && hasWorkbookForPage;
+  const shouldShowAddArcoLabel = arcos.length === 0;
   const arcosGridTemplateColumns = `${
     arcos.length > 0
       ? `repeat(${arcos.length}, var(--arcos-column-width, 280px)) `
       : ''
-  }var(--menu-button-size)`;
+  }${shouldShowAddArcoLabel ? 'max-content' : 'var(--menu-button-size)'}`;
   const toggleModule = (moduleName: string) => {
     const moduleKey = normalizeFieldLabel(moduleName);
 
@@ -333,17 +350,17 @@ export function ArcosPage({
           <div className="table-toolbar-track">
             <button
               className={
-                isImportingEmenta || !arcosSheet
+                isImportingEmenta || !hasWorkbookForPage
                   ? 'square-action disabled'
                   : 'square-action'
               }
               type="button"
               aria-label="Adicionar arco"
               title="Adicionar Arco"
-              disabled={isImportingEmenta || !arcosSheet}
+              disabled={isImportingEmenta || !hasWorkbookForPage}
               onClick={() => void addArcoFromEmenta()}
             >
-              <ClipboardPlusIcon />
+              <SquarePlusIcon />
             </button>
           </div>
         </div>
@@ -373,18 +390,29 @@ export function ArcosPage({
                   </section>
                 ))}
                 <section
-                  className="arco-header-cell arco-add-header-cell"
+                  className={
+                    shouldShowAddArcoLabel
+                      ? 'arco-header-cell arco-add-header-cell empty'
+                      : 'arco-header-cell arco-add-header-cell'
+                  }
                   role="listitem"
                 >
                   <button
-                    className="arco-add-button"
+                    className={
+                      shouldShowAddArcoLabel
+                        ? 'arco-add-button with-label'
+                        : 'arco-add-button'
+                    }
                     type="button"
                     aria-label="Adicionar arco"
                     title="Adicionar Arco"
                     disabled={isImportingEmenta || !arcosSheet}
                     onClick={() => void addArcoFromEmenta()}
                   >
-                    <ClipboardPlusIcon />
+                    <SquarePlusIcon />
+                    {shouldShowAddArcoLabel && (
+                      <span className="arco-add-label">Adicionar Arco</span>
+                    )}
                   </button>
                 </section>
 
@@ -553,13 +581,12 @@ function LessonsIcon() {
   );
 }
 
-function ClipboardPlusIcon() {
+function SquarePlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
-      <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
-      <path d="M10 14h4" />
-      <path d="M12 12v4" />
+      <path d="M9 12h6" />
+      <path d="M12 9v6" />
+      <path d="M4 4m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z" />
     </svg>
   );
 }

@@ -48,6 +48,7 @@ import {
 } from '../../shared/data/stableIds';
 import {
   MissingRequiredColumnsError,
+  fetchBaseWorkbookFile,
   fetchRecoveryInfo as fetchWorkspaceRecoveryInfo,
   isUnifiedWorkbookFile,
   loadXlsx,
@@ -117,9 +118,17 @@ const TURMA_HEADER_DETAIL_HORIZONTAL_PADDING =
 const TURMA_HEADER_TITLE_MIN_WIDTH = 62;
 const TURMA_HEADER_COUNT_MIN_WIDTH = 44;
 const TURMA_HEADER_DAY_MIN_WIDTH = 54;
-const TURMA_HEADER_PERIOD_MIN_WIDTH = 138;
+const TURMA_HEADER_PERIOD_MIN_WIDTH = 148;
 const TURMA_HEADER_INSTRUCTOR_MIN_WIDTH = 118;
 const TURMA_HEADER_ROOM_MIN_WIDTH = 72;
+const TURMA_HEADER_EMPTY_WIDTH_SAMPLE = {
+  count: '0',
+  day: 'Seg',
+  instructor: 'ooioooooooooooo434',
+  name: 'e3434343434343434343',
+  period: '23:23h - 12:12h',
+  room: '999',
+};
 const STUDENTS_COUNT_COLUMN = 'No. de Aprendizes';
 const STUDENTS_LIST_COLUMN = 'Aprendizes';
 const TURMA_COLUMN = 'Turma';
@@ -1854,37 +1863,55 @@ export function TurmasPage({
     () =>
       ({
         '--turma-header-title-width': `${getMeasuredFieldWidth(
-          turmaHeaderRows.map((row) => row.name),
+          [
+            ...turmaHeaderRows.map((row) => row.name),
+            TURMA_HEADER_EMPTY_WIDTH_SAMPLE.name,
+          ],
           TURMA_HEADER_TITLE_FONT,
           TURMA_HEADER_TITLE_MIN_WIDTH,
           TURMA_HEADER_TITLE_HORIZONTAL_PADDING,
         )}px`,
         '--turma-header-count-width': `${getMeasuredFieldWidth(
-          turmaHeaderRows.map((row) => row.count),
+          [
+            ...turmaHeaderRows.map((row) => row.count),
+            TURMA_HEADER_EMPTY_WIDTH_SAMPLE.count,
+          ],
           TURMA_HEADER_DETAIL_FONT,
           TURMA_HEADER_COUNT_MIN_WIDTH,
           TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
         )}px`,
         '--turma-header-day-width': `${getMeasuredFieldWidth(
-          turmaHeaderRows.map((row) => row.day),
+          [
+            ...turmaHeaderRows.map((row) => row.day),
+            TURMA_HEADER_EMPTY_WIDTH_SAMPLE.day,
+          ],
           TURMA_HEADER_DETAIL_FONT,
           TURMA_HEADER_DAY_MIN_WIDTH,
           TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
         )}px`,
         '--turma-header-period-width': `${getMeasuredFieldWidth(
-          turmaHeaderRows.map((row) => row.period),
+          [
+            ...turmaHeaderRows.map((row) => row.period),
+            TURMA_HEADER_EMPTY_WIDTH_SAMPLE.period,
+          ],
           TURMA_HEADER_DETAIL_FONT,
           TURMA_HEADER_PERIOD_MIN_WIDTH,
           TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
         )}px`,
         '--turma-header-instructor-width': `${getMeasuredFieldWidth(
-          turmaHeaderRows.map((row) => row.instructor),
+          [
+            ...turmaHeaderRows.map((row) => row.instructor),
+            TURMA_HEADER_EMPTY_WIDTH_SAMPLE.instructor,
+          ],
           TURMA_HEADER_DETAIL_FONT,
           TURMA_HEADER_INSTRUCTOR_MIN_WIDTH,
           TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
         )}px`,
         '--turma-header-room-width': `${getMeasuredFieldWidth(
-          turmaHeaderRows.map((row) => row.room),
+          [
+            ...turmaHeaderRows.map((row) => row.room),
+            TURMA_HEADER_EMPTY_WIDTH_SAMPLE.room,
+          ],
           TURMA_HEADER_DETAIL_FONT,
           TURMA_HEADER_ROOM_MIN_WIDTH,
           TURMA_HEADER_DETAIL_HORIZONTAL_PADDING,
@@ -2058,13 +2085,7 @@ export function TurmasPage({
   };
 
   const areTurmaDraftValuesComplete = (values: Record<string, string>) =>
-    Boolean(
-      values[TURMA_COLUMN]?.trim() &&
-        values[TURMA_DAY_COLUMN]?.trim() &&
-        values[TURMA_PERIOD_COLUMN]?.trim() &&
-        values[TURMA_INSTRUCTOR_COLUMN]?.trim() &&
-        values[TURMA_ROOM_COLUMN]?.trim(),
-    );
+    Boolean(values[TURMA_COLUMN]?.trim());
 
   const getVisibleTurmaDraftValues = (
     draft: TurmaDraftRow | null,
@@ -2083,6 +2104,14 @@ export function TurmasPage({
 
   const isTurmaDraftComplete = (draft: TurmaDraftRow | null) =>
     areTurmaDraftValuesComplete(getVisibleTurmaDraftValues(draft));
+
+  const discardTurmaDraft = () => {
+    setTurmaDraft(null);
+    activeTurmaNameEditRef.current = null;
+    setActiveTurmaNameEdit(null);
+    activeTurmaDropdownRef.current = null;
+    setActiveTurmaDropdown(null);
+  };
 
   const updateTurmaDraftField = (columnName: string, value: string) => {
     setTurmaDraft((currentDraft) =>
@@ -2125,7 +2154,13 @@ export function TurmasPage({
     };
 
     setTurmaDraft(nextDraft);
-    window.requestAnimationFrame(() => focusTurmaDraftName(nextDraft));
+    window.requestAnimationFrame(() => {
+      boardScrollRef.current?.scrollTo({
+        top: boardScrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+      focusTurmaDraftName(nextDraft);
+    });
   };
 
   const isTurmaFieldUndoEntry = (
@@ -2301,15 +2336,22 @@ export function TurmasPage({
       return;
     }
 
+    const nextName = activeEdit.draftValue.trim();
+
     activeTurmaNameEditRef.current = null;
     setActiveTurmaNameEdit(null);
 
-    if (activeEdit.initialValue === activeEdit.draftValue.trim()) {
+    if (activeEdit.rowIndex === 'draft') {
+      if (!nextName) {
+        discardTurmaDraft();
+        return;
+      }
+
+      await saveTurmaDraft({ [TURMA_COLUMN]: nextName });
       return;
     }
 
-    if (activeEdit.rowIndex === 'draft') {
-      updateTurmaDraftField(TURMA_COLUMN, activeEdit.draftValue.trim());
+    if (activeEdit.initialValue === nextName) {
       return;
     }
 
@@ -2573,7 +2615,9 @@ export function TurmasPage({
     };
   };
 
-  const saveTurmaDraft = async () => {
+  const saveTurmaDraft = async (
+    draftValueOverrides: Record<string, string> = {},
+  ) => {
     const currentTurmasSheet = latestTurmasSheetRef.current;
     const currentDraft = turmaDraft;
 
@@ -2591,6 +2635,7 @@ export function TurmasPage({
       ...(activeDraftNameEdit !== null
         ? { [TURMA_COLUMN]: activeDraftNameEdit }
         : {}),
+      ...draftValueOverrides,
     };
 
     if (!areTurmaDraftValuesComplete(draftValues)) {
@@ -5038,7 +5083,17 @@ export function TurmasPage({
     }));
 
     try {
-      await persistWorkbookOption(type, normalizedValue);
+      const didPersist = await persistWorkbookOption(type, normalizedValue);
+
+      if (didPersist) {
+        const refreshedFile = await fetchBaseWorkbookFile().catch(() => null);
+
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+            detail: refreshedFile ? { file: refreshedFile } : undefined,
+          }),
+        );
+      }
     } catch {
       // The Turma field save is the source of truth. Option persistence can be
       // retried by creating/keeping the value in the workbook later.
@@ -5200,6 +5255,10 @@ export function TurmasPage({
 
     if (event.key === 'Escape') {
       event.preventDefault();
+      if (activeTurmaNameEditRef.current?.rowIndex === 'draft') {
+        discardTurmaDraft();
+        return;
+      }
       activeTurmaNameEditRef.current = null;
       setActiveTurmaNameEdit(null);
     }
@@ -5926,12 +5985,15 @@ export function TurmasPage({
 
   const hasWorkingSheet = Boolean(turmasSheet);
   const hasTurmaRows = Boolean(turmasSheet && turmasSheet.rows.length > 0);
+  const shouldShowAddTurmaButton = Boolean(turmasSheet && !turmaDraft);
+  const shouldShowAddTurmaLabel = Boolean(
+    turmasSheet && !turmaDraft && !hasTurmaRows,
+  );
   const shouldShowEmptyImportState =
     !hasWorkingSheet &&
     (globalWorkbookState.hasLoaded
       ? !globalWorkbookState.hasWorkbook
       : hasCheckedWorkspace);
-  const shouldShowNoTurmasState = hasWorkingSheet && !hasTurmaRows;
   const canRecoverBackup = Boolean(recoveryInfo?.canRecover);
   const recoveryCheckpoints =
     recoveryInfo?.checkpoints && recoveryInfo.checkpoints.length > 0
@@ -6017,16 +6079,7 @@ export function TurmasPage({
     const periodRange = getTurmaPeriodRange(turmaPeriodValue);
 
     if (weekdayIndex === null || !periodRange) {
-      return (
-        <section
-          className="turma-schedule-panel turma-schedule-panel-empty"
-          aria-label="Cronograma da turma"
-        >
-          <div className="turma-schedule-empty-state">
-            Defina dia e periodo para visualizar o cronograma.
-          </div>
-        </section>
-      );
+      return null;
     }
 
     const scheduleDates = getScheduleDatesForWeekday(
@@ -6463,13 +6516,7 @@ export function TurmasPage({
         </EmptyWorkbookImportState>
       )}
 
-      {shouldShowNoTurmasState && (
-        <div className="empty-data-state placeholder-state" role="region">
-          <h2>Nenhuma turma cadastrada</h2>
-        </div>
-      )}
-
-      {hasTurmaRows && turmasSheet && (
+      {turmasSheet && (
         <div className="data-table-panel turmas-data-table-panel">
           <div className="data-table-frame turmas-board-frame" ref={boardFrameRef}>
             <div
@@ -6481,6 +6528,12 @@ export function TurmasPage({
             >
               <div className="turmas-board" style={turmaHeaderLayoutStyle}>
                 {[
+                  ...sortedTurmaRows.map(({ row, rowIndex }) => ({
+                    kind: 'real' as const,
+                    row,
+                    rowIndex,
+                    key: getSheetRecordId(turmasSheet, rowIndex, TURMAS_ENTITY_ID),
+                  })),
                   ...(turmaDraft
                     ? [
                         {
@@ -6494,12 +6547,6 @@ export function TurmasPage({
                         },
                       ]
                     : []),
-                  ...sortedTurmaRows.map(({ row, rowIndex }) => ({
-                    kind: 'real' as const,
-                    row,
-                    rowIndex,
-                    key: getSheetRecordId(turmasSheet, rowIndex, TURMAS_ENTITY_ID),
-                  })),
                 ].map((displayRow) => {
                   const isDraft = displayRow.kind === 'draft';
                   const turmaRow = displayRow.row;
@@ -6762,41 +6809,18 @@ export function TurmasPage({
                         </span>
                         <span className="turma-header-actions">
                           {isDraft ? (
-                            <>
-                              <button
-                                className={
-                                  isTurmaDraftComplete(turmaDraft)
-                                    ? 'turma-header-action-button turma-header-add-button'
-                                    : 'turma-header-action-button turma-header-add-button disabled'
-                                }
-                                type="button"
-                                aria-label="Adicionar turma"
-                                title="Adicionar Turma"
-                                disabled={!isTurmaDraftComplete(turmaDraft)}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void saveTurmaDraft();
-                                }}
-                              >
-                                <PlusIcon />
-                              </button>
-                              <button
-                                className="turma-header-action-button turma-header-delete-button"
-                                type="button"
-                                aria-label="Descartar nova turma"
-                                title="Descartar"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setTurmaDraft(null);
-                                  activeTurmaNameEditRef.current = null;
-                                  setActiveTurmaNameEdit(null);
-                                  activeTurmaDropdownRef.current = null;
-                                  setActiveTurmaDropdown(null);
-                                }}
-                              >
-                                <CloseIcon />
-                              </button>
-                            </>
+                            <button
+                              className="turma-header-action-button turma-header-delete-button"
+                              type="button"
+                              aria-label="Descartar nova turma"
+                              title="Descartar"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                discardTurmaDraft();
+                              }}
+                            >
+                              <CloseIcon />
+                            </button>
                           ) : (
                             <>
                               <span
@@ -7040,6 +7064,28 @@ export function TurmasPage({
                     </section>
                   );
                 })}
+                {shouldShowAddTurmaButton && (
+                  <div className="turma-create-row">
+                    <button
+                      className={
+                        shouldShowAddTurmaLabel
+                          ? 'aula-create-button turma-create-button with-label'
+                          : 'aula-create-button turma-create-button'
+                      }
+                      type="button"
+                      aria-label="Adicionar turma"
+                      title="Adicionar Turma"
+                      onClick={startTurmaDraft}
+                    >
+                      <SquarePlusIcon />
+                      {shouldShowAddTurmaLabel && (
+                        <span className="aula-create-label">
+                          Adicionar Turma
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             {sharedHorizontalScrollWidth > 0 && (

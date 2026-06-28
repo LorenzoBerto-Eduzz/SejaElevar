@@ -1703,6 +1703,63 @@ svg {
   background-color: var(--brand-hover, var(--brand-tertiary));
 }
 
+.aprendiz-empty-create-panel {
+  min-height: 0;
+}
+
+.aprendiz-empty-create-frame {
+  grid-template-rows: minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.aprendiz-empty-create-surface {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.aprendiz-empty-create-surface .aprendiz-create-button.with-label {
+  margin-top: calc(
+    (var(--table-header-height, 40px) + 16px - var(--menu-button-size)) / 2
+  );
+}
+
+.data-table tr.aprendiz-create-table-row td {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  height: calc(var(--menu-button-size) + 14px);
+  border-right: 0;
+  border-bottom: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.data-table tr.aprendiz-create-table-row td.pinned-column {
+  left: 0;
+  z-index: 6;
+}
+
+.data-table tr.aprendiz-create-table-row:hover td,
+.data-table tr.aprendiz-create-table-row:hover td.pinned-column {
+  background: transparent;
+}
+
+.data-table td.aprendiz-create-table-cell {
+  padding: 8px 0 4px 8px;
+}
+
+.data-table td.aprendiz-create-table-spacer {
+  pointer-events: none;
+}
+
 .turmas-board-frame {
   grid-template-rows: minmax(0, 1fr);
   border: 0;
@@ -1759,6 +1816,25 @@ svg {
   width: 100%;
   min-width: 100%;
   padding: 0;
+}
+
+.turma-create-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 18;
+  display: grid;
+  place-items: center start;
+  width: max-content;
+  height: var(--menu-button-size);
+  background: var(--brand-page-background);
+}
+
+.turmas-board:has(.turma-create-button.with-label) .turma-create-row {
+  height: calc(var(--table-header-height, 40px) + 16px);
+}
+
+.turmas-board:not(:has(.turma-create-button.with-label)) .turma-create-row {
+  margin-top: -18px;
 }
 
 .arcos-data-panel {
@@ -1839,10 +1915,14 @@ svg {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--menu-button-size);
+  width: max-content;
   height: calc(var(--table-header-height, 40px) + 16px);
   margin-left: calc(var(--arcos-column-gap, 24px) * -0.55);
   background: var(--brand-page-background);
+}
+
+.arco-add-header-cell.empty {
+  margin-left: 0;
 }
 
 .arco-group-header {
@@ -1860,6 +1940,8 @@ svg {
 
 .arco-add-button {
   display: grid;
+  grid-auto-flow: column;
+  gap: 9px;
   place-items: center;
   width: var(--menu-button-size);
   height: var(--menu-button-size);
@@ -1871,6 +1953,20 @@ svg {
   cursor: pointer;
 }
 
+.arco-add-button.with-label {
+  width: auto;
+  min-width: 0;
+  padding: 0 14px 0 11px;
+}
+
+.arco-add-label {
+  color: currentColor;
+  font-size: 0.92rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .arco-add-button svg {
   width: var(--menu-icon-size);
   height: var(--menu-icon-size);
@@ -1879,7 +1975,6 @@ svg {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transform: translateY(-1px);
 }
 
 .arco-add-button:hover,
@@ -1967,7 +2062,7 @@ svg {
 .aula-list-card {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.85fr) minmax(0, 0.7fr) 34px 20px 20px;
+  grid-template-columns: minmax(0, 1.78fr) minmax(0, 0.7fr) 42px 20px 20px;
   grid-template-rows: 24px;
   align-items: stretch;
   column-gap: 2px;
@@ -1983,10 +2078,6 @@ svg {
   font-weight: 700;
   line-height: 1.25;
   overflow: visible;
-}
-
-.aula-list-card.preview {
-  opacity: 0.92;
 }
 
 .aula-list-card:focus-within {
@@ -2078,7 +2169,7 @@ svg {
   grid-column: 3;
   grid-row: 1;
   height: 24px;
-  padding: 0 4px;
+  padding: 0 3px;
   overflow: hidden;
   font-size: 0.76rem;
   font-weight: 750;
@@ -2365,6 +2456,7 @@ svg {
   white-space: nowrap;
   border: 1px solid transparent;
   border-radius: 6px;
+  transform: translateY(-1px);
 }
 
 .aula-name-input {
@@ -2421,7 +2513,7 @@ svg {
   max-height: 24px;
   overflow: visible;
   min-height: 24px;
-  padding: 1px 4px;
+  padding: 0 4px;
   border-radius: 6px;
   border-color: color-mix(in srgb, currentColor 55%, transparent);
   background: var(--aula-color, var(--brand-primary));
@@ -2437,14 +2529,21 @@ svg {
   z-index: 16;
   display: grid;
   place-items: center;
-  width: var(--menu-button-size);
+  width: max-content;
   height: var(--menu-button-size);
   margin-top: 2px;
   background: var(--brand-page-background);
 }
 
+.aulas-list-column:has(.aula-create-button.with-label) .aula-create-row {
+  height: calc(var(--table-header-height, 40px) + 16px);
+  margin-top: 0;
+}
+
 .aula-create-button {
   display: grid;
+  grid-auto-flow: column;
+  gap: 9px;
   place-items: center;
   width: var(--menu-button-size);
   height: var(--menu-button-size);
@@ -2454,6 +2553,20 @@ svg {
   color: var(--brand-primary);
   background: var(--brand-page-background);
   cursor: pointer;
+}
+
+.aula-create-button.with-label {
+  width: auto;
+  min-width: 0;
+  padding: 0 14px 0 11px;
+}
+
+.aula-create-label {
+  color: currentColor;
+  font-size: 0.92rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .aula-create-button svg {
@@ -4541,6 +4654,13 @@ input.turma-schedule-block-field {
 
 .dark-mode .data-table tbody tr:hover td {
   background-color: var(--brand-hover, #203241);
+}
+
+.data-table tbody tr.aprendiz-create-table-row:hover td,
+.data-table tbody tr.aprendiz-create-table-row:hover td.pinned-column,
+.dark-mode .data-table tbody tr.aprendiz-create-table-row:hover td,
+.dark-mode .data-table tbody tr.aprendiz-create-table-row:hover td.pinned-column {
+  background: transparent;
 }
 
 .dark-mode .placeholder-state h2 {
