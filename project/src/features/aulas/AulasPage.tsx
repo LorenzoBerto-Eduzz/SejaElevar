@@ -551,17 +551,40 @@ export function AulasPage({
       });
     });
   const getAulaCoverageItems = (aula: AulaItem) =>
-    coverageItems.filter((coverage) => {
-      if (coverage.aulaId && aula.id) {
-        return coverage.aulaId === aula.id;
-      }
+    [...coverageItems]
+      .filter((coverage) => {
+        if (coverage.aulaId && aula.id) {
+          return coverage.aulaId === aula.id;
+        }
 
-      return (
-        !coverage.aulaId &&
-        normalizeWorkbookOptionKey(coverage.aulaName) ===
-          normalizeWorkbookOptionKey(aula.name)
-      );
-    });
+        return (
+          !coverage.aulaId &&
+          normalizeWorkbookOptionKey(coverage.aulaName) ===
+            normalizeWorkbookOptionKey(aula.name)
+        );
+      })
+      .sort((left, right) => {
+        const orderDifference =
+          getCoverageContextOrder(left) - getCoverageContextOrder(right);
+
+        if (orderDifference !== 0) {
+          return orderDifference;
+        }
+
+        const contextComparison = getCoverageContextLabel(left).localeCompare(
+          getCoverageContextLabel(right),
+          'pt-BR',
+          { sensitivity: 'base' },
+        );
+
+        if (contextComparison !== 0) {
+          return contextComparison;
+        }
+
+        return left.discipline.localeCompare(right.discipline, 'pt-BR', {
+          sensitivity: 'base',
+        });
+      });
   const getAvailableCoverageOptions = (
     aula: AulaItem,
     ignoredCoverageId = '',
@@ -1763,6 +1786,9 @@ export function AulasPage({
                   const aulaCoverageItems = getAulaCoverageItems(aula);
                   const availableCoverageOptions =
                     getAvailableCoverageOptions(aula);
+                  const shouldShowCoverageStrip =
+                    aulaCoverageItems.length > 0 ||
+                    draftCoverageAulaId === aula.id;
 
                   return (
                     <div className="aula-list-row" key={aula.id}>
@@ -1814,6 +1840,20 @@ export function AulasPage({
                         roomOptions={roomOptions}
                       />
                       {!aula.isDraft && (
+                        <button
+                          className="aula-coverage-add-button"
+                          type="button"
+                          aria-label="Adicionar disciplina"
+                          title="Adicionar Disciplina"
+                          onClick={() => {
+                            setEditingCoverageId('');
+                            setDraftCoverageAulaId(aula.id);
+                          }}
+                        >
+                          <NewSectionIcon />
+                        </button>
+                      )}
+                      {!aula.isDraft && shouldShowCoverageStrip && (
                         <AulaCoverageStrip
                           availableOptions={availableCoverageOptions}
                           coverageItems={aulaCoverageItems}
@@ -1829,10 +1869,6 @@ export function AulasPage({
                           onRemoveCoverage={(coverage) =>
                             removeAulaCoverage(coverage)
                           }
-                          onStartDraft={() => {
-                            setEditingCoverageId('');
-                            setDraftCoverageAulaId(aula.id);
-                          }}
                           onStartEdit={(coverage) => {
                             setDraftCoverageAulaId('');
                             setEditingCoverageId(coverage.id);
@@ -1939,7 +1975,6 @@ type AulaCoverageStripProps = {
   onCancelDraft: () => void;
   onCancelEdit: () => void;
   onRemoveCoverage: (coverage: AulaCoverageItem) => void | Promise<boolean>;
-  onStartDraft: () => void;
   onStartEdit: (coverage: AulaCoverageItem) => void;
   onUpdateCoverage: (
     coverage: AulaCoverageItem,
@@ -1958,7 +1993,6 @@ function AulaCoverageStrip({
   onCancelDraft,
   onCancelEdit,
   onRemoveCoverage,
-  onStartDraft,
   onStartEdit,
   onUpdateCoverage,
 }: AulaCoverageStripProps) {
@@ -1971,6 +2005,7 @@ function AulaCoverageStrip({
             key={coverage.id}
             options={getEditOptions(coverage)}
             onCancel={onCancelEdit}
+            onRemove={() => onRemoveCoverage(coverage)}
             onSelect={(option) => onUpdateCoverage(coverage, option)}
           />
         ) : (
@@ -1979,7 +2014,6 @@ function AulaCoverageStrip({
             contextLabel={getContextLabel(coverage)}
             key={coverage.id}
             onEdit={() => onStartEdit(coverage)}
-            onRemove={() => onRemoveCoverage(coverage)}
           />
         ),
       )}
@@ -1988,19 +2022,10 @@ function AulaCoverageStrip({
           getContextLabel={getContextLabel}
           options={availableOptions}
           onCancel={onCancelDraft}
+          onRemove={onCancelDraft}
           onSelect={onAddCoverage}
         />
-      ) : (
-        <button
-          className="aula-coverage-add-button"
-          type="button"
-          aria-label="Adicionar disciplina"
-          title="Adicionar Disciplina"
-          onClick={onStartDraft}
-        >
-          <NewSectionIcon />
-        </button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2009,19 +2034,73 @@ function AulaCoverageChip({
   contextLabel,
   coverage,
   onEdit,
-  onRemove,
 }: {
   contextLabel: string;
   coverage: AulaCoverageItem;
   onEdit: () => void;
-  onRemove: () => void | Promise<boolean>;
 }) {
   const label = `${contextLabel}\u00a0\u00a0|\u00a0\u00a0${coverage.discipline}`;
+  const fieldRef = useRef<HTMLSpanElement | null>(null);
+  const labelRef = useRef<HTMLSpanElement | null>(null);
+  const [isExpandable, setIsExpandable] = useState(false);
+
+  useLayoutEffect(() => {
+    const fieldElement = fieldRef.current;
+    const labelElement = labelRef.current;
+
+    if (!fieldElement || !labelElement) {
+      return;
+    }
+
+    const updateExpandableState = () => {
+      const fieldStyle = window.getComputedStyle(fieldElement);
+      const labelStyle = window.getComputedStyle(labelElement);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        setIsExpandable(labelElement.scrollWidth > labelElement.clientWidth + 1);
+        return;
+      }
+
+      const horizontalPadding =
+        Number.parseFloat(fieldStyle.paddingLeft) +
+        Number.parseFloat(fieldStyle.paddingRight) +
+        Number.parseFloat(fieldStyle.borderLeftWidth) +
+        Number.parseFloat(fieldStyle.borderRightWidth);
+      const availableWidth = Math.max(0, fieldElement.clientWidth - horizontalPadding);
+
+      context.font = labelStyle.font;
+      setIsExpandable(context.measureText(label).width > availableWidth + 1);
+    };
+
+    updateExpandableState();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateExpandableState);
+
+      return () => {
+        window.removeEventListener('resize', updateExpandableState);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(updateExpandableState);
+    resizeObserver.observe(fieldElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [label]);
 
   return (
     <span className="aula-coverage-chip">
       <span
-        className="aula-coverage-name"
+        className={
+          isExpandable
+            ? 'aula-coverage-name expandable'
+            : 'aula-coverage-name'
+        }
+        ref={fieldRef}
         role="button"
         tabIndex={0}
         onClick={onEdit}
@@ -2032,17 +2111,10 @@ function AulaCoverageChip({
           }
         }}
       >
-        {label}
+        <span className="aula-coverage-label-text" ref={labelRef}>
+          {label}
+        </span>
       </span>
-      <button
-        className="aula-coverage-remove"
-        type="button"
-        aria-label={`Remover ${coverage.discipline}`}
-        title="Remover Disciplina"
-        onClick={() => void onRemove()}
-      >
-        <DeleteIcon />
-      </button>
     </span>
   );
 }
@@ -2051,11 +2123,13 @@ function AulaCoverageDraft({
   getContextLabel,
   options,
   onCancel,
+  onRemove,
   onSelect,
 }: {
   getContextLabel: (coverage: { arco: string; module: string }) => string;
   options: AulaCoverageOption[];
   onCancel: () => void;
+  onRemove: () => void | Promise<boolean>;
   onSelect: (option: AulaCoverageOption) => void | Promise<boolean>;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -2134,6 +2208,16 @@ function AulaCoverageDraft({
             }
           }}
         />
+        <button
+          className="aula-coverage-edit-remove"
+          type="button"
+          aria-label="Remover disciplina"
+          title="Remover Disciplina"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => void onRemove()}
+        >
+          <DeleteIcon />
+        </button>
         <span className="aula-coverage-dropdown" role="listbox">
           {visibleOptions.length > 0 ? (
             visibleOptions.map((option) => (
@@ -2146,9 +2230,11 @@ function AulaCoverageDraft({
                 onClick={() => void onSelect(option)}
               >
                 <span className="aula-coverage-name">
-                  {getContextLabel(option)}
-                  {'\u00a0\u00a0|\u00a0\u00a0'}
-                  {option.discipline}
+                  <span className="aula-coverage-label-text">
+                    {getContextLabel(option)}
+                    {'\u00a0\u00a0|\u00a0\u00a0'}
+                    {option.discipline}
+                  </span>
                 </span>
               </button>
             ))

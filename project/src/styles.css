@@ -2013,7 +2013,7 @@ svg {
   height: 100%;
   min-height: 0;
   padding: 0;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: visible;
   scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
   scrollbar-width: thin;
@@ -2052,23 +2052,37 @@ svg {
   display: grid;
   align-content: start;
   gap: var(--arcos-discipline-gap, 6px);
-  width: max-content;
+  width: 100%;
   min-width: 0;
-  max-width: none;
+  max-width: 100%;
   padding-bottom: 12px;
   overflow: visible;
 }
 
 .aula-list-row {
-  display: flex;
-  align-items: center;
-  gap: var(--aulas-coverage-gap, 6px);
-  min-width: max-content;
+  --aula-coverage-row-gap: 4px;
+  --aula-coverage-chip-gap: calc(var(--aula-coverage-row-gap) / 2);
+  display: grid;
+  grid-template-columns:
+    minmax(0, min(840px, calc(100% - var(--aulas-coverage-gap, 6px) - 30px)))
+    30px
+    minmax(0, 1fr);
+  grid-template-rows: 30px auto;
+  grid-template-areas:
+    "aula-card aula-add ."
+    "aula-coverage aula-coverage aula-coverage";
+  align-items: start;
+  column-gap: var(--aulas-coverage-gap, 6px);
+  row-gap: var(--aula-coverage-row-gap);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow: visible;
 }
 
 .aula-list-card {
   position: relative;
+  grid-area: aula-card;
   display: grid;
   grid-template-columns: minmax(0, 1.78fr) minmax(0, 0.7fr) 42px 20px 20px;
   grid-template-rows: 24px;
@@ -2086,15 +2100,18 @@ svg {
   font-weight: 700;
   line-height: 1.25;
   overflow: visible;
-  width: 560px;
-  flex: 0 0 560px;
+  width: 100%;
 }
 
 .aula-coverage-strip {
+  grid-area: aula-coverage;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--aulas-coverage-gap, 6px);
+  gap: var(--aula-coverage-chip-gap);
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   overflow: visible;
 }
 
@@ -2103,9 +2120,15 @@ svg {
   display: block;
   --aula-coverage-surface: var(--brand-tertiary);
   --aula-coverage-text: #426172;
-  height: 30px;
-  min-height: 30px;
-  width: 300px;
+  --aula-coverage-chip-width: calc(
+    (100% - (3 * var(--aula-coverage-chip-gap))) / 4
+  );
+  flex: 0 0 var(--aula-coverage-chip-width);
+  height: 32px;
+  min-height: 32px;
+  width: var(--aula-coverage-chip-width);
+  min-width: 0;
+  max-width: var(--aula-coverage-chip-width);
   border-radius: 7px;
   color: var(--aula-coverage-text);
   background: var(--aula-coverage-surface);
@@ -2117,23 +2140,30 @@ svg {
 
 .aula-coverage-name {
   position: relative;
-  display: flex;
-  align-items: center;
+  box-sizing: border-box;
+  display: block;
   min-width: 0;
   width: 100%;
-  height: 24px;
-  margin: 3px 0;
-  padding: 0 6px;
+  height: 28px;
+  margin: 2px 0;
+  padding: 5px 6px 3px;
   border: 1px solid transparent;
   border-radius: 6px;
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 16px;
 }
 
-.aula-coverage-name {
-  justify-content: flex-start;
+.aula-coverage-label-text {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 16px;
 }
 
 .aula-coverage-name[role="button"] {
@@ -2147,11 +2177,18 @@ svg {
   background: var(--aula-coverage-surface);
 }
 
-.aula-coverage-name:hover {
+.aula-coverage-name.expandable:hover {
+  position: absolute;
+  top: 2px;
+  left: 0;
   z-index: 110;
-  width: max-content;
+  display: block;
+  width: 100%;
   min-width: 100%;
-  max-width: min(760px, calc(100vw - 180px));
+  height: auto;
+  min-height: 28px;
+  max-width: 100%;
+  margin: 0;
   border-color: color-mix(in srgb, currentColor 44%, transparent);
   overflow: visible;
   background: var(--aula-coverage-surface);
@@ -2160,46 +2197,12 @@ svg {
     0 3px 8px color-mix(in srgb, #000 14%, transparent);
 }
 
-.aula-coverage-remove {
-  position: absolute;
-  top: 3px;
-  left: 0;
-  z-index: 130;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 0;
-  color: inherit;
-  background: var(--aula-coverage-surface);
-  opacity: 0;
-  pointer-events: none;
-  cursor: pointer;
-}
-
-.aula-coverage-chip:hover .aula-coverage-remove,
-.aula-coverage-remove:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-  border-color: color-mix(in srgb, currentColor 48%, transparent);
-}
-
-.aula-coverage-remove:hover,
-.aula-coverage-remove:focus-visible {
-  border-color: color-mix(in srgb, currentColor 48%, transparent);
-  outline: none;
-}
-
-.aula-coverage-remove svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.1;
+.aula-coverage-name.expandable:hover .aula-coverage-label-text,
+.aula-coverage-name.expandable:focus-visible .aula-coverage-label-text {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  line-height: 16px;
 }
 
 .aula-coverage-chip-draft {
@@ -2228,12 +2231,46 @@ svg {
   width: 100%;
   min-width: 0;
   border: 0;
-  padding: 0;
+  padding: 0 24px 0 0;
   color: inherit;
   background: transparent;
   font: inherit;
   font-weight: inherit;
+  line-height: 16px;
   outline: none;
+}
+
+.aula-coverage-edit-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 151;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  color: inherit;
+  background: var(--aula-coverage-surface);
+  cursor: pointer;
+}
+
+.aula-coverage-edit-remove:hover,
+.aula-coverage-edit-remove:focus-visible {
+  border-color: color-mix(in srgb, currentColor 48%, transparent);
+  outline: none;
+}
+
+.aula-coverage-edit-remove svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
 }
 
 .aula-coverage-dropdown {
@@ -2272,6 +2309,10 @@ svg {
   margin: 0;
 }
 
+.aula-coverage-option .aula-coverage-label-text {
+  max-width: 100%;
+}
+
 .aula-coverage-option:hover,
 .aula-coverage-option:focus-visible {
   background: color-mix(in srgb, currentColor 13%, transparent);
@@ -2290,9 +2331,9 @@ svg {
 
 .aula-coverage-add-button {
   position: relative;
+  grid-area: aula-add;
   display: grid;
   place-items: center;
-  margin-left: calc(6px - var(--aulas-coverage-gap, 6px));
   width: 30px;
   height: 30px;
   min-width: 30px;
