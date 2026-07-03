@@ -224,6 +224,7 @@ Current Arcos/Disciplinas UI direction:
 - `Arcos` is a workbook sheet with one row per Arco, including source-document tracking columns such as `Ementa ID` and `Arquivo Ementa`.
 - `Disciplinas` is a workbook sheet with one row per Disciplina, including `Disciplina`, `M?dulo`, `Arco`, `Carga Hor?ria`, `ID`, and `Ementa ID`.
 - The official Ementa PDF is the source for creating/updating an Arco and its Disciplinas. The parser currently targets the current Elevar official mold: course title line with `T?tulo do curso: Arco Ocupacional ...`, module headings for `M?dulo Inicial`, `M?dulo B?sico`, and `M?dulo Espec?fico`, and table rows with discipline name plus workload hours. It ignores the objective/description column.
+- Ementa parsing must only create Disciplinas from the official curriculum/module table rows. Later descriptive sections such as uppercase `CONTEUDOS ABORDADOS` may cite modules, discipline-like names, and hours for explanation, but those citations are not Disciplinas and must be ignored. Current parser logic treats real table rows as rows anchored in the left Disciplina column and stops parsing when the later standalone contents section begins.
 - `Inicial` and `B?sico` Disciplinas parsed from an Ementa are stored/displayed as shared `Arco = Todos`; `Espec?fico` rows are stored/displayed only for the parsed Arco.
 - The Arcos tab displays Arcos as horizontal columns.
 - Module buttons are shared full-width rows (`Inicial`, `B?sico`, `Espec?fico`) that expand/collapse across all Arcos at once.

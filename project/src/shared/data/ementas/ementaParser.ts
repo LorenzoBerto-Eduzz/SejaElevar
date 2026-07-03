@@ -85,6 +85,13 @@ const isHeaderLine = (line: LineColumns) => {
   );
 };
 
+const isStandaloneContentsSectionHeading = (line: LineColumns) => {
+  const normalizedText = normalizeFieldLabel(line.text);
+  const isUppercaseHeading = line.text === line.text.toLocaleUpperCase('pt-BR');
+
+  return normalizedText === 'conteudos abordados' && isUppercaseHeading;
+};
+
 const extractHours = (value: string) => {
   const match = normalizeText(value).match(/^(\d+)\s*(?:h|horas?)/i);
   return match ? `${match[1]} horas` : '';
@@ -221,8 +228,20 @@ export const parseEmentaPdf = async (file: File): Promise<ParsedEmenta> => {
   const disciplines: ParsedDisciplina[] = [];
   let currentModule: ParsedDisciplina['module'] | null = null;
   let currentDiscipline: CurrentDisciplina | null = null;
+  let isInsideCurriculumTable = false;
 
   lines.forEach((line) => {
+    if (isStandaloneContentsSectionHeading(line)) {
+      currentDiscipline = flushDisciplina(
+        disciplines,
+        currentDiscipline,
+        arco,
+      );
+      currentModule = null;
+      isInsideCurriculumTable = false;
+      return;
+    }
+
     const moduleName = getModuleFromLine(line.text);
 
     if (moduleName) {
@@ -232,10 +251,11 @@ export const parseEmentaPdf = async (file: File): Promise<ParsedEmenta> => {
         arco,
       );
       currentModule = moduleName;
+      isInsideCurriculumTable = true;
       return;
     }
 
-    if (!currentModule || isHeaderLine(line)) {
+    if (!currentModule || !isInsideCurriculumTable || isHeaderLine(line)) {
       return;
     }
 
@@ -248,7 +268,7 @@ export const parseEmentaPdf = async (file: File): Promise<ParsedEmenta> => {
         arco,
       );
 
-      if (line.left) {
+      if (line.left && line.hasDisciplineColumnAnchor) {
         currentDiscipline = {
           nameParts: [line.left],
           module: currentModule,
