@@ -2282,11 +2282,11 @@ internal static class Program
                         legacyApiBasePath = (string?)null,
                         requiredColumns = new[]
                         {
-                            "Aula ID",
                             "Aula",
                             "Arco",
                             "M\u00f3dulo",
                             "Disciplina",
+                            "Aula ID",
                             "Disciplina ID",
                             "ID"
                         }
@@ -2305,11 +2305,11 @@ internal static class Program
                             "In\u00edcio",
                             "Fim",
                             "Tipo",
-                            "Aula ID",
                             "Aula",
                             "Instrutor",
                             "Sala",
                             "Cor",
+                            "Aula ID",
                             "ID"
                         }
                     },
@@ -2318,9 +2318,90 @@ internal static class Program
                         entityId = "presencas",
                         sheetName = "Presencas",
                         label = "Presencas",
-                        status = "planned",
+                        status = "planned-index-ready",
                         legacyApiBasePath = (string?)null,
-                        requiredColumns = Array.Empty<string>()
+                        requiredColumns = new[]
+                        {
+                            "Aprendiz",
+                            "Status Presen\u00e7a",
+                            "Turma",
+                            "Data",
+                            "In\u00edcio",
+                            "Fim",
+                            "Aula",
+                            "Instrutor",
+                            "Sala",
+                            "Evento ID",
+                            "Aula ID",
+                            "Aprendiz ID",
+                            "Turma ID",
+                            "ID"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "plano-ensino",
+                        sheetName = "Plano de Ensino",
+                        label = "Plano de Ensino",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
+                            "Aprendiz",
+                            "Arco",
+                            "M\u00f3dulo",
+                            "Disciplina",
+                            "Carga Hor\u00e1ria Total",
+                            "Aprendiz ID",
+                            "Arco ID",
+                            "Disciplina ID",
+                            "ID"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "horas-aplicadas",
+                        sheetName = "Horas Aplicadas",
+                        label = "Horas Aplicadas",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
+                            "Aprendiz",
+                            "Arco",
+                            "M\u00f3dulo",
+                            "Disciplina",
+                            "Minutos Aplicados",
+                            "Data",
+                            "Aula",
+                            "Evento ID",
+                            "Presen\u00e7a ID",
+                            "Aprendiz ID",
+                            "Disciplina ID",
+                            "Aula ID",
+                            "ID"
+                        }
+                    },
+                    new
+                    {
+                        entityId = "plano-progresso",
+                        sheetName = "Plano Progresso",
+                        label = "Plano Progresso",
+                        status = "planned-index-ready",
+                        legacyApiBasePath = (string?)null,
+                        requiredColumns = new[]
+                        {
+                            "Aprendiz",
+                            "Arco",
+                            "M\u00f3dulo",
+                            "Disciplina",
+                            "Carga Hor\u00e1ria Total",
+                            "Carga Hor\u00e1ria Cumprida",
+                            "Excedente",
+                            "Aprendiz ID",
+                            "Disciplina ID",
+                            "ID"
+                        }
                     }
                 }
             }

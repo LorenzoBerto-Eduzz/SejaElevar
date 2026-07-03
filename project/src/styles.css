@@ -4116,6 +4116,10 @@ input.turma-schedule-block-field {
   gap: 4px;
 }
 
+.turma-schedule-field-editor.lesson-options .turma-schedule-field-options {
+  gap: 2px;
+}
+
 .turma-schedule-field-options button,
 .turma-schedule-field-empty {
   display: grid;
@@ -4129,6 +4133,12 @@ input.turma-schedule-block-field {
   font-size: 0.8rem;
   font-weight: 700;
   text-align: left;
+}
+
+.turma-schedule-field-editor.lesson-options .turma-schedule-field-options button {
+  padding: 4px 7px;
+  font-size: 0.76rem;
+  line-height: 1.12;
 }
 
 .turma-schedule-field-options button {
@@ -4148,6 +4158,11 @@ input.turma-schedule-block-field {
   white-space: nowrap;
 }
 
+.turma-schedule-field-editor.lesson-options .turma-schedule-field-options button:hover span,
+.turma-schedule-field-editor.lesson-options .turma-schedule-field-options button:focus-visible span {
+  white-space: normal;
+}
+
 .turma-schedule-field-options button small {
   opacity: 0.78;
   font-size: 0.68rem;
@@ -4156,6 +4171,155 @@ input.turma-schedule-block-field {
 
 .turma-schedule-field-empty {
   opacity: 0.78;
+  cursor: default;
+}
+
+.turma-attendance-panel {
+  position: fixed;
+  z-index: 125;
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 24px));
+  overflow: hidden;
+  border: 1px solid var(--brand-border);
+  border-radius: 6px;
+  padding: 8px;
+  color: var(--brand-header-text);
+  background: var(--brand-primary);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+}
+
+.turma-attendance-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.turma-attendance-panel-header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.turma-attendance-panel-header strong,
+.turma-attendance-panel-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turma-attendance-panel-header span {
+  opacity: 0.82;
+  font-size: 0.72rem;
+}
+
+.turma-attendance-panel-header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.turma-attendance-panel-header button:hover {
+  background: color-mix(in srgb, var(--brand-primary) 84%, #000 16%);
+}
+
+.turma-attendance-panel-header svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.turma-attendance-list {
+  display: grid;
+  gap: 3px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-color: var(--brand-scroll-thumb) transparent;
+}
+
+.turma-attendance-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.turma-attendance-list::-webkit-scrollbar-track,
+.turma-attendance-list::-webkit-scrollbar-corner,
+.turma-attendance-list::-webkit-scrollbar-button {
+  background: transparent;
+}
+
+.turma-attendance-list::-webkit-scrollbar-button {
+  display: none;
+}
+
+.turma-attendance-list::-webkit-scrollbar-thumb,
+.turma-attendance-list::-webkit-scrollbar-thumb:hover {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+  background-clip: padding-box;
+}
+
+.turma-attendance-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border-radius: 4px;
+  padding: 5px 6px;
+  background: color-mix(in srgb, var(--brand-primary) 92%, #000 8%);
+  font-size: 0.76rem;
+}
+
+.turma-attendance-row input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.turma-attendance-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turma-attendance-row small {
+  opacity: 0.8;
+  font-size: 0.68rem;
+}
+
+.turma-attendance-empty {
+  padding: 8px;
+  opacity: 0.78;
+  font-size: 0.76rem;
+}
+
+.turma-attendance-save {
+  justify-self: end;
+  border: 1px solid var(--brand-border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  color: var(--brand-header-text);
+  background: color-mix(in srgb, var(--brand-primary) 78%, #000 22%);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.turma-attendance-save:disabled {
+  opacity: 0.5;
   cursor: default;
 }
 

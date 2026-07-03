@@ -5,6 +5,10 @@ import {
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
+  HORAS_APLICADAS_REQUIRED_COLUMNS,
+  PLANO_ENSINO_REQUIRED_COLUMNS,
+  PLANO_PROGRESSO_REQUIRED_COLUMNS,
+  PRESENCAS_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
 } from './schemas';
 
@@ -88,8 +92,29 @@ export const BASE_WORKBOOK_SHEETS = [
     entityId: 'presencas',
     sheetName: 'Presencas',
     label: 'Presencas',
-    requiredColumns: [],
-    status: 'planned',
+    requiredColumns: PRESENCAS_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
+  },
+  {
+    entityId: 'plano-ensino',
+    sheetName: 'Plano de Ensino',
+    label: 'Plano de Ensino',
+    requiredColumns: PLANO_ENSINO_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
+  },
+  {
+    entityId: 'horas-aplicadas',
+    sheetName: 'Horas Aplicadas',
+    label: 'Horas Aplicadas',
+    requiredColumns: HORAS_APLICADAS_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
+  },
+  {
+    entityId: 'plano-progresso',
+    sheetName: 'Plano Progresso',
+    label: 'Plano Progresso',
+    requiredColumns: PLANO_PROGRESSO_REQUIRED_COLUMNS,
+    status: 'planned-index-ready',
   },
 ] as const satisfies readonly BaseWorkbookSheetDefinition[];
 

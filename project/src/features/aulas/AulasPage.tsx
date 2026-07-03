@@ -589,38 +589,50 @@ export function AulasPage({
     aula: AulaItem,
     ignoredCoverageId = '',
   ) => {
+    return sortCoverageOptions(
+      coverageOptions.filter((option) =>
+        isCoverageOptionAllowedForAula(aula, option, ignoredCoverageId),
+      ),
+    );
+  };
+  const isCoverageOptionAllowedForAula = (
+    aula: AulaItem,
+    option: AulaCoverageOption,
+    ignoredCoverageId = '',
+  ) => {
     const selectedCoverage = getAulaCoverageItems(aula).filter(
       (coverage) => coverage.id !== ignoredCoverageId,
     );
-    const selectedDisciplineKeys = new Set(
-      selectedCoverage.map((coverage) =>
-        normalizeWorkbookOptionKey(
-          coverage.disciplineId || coverage.discipline,
-        ),
-      ),
-    );
-    const selectedSpecificArcos = new Set(
-      selectedCoverage
-        .filter((coverage) => isSpecificDisciplineModule(coverage.module))
-        .map((coverage) => normalizeFieldLabel(coverage.arco))
-        .filter(Boolean),
+    const optionKey = normalizeWorkbookOptionKey(
+      option.disciplineId || option.discipline,
     );
 
-    return sortCoverageOptions(
-      coverageOptions.filter((option) => {
-        const optionKey = normalizeWorkbookOptionKey(
-          option.disciplineId || option.discipline,
-        );
+    if (
+      optionKey &&
+      selectedCoverage.some(
+        (coverage) =>
+          normalizeWorkbookOptionKey(
+            coverage.disciplineId || coverage.discipline,
+          ) === optionKey,
+      )
+    ) {
+      return false;
+    }
 
-        if (selectedDisciplineKeys.has(optionKey)) {
-          return false;
-        }
+    if (!isSpecificDisciplineModule(option.module)) {
+      return true;
+    }
 
-        return !(
-          isSpecificDisciplineModule(option.module) &&
-          selectedSpecificArcos.has(normalizeFieldLabel(option.arco))
-        );
-      }),
+    const optionArcoKey = normalizeFieldLabel(option.arco);
+
+    if (!optionArcoKey) {
+      return true;
+    }
+
+    return !selectedCoverage.some(
+      (coverage) =>
+        isSpecificDisciplineModule(coverage.module) &&
+        normalizeFieldLabel(coverage.arco) === optionArcoKey,
     );
   };
   const isDuplicateAulaName = (name: string, ignoredRowIndex = -1) => {
@@ -831,6 +843,11 @@ export function AulasPage({
       return false;
     }
 
+    if (!isCoverageOptionAllowedForAula(aula, option)) {
+      setDraftCoverageAulaId('');
+      return false;
+    }
+
     const nextRow = buildCoverageRow(currentSheet, aula, option);
     const nextRowIndex = currentSheet.rows.length;
     setDraftCoverageAulaId('');
@@ -874,6 +891,11 @@ export function AulasPage({
     if (optionKey && optionKey === currentKey) {
       setEditingCoverageId('');
       return true;
+    }
+
+    if (!isCoverageOptionAllowedForAula(aula, option, coverage.id)) {
+      setEditingCoverageId('');
+      return false;
     }
 
     const idColumnIndex = getColumnIndex(currentSheet, AULA_COVERAGE_ID_COLUMN);

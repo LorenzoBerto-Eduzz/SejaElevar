@@ -18,6 +18,7 @@ This file is the portable continuity note for AI coding sessions working on this
 - `AGENTS.md` is the boot file for AI sessions.
 - `docs/DATA_AND_STORAGE.md` records the current local-first data/storage direction.
 - `docs/ACADEMIC_MODEL.md` records the planned Aprendizes/Turmas/Aulas/Cronograma/Arcos/Disciplinas/Presenca model and should be read before implementing scheduling, attendance, progress, or document-proof logic.
+- Current academic foundation: the active workbook now has managed optional sheets for `Plano de Ensino`, `Presencas`, `Horas Aplicadas`, and `Plano Progresso`. Attendance is saved from Turmas event blocks; `Presente` snapshots the event/aprendiz and applies full event minutes to each Aula-covered Disciplina after resolving against that Aprendiz's own Plano de Ensino. `Plano Progresso` is a recalculable cache, not source truth.
 - `docs/RELEASE_PACKAGE.md` records the current coworker-facing baked/export app folder shape.
 
 ## User Intent

@@ -22,6 +22,7 @@ import {
   GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
+import { syncAcademicWorkbookFromSource } from '../../shared/data/academicProgress';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
   findSchemaHeaderRowIndex,
@@ -2112,6 +2113,7 @@ export function AprendizesPage({
       if (savedBaseWorkbookSheet) {
         storeImportedSheet(savedBaseWorkbookSheet);
         void persistAprendizesDataIndex(savedBaseWorkbookSheet);
+        await syncAcademicWorkbookFromSource().catch(() => null);
         await fetchRecoveryInfo();
         suppressNextAprendizesChangeEventRef.current = true;
         suppressNextGlobalDataChangeEventRef.current = true;

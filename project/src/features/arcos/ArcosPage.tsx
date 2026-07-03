@@ -6,6 +6,7 @@ import {
 } from '../../shared/data/dataIndex';
 import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
 import { importEmentaFromPicker } from '../../shared/data/ementas/ementaImport';
+import { syncAcademicWorkbookFromSource } from '../../shared/data/academicProgress';
 import {
   ARCOS_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
@@ -380,6 +381,17 @@ export function ArcosPage({
 
     try {
       await importEmentaFromPicker();
+      const syncedFile = await syncAcademicWorkbookFromSource().catch(
+        () => null,
+      );
+
+      if (syncedFile) {
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+            detail: { file: syncedFile },
+          }),
+        );
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '';
       showEmentaToast(

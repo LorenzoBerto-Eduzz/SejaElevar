@@ -313,6 +313,17 @@ Planning can change.
 Completed attendance records are historical proof and should not silently change.
 ```
 
+Current implementation state:
+
+- The active `DadosElevar` workbook now owns four managed academic sheets: `Plano de Ensino`, `Presencas`, `Horas Aplicadas`, and `Plano Progresso`.
+- `Plano de Ensino` is generated from each Aprendiz's `Arco de Aprendizagem` plus the current `Disciplinas` catalog. It is the per-Aprendiz copy of what that Aprendiz needs to complete.
+- `Presencas` stores one row per event block plus Aprendiz, with `Presente` / `Ausente` as the current v1 states. It snapshots the event block values at save time: Turma, date, start/end, Aula, instructor, room, and stable IDs.
+- `Horas Aplicadas` stores one row per present attendance plus covered Disciplina. Only `Presente` creates applied-hour rows. If an Aula covers multiple Disciplinas, the full event duration counts once for each covered Disciplina.
+- `Plano Progresso` is a recalculable cache derived from `Plano de Ensino` plus `Horas Aplicadas`; it is not manual truth. It tracks fulfilled hours and `Excedente` instead of truncating over-completion.
+- Attendance save resolves Aula coverage against the Aprendiz's own `Plano de Ensino` before writing `Horas Aplicadas`, so shared `Inicial`/`Basico` coverage counts for the learner's Arco and progress uses the plan's canonical `Disciplina ID`.
+- Managed academic sheets should keep human-facing columns first and app/internal IDs at the end. Header normalization tolerates old mojibake/double-encoded labels and duplicate managed headers, but new exports should use normal PT-BR labels.
+- Event blocks with existing attendance are currently blocked from normal edit/move/delete in v1. A later deliberate revision flow can be designed, but silent rewrites of completed historical proof are not allowed.
+
 ## Progress And Documents
 
 Progress should be derived/calculated from source events and historical attendance records.

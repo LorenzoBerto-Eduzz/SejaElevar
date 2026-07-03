@@ -14,6 +14,7 @@ import {
   type WheelEvent,
 } from 'react';
 import {
+  AULAS_DISCIPLINAS_ENTITY_ID,
   AULAS_ENTITY_ID,
   APRENDIZES_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
@@ -34,12 +35,46 @@ import {
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
 import {
+  AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   APRENDIZES_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
+import {
+  AULA_COVERAGE_ARC_COLUMN,
+  AULA_COVERAGE_DISCIPLINE_COLUMN,
+  AULA_COVERAGE_LESSON_COLUMN,
+  AULA_COVERAGE_LESSON_ID_COLUMN,
+  AULA_COVERAGE_MODULE_COLUMN,
+  isSpecificDisciplineModule,
+} from '../../shared/data/aulaCoverage';
+import {
+  HORAS_APLICADAS_ENTITY_ID,
+  PLANO_ENSINO_ENTITY_ID,
+  PLANO_PROGRESSO_ENTITY_ID,
+  PRESENCAS_ENTITY_ID,
+  buildHorasAplicadasDataIndexEntity,
+  buildPlanoEnsinoDataIndexEntity,
+  buildPlanoProgressoDataIndexEntity,
+  buildPresencasDataIndexEntity,
+} from '../../shared/data/dataIndex';
+import {
+  HORAS_APLICADAS_REQUIRED_COLUMNS,
+  PLANO_ENSINO_REQUIRED_COLUMNS,
+  PLANO_PROGRESSO_REQUIRED_COLUMNS,
+  PRESENCAS_REQUIRED_COLUMNS,
+} from '../../shared/data/schemas';
+import {
+  getAcademicCellValue,
+  readAcademicWorkbookSheets,
+  saveWorkbookSheets,
+  syncAcademicWorkbookFromSource,
+  updateAcademicAttendance,
+  type AcademicAttendanceSelection,
+  type AcademicEventSnapshot,
+} from '../../shared/data/academicProgress';
 import {
   ensureSheetRecordIds,
   generateStableRecordId,
@@ -144,8 +179,22 @@ const TURMAS_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(TURMAS_ENTITY_ID)?.sheetName ?? 'Turmas';
 const AULAS_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(AULAS_ENTITY_ID)?.sheetName ?? 'Aulas';
+const AULAS_DISCIPLINAS_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(AULAS_DISCIPLINAS_ENTITY_ID)?.sheetName ??
+  'Aulas Disciplinas';
 const CRONOGRAMA_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(CRONOGRAMA_ENTITY_ID)?.sheetName ?? 'Cronograma';
+const PLANO_ENSINO_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(PLANO_ENSINO_ENTITY_ID)?.sheetName ??
+  'Plano de Ensino';
+const PRESENCAS_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(PRESENCAS_ENTITY_ID)?.sheetName ?? 'Presencas';
+const HORAS_APLICADAS_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(HORAS_APLICADAS_ENTITY_ID)?.sheetName ??
+  'Horas Aplicadas';
+const PLANO_PROGRESSO_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(PLANO_PROGRESSO_ENTITY_ID)?.sheetName ??
+  'Plano Progresso';
 const CRONOGRAMA_ID_COLUMN = 'ID';
 const CRONOGRAMA_DATE_COLUMN = 'Data';
 const CRONOGRAMA_START_COLUMN = 'Início';
@@ -161,7 +210,6 @@ const SCHEDULE_LESSON_PLACEHOLDER = 'Selecionar aula';
 const DEFAULT_CRONOGRAMA_BLOCK_COLOR = '#2069df';
 const AULA_DEFAULT_INSTRUCTOR_COLUMN = 'Instrutor Padrão';
 const AULA_DEFAULT_ROOM_COLUMN = 'Sala Padrão';
-const AULA_DISCIPLINES_COLUMN = 'Disciplinas';
 const SEX_COLUMN = 'Sexo';
 const BIRTHDATE_COLUMN = 'Data de Nascimento';
 const EMAIL_COLUMN = 'E-mail';
@@ -275,6 +323,11 @@ type ActiveScheduleFieldEditor = {
   blockId: string;
   field: ScheduleField;
   draftValue: string;
+  style: CSSProperties;
+};
+
+type ActiveAttendancePanel = {
+  blockId: string;
   style: CSSProperties;
 };
 
@@ -1074,6 +1127,46 @@ const persistAulasDataIndex = async (sheet: SheetTable | null) => {
   await persistDataIndexEntity(AULAS_ENTITY_ID, entityIndex);
 };
 
+const persistAcademicDataIndexes = async (sheets: {
+  planoEnsinoSheet: SheetTable | null;
+  presencasSheet: SheetTable | null;
+  horasAplicadasSheet: SheetTable | null;
+  planoProgressoSheet: SheetTable | null;
+}) => {
+  await Promise.all([
+    persistDataIndexEntity(
+      PLANO_ENSINO_ENTITY_ID,
+      sheets.planoEnsinoSheet
+        ? buildPlanoEnsinoDataIndexEntity(sheets.planoEnsinoSheet)
+        : buildEmptyDataIndexEntity(PLANO_ENSINO_ENTITY_ID, 'Plano de Ensino'),
+    ),
+    persistDataIndexEntity(
+      PRESENCAS_ENTITY_ID,
+      sheets.presencasSheet
+        ? buildPresencasDataIndexEntity(sheets.presencasSheet)
+        : buildEmptyDataIndexEntity(PRESENCAS_ENTITY_ID, 'Presencas'),
+    ),
+    persistDataIndexEntity(
+      HORAS_APLICADAS_ENTITY_ID,
+      sheets.horasAplicadasSheet
+        ? buildHorasAplicadasDataIndexEntity(sheets.horasAplicadasSheet)
+        : buildEmptyDataIndexEntity(
+            HORAS_APLICADAS_ENTITY_ID,
+            'Horas Aplicadas',
+          ),
+    ),
+    persistDataIndexEntity(
+      PLANO_PROGRESSO_ENTITY_ID,
+      sheets.planoProgressoSheet
+        ? buildPlanoProgressoDataIndexEntity(sheets.planoProgressoSheet)
+        : buildEmptyDataIndexEntity(
+            PLANO_PROGRESSO_ENTITY_ID,
+            'Plano Progresso',
+          ),
+    ),
+  ]);
+};
+
 const getAulasFallbackSheet = (fileName: string): SheetTable => ({
   fileName,
   sheetName: AULAS_WORKBOOK_SHEET,
@@ -1082,11 +1175,51 @@ const getAulasFallbackSheet = (fileName: string): SheetTable => ({
   rows: [],
 });
 
+const getAulasCoverageFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...AULAS_DISCIPLINAS_REQUIRED_COLUMNS],
+  rows: [],
+});
+
 const getCronogramaFallbackSheet = (fileName: string): SheetTable => ({
   fileName,
   sheetName: CRONOGRAMA_WORKBOOK_SHEET,
   importedAt: new Date().toISOString(),
   columns: [...CRONOGRAMA_REQUIRED_COLUMNS],
+  rows: [],
+});
+
+const getPlanoEnsinoFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: PLANO_ENSINO_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...PLANO_ENSINO_REQUIRED_COLUMNS],
+  rows: [],
+});
+
+const getPresencasFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: PRESENCAS_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...PRESENCAS_REQUIRED_COLUMNS],
+  rows: [],
+});
+
+const getHorasAplicadasFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: HORAS_APLICADAS_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...HORAS_APLICADAS_REQUIRED_COLUMNS],
+  rows: [],
+});
+
+const getPlanoProgressoFallbackSheet = (fileName: string): SheetTable => ({
+  fileName,
+  sheetName: PLANO_PROGRESSO_WORKBOOK_SHEET,
+  importedAt: new Date().toISOString(),
+  columns: [...PLANO_PROGRESSO_REQUIRED_COLUMNS],
   rows: [],
 });
 
@@ -1171,7 +1304,63 @@ const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
   });
 };
 
-const buildAulaCatalogOptions = (sheet: SheetTable | null): AulaCatalogOption[] => {
+const getAulaCatalogCoverageSummary = (
+  coverageSheet: SheetTable | null,
+  aulaId: string,
+  aulaName: string,
+) => {
+  if (!coverageSheet) {
+    return '';
+  }
+
+  const aulaIdKey = normalizeFieldLabel(aulaId);
+  const aulaNameKey = normalizeFieldLabel(aulaName);
+  const labels = coverageSheet.rows
+    .filter((row) => {
+      const coverageAulaId = getCellValue(
+        coverageSheet,
+        row,
+        AULA_COVERAGE_LESSON_ID_COLUMN,
+      );
+      const coverageAulaName = getCellValue(
+        coverageSheet,
+        row,
+        AULA_COVERAGE_LESSON_COLUMN,
+      );
+
+      return (
+        (aulaIdKey && normalizeFieldLabel(coverageAulaId) === aulaIdKey) ||
+        (!aulaIdKey &&
+          aulaNameKey &&
+          normalizeFieldLabel(coverageAulaName) === aulaNameKey)
+      );
+    })
+    .map((row) => {
+      const discipline = getCellValue(
+        coverageSheet,
+        row,
+        AULA_COVERAGE_DISCIPLINE_COLUMN,
+      ).trim();
+
+      if (!discipline) {
+        return '';
+      }
+
+      const module = getCellValue(coverageSheet, row, AULA_COVERAGE_MODULE_COLUMN);
+      const arco = getCellValue(coverageSheet, row, AULA_COVERAGE_ARC_COLUMN);
+      const context = isSpecificDisciplineModule(module) ? arco : module;
+
+      return context ? `${context} | ${discipline}` : discipline;
+    })
+    .filter(Boolean);
+
+  return getUniqueValues(labels).join(', ');
+};
+
+const buildAulaCatalogOptions = (
+  sheet: SheetTable | null,
+  coverageSheet: SheetTable | null,
+): AulaCatalogOption[] => {
   if (!sheet) {
     return [];
   }
@@ -1184,17 +1373,19 @@ const buildAulaCatalogOptions = (sheet: SheetTable | null): AulaCatalogOption[] 
         return null;
       }
 
+      const id =
+        getCellValue(sheet, row, CRONOGRAMA_ID_COLUMN) ||
+        getSheetRecordId(sheet, rowIndex, AULAS_ENTITY_ID);
+
       return {
-        id:
-          getCellValue(sheet, row, CRONOGRAMA_ID_COLUMN) ||
-          getSheetRecordId(sheet, rowIndex, AULAS_ENTITY_ID),
+        id,
         name,
         color:
           getCellValue(sheet, row, CRONOGRAMA_COLOR_COLUMN) ||
           DEFAULT_CRONOGRAMA_BLOCK_COLOR,
         defaultInstructor: getCellValue(sheet, row, AULA_DEFAULT_INSTRUCTOR_COLUMN),
         defaultRoom: getCellValue(sheet, row, AULA_DEFAULT_ROOM_COLUMN),
-        disciplines: getCellValue(sheet, row, AULA_DISCIPLINES_COLUMN),
+        disciplines: getAulaCatalogCoverageSummary(coverageSheet, id, name),
       };
     })
     .filter((option): option is AulaCatalogOption => Boolean(option));
@@ -1316,15 +1507,33 @@ export function TurmasPage({
     null,
   );
   const [aulasSheet, setAulasSheet] = useState<SheetTable | null>(null);
+  const [aulasCoverageSheet, setAulasCoverageSheet] =
+    useState<SheetTable | null>(null);
   const [cronogramaSheet, setCronogramaSheet] = useState<SheetTable | null>(
     null,
   );
+  const [planoEnsinoSheet, setPlanoEnsinoSheet] =
+    useState<SheetTable | null>(null);
+  const [presencasSheet, setPresencasSheet] = useState<SheetTable | null>(null);
+  const [horasAplicadasSheet, setHorasAplicadasSheet] =
+    useState<SheetTable | null>(null);
+  const [planoProgressoSheet, setPlanoProgressoSheet] =
+    useState<SheetTable | null>(null);
   const [workbookOptions, setWorkbookOptions] =
     useState<WorkbookOptions>(emptyWorkbookOptions);
   const latestTurmasSheetRef = useRef<SheetTable | null>(turmasSheet);
   const latestAprendizesSheetRef = useRef<SheetTable | null>(aprendizesSheet);
   const latestAulasSheetRef = useRef<SheetTable | null>(aulasSheet);
+  const latestAulasCoverageSheetRef =
+    useRef<SheetTable | null>(aulasCoverageSheet);
   const latestCronogramaSheetRef = useRef<SheetTable | null>(cronogramaSheet);
+  const latestPlanoEnsinoSheetRef =
+    useRef<SheetTable | null>(planoEnsinoSheet);
+  const latestPresencasSheetRef = useRef<SheetTable | null>(presencasSheet);
+  const latestHorasAplicadasSheetRef =
+    useRef<SheetTable | null>(horasAplicadasSheet);
+  const latestPlanoProgressoSheetRef =
+    useRef<SheetTable | null>(planoProgressoSheet);
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -1375,6 +1584,12 @@ export function TurmasPage({
   const activeScheduleFieldEditorRef =
     useRef<ActiveScheduleFieldEditor | null>(null);
   const scheduleFieldInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeAttendancePanel, setActiveAttendancePanel] =
+    useState<ActiveAttendancePanel | null>(null);
+  const [attendanceDraft, setAttendanceDraft] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
 
   useEffect(() => {
     latestTurmasSheetRef.current = turmasSheet;
@@ -1389,8 +1604,28 @@ export function TurmasPage({
   }, [aulasSheet]);
 
   useEffect(() => {
+    latestAulasCoverageSheetRef.current = aulasCoverageSheet;
+  }, [aulasCoverageSheet]);
+
+  useEffect(() => {
     latestCronogramaSheetRef.current = cronogramaSheet;
   }, [cronogramaSheet]);
+
+  useEffect(() => {
+    latestPlanoEnsinoSheetRef.current = planoEnsinoSheet;
+  }, [planoEnsinoSheet]);
+
+  useEffect(() => {
+    latestPresencasSheetRef.current = presencasSheet;
+  }, [presencasSheet]);
+
+  useEffect(() => {
+    latestHorasAplicadasSheetRef.current = horasAplicadasSheet;
+  }, [horasAplicadasSheet]);
+
+  useEffect(() => {
+    latestPlanoProgressoSheetRef.current = planoProgressoSheet;
+  }, [planoProgressoSheet]);
 
   useEffect(() => {
     activeTurmaNameEditRef.current = activeTurmaNameEdit;
@@ -1454,6 +1689,14 @@ export function TurmasPage({
       92,
       Math.round(frameBottom - anchorRect.bottom - 10),
     );
+    const scheduleLessonMaxDropdownHeight = 234;
+    const targetWidth =
+      field === 'lesson' ? Math.max(anchorRect.width, 340) : anchorRect.width;
+    const dropdownWidth = Math.min(targetWidth, window.innerWidth - 24);
+    const dropdownLeft = Math.min(
+      Math.round(anchorRect.left),
+      Math.max(12, Math.round(window.innerWidth - dropdownWidth - 12)),
+    );
 
     setActiveScheduleFieldEditor((currentEditor) => {
       if (
@@ -1467,10 +1710,13 @@ export function TurmasPage({
       return {
         ...currentEditor,
         style: {
-          left: Math.round(anchorRect.left),
+          left: dropdownLeft,
           top: Math.round(anchorRect.bottom + 4),
-          width: Math.round(anchorRect.width),
-          maxHeight: maxDropdownHeight,
+          width: Math.round(dropdownWidth),
+          maxHeight:
+            field === 'lesson'
+              ? Math.min(maxDropdownHeight, scheduleLessonMaxDropdownHeight)
+              : maxDropdownHeight,
           visibility: 'visible',
         },
       };
@@ -3061,7 +3307,12 @@ export function TurmasPage({
 
     if (response.ok) {
       const file = await responseToWorkbookFile(response, 'DadosElevar.xlsx');
-      await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
+      await Promise.all([
+        applyAulasFile(file),
+        applyAulasCoverageFile(file),
+        applyCronogramaFile(file),
+        applyAcademicWorkbookFile(file),
+      ]);
     }
 
     await fetchRecoveryInfo();
@@ -3251,6 +3502,77 @@ export function TurmasPage({
     return nextSheetWithFileName;
   };
 
+  const applyAulasCoverageFile = async (file: File) => {
+    let nextSheet: SheetTable;
+
+    try {
+      nextSheet = await readSheetFile(
+        file,
+        AULAS_DISCIPLINAS_ENTITY_ID,
+        AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
+        {
+          ensureRecordIds: false,
+          preferredSheetName: AULAS_DISCIPLINAS_WORKBOOK_SHEET,
+        },
+      );
+    } catch {
+      nextSheet = getAulasCoverageFallbackSheet(file.name);
+    }
+
+    const nextSheetWithFileName = {
+      ...nextSheet,
+      fileName: file.name,
+    };
+
+    latestAulasCoverageSheetRef.current = nextSheetWithFileName;
+    setAulasCoverageSheet(nextSheetWithFileName);
+    return nextSheetWithFileName;
+  };
+
+  const applyAcademicWorkbookFile = async (file: File) => {
+    const academicSheets = await readAcademicWorkbookSheets(file).catch(() => ({
+      aprendizes: null,
+      arcos: null,
+      disciplinas: null,
+      aulasDisciplinas: null,
+      planoEnsino: getPlanoEnsinoFallbackSheet(file.name),
+      presencas: getPresencasFallbackSheet(file.name),
+      horasAplicadas: getHorasAplicadasFallbackSheet(file.name),
+      planoProgresso: getPlanoProgressoFallbackSheet(file.name),
+    }));
+    const nextPlanoEnsinoSheet =
+      academicSheets.planoEnsino ?? getPlanoEnsinoFallbackSheet(file.name);
+    const nextPresencasSheet =
+      academicSheets.presencas ?? getPresencasFallbackSheet(file.name);
+    const nextHorasAplicadasSheet =
+      academicSheets.horasAplicadas ?? getHorasAplicadasFallbackSheet(file.name);
+    const nextPlanoProgressoSheet =
+      academicSheets.planoProgresso ?? getPlanoProgressoFallbackSheet(file.name);
+
+    latestPlanoEnsinoSheetRef.current = nextPlanoEnsinoSheet;
+    setPlanoEnsinoSheet(nextPlanoEnsinoSheet);
+    latestPresencasSheetRef.current = nextPresencasSheet;
+    setPresencasSheet(nextPresencasSheet);
+    latestHorasAplicadasSheetRef.current = nextHorasAplicadasSheet;
+    setHorasAplicadasSheet(nextHorasAplicadasSheet);
+    latestPlanoProgressoSheetRef.current = nextPlanoProgressoSheet;
+    setPlanoProgressoSheet(nextPlanoProgressoSheet);
+
+    await persistAcademicDataIndexes({
+      planoEnsinoSheet: nextPlanoEnsinoSheet,
+      presencasSheet: nextPresencasSheet,
+      horasAplicadasSheet: nextHorasAplicadasSheet,
+      planoProgressoSheet: nextPlanoProgressoSheet,
+    });
+
+    return {
+      planoEnsinoSheet: nextPlanoEnsinoSheet,
+      presencasSheet: nextPresencasSheet,
+      horasAplicadasSheet: nextHorasAplicadasSheet,
+      planoProgressoSheet: nextPlanoProgressoSheet,
+    };
+  };
+
   const saveCronogramaSheetToSourceFile = async (sheet: SheetTable) => {
     try {
       const { read, utils, write } = await loadXlsx();
@@ -3418,6 +3740,13 @@ export function TurmasPage({
       color?: string;
     },
   ) => {
+    if (blockHasAttendance(blockId)) {
+      setImportError(
+        'Este evento já possui presença registrada e não pode ser alterado sem uma revisão.',
+      );
+      return false;
+    }
+
     const sheet = getWorkingCronogramaSheet();
     const currentRowIndex = sheet.rows.findIndex(
       (row) => getCronogramaRowId(sheet, row) === blockId,
@@ -3478,7 +3807,7 @@ export function TurmasPage({
   ) => {
     const draftValue =
       field === 'lesson'
-        ? block.lesson
+        ? ''
         : field === 'instructor'
           ? block.instructor
           : block.room;
@@ -3513,11 +3842,17 @@ export function TurmasPage({
     editor: ActiveScheduleFieldEditor,
     option: AulaCatalogOption,
   ) => {
+    const currentBlock = buildCronogramaBlocks(getWorkingCronogramaSheet()).find(
+      (block) => block.id === editor.blockId,
+    );
+
     activeScheduleFieldEditorRef.current = null;
     setActiveScheduleFieldEditor(null);
     await updateScheduleBlockValues(editor.blockId, {
       lessonId: option.id,
       lesson: option.name,
+      instructor: option.defaultInstructor || currentBlock?.instructor || '',
+      room: option.defaultRoom || currentBlock?.room || '',
       color: option.color,
     });
   };
@@ -3552,6 +3887,203 @@ export function TurmasPage({
 
     if (didCommit && editor.field === 'room') {
       await rememberWorkbookOption('room', nextValue);
+    }
+  };
+
+  const getTurmaRecordId = (turmaName: string) => {
+    const sheet = latestTurmasSheetRef.current;
+
+    if (!sheet) {
+      return '';
+    }
+
+    const rowIndex = sheet.rows.findIndex(
+      (row) =>
+        normalizeFieldLabel(getCellValue(sheet, row, TURMA_COLUMN)) ===
+        normalizeFieldLabel(turmaName),
+    );
+
+    return rowIndex >= 0 ? getSheetRecordId(sheet, rowIndex, TURMAS_ENTITY_ID) : '';
+  };
+
+  const getEventAttendanceSnapshot = (
+    block: CronogramaBlock,
+  ): AcademicEventSnapshot => ({
+    id: block.id,
+    turma: block.turma,
+    turmaId: getTurmaRecordId(block.turma),
+    date: block.dateKey,
+    start: formatMinutesAsTime(block.startMinutes),
+    end: formatMinutesAsTime(block.endMinutes),
+    aulaId: block.lessonId,
+    aula: block.lesson,
+    instructor: block.instructor,
+    room: block.room,
+    durationMinutes: Math.max(0, block.endMinutes - block.startMinutes),
+  });
+
+  const getAttendanceStatusesForBlock = (blockId: string) => {
+    const statuses = new Map<string, string>();
+    const sheet = latestPresencasSheetRef.current;
+
+    sheet?.rows.forEach((row) => {
+      if (getAcademicCellValue(sheet, row, 'Evento ID') !== blockId) {
+        return;
+      }
+
+      statuses.set(
+        getAcademicCellValue(sheet, row, 'Aprendiz ID'),
+        getAcademicCellValue(sheet, row, 'Status Presença'),
+      );
+    });
+
+    return statuses;
+  };
+
+  const blockHasAttendance = (blockId: string) => {
+    const sheet = latestPresencasSheetRef.current;
+
+    return Boolean(
+      sheet?.rows.some(
+        (row) => getAcademicCellValue(sheet, row, 'Evento ID') === blockId,
+      ),
+    );
+  };
+
+  const getAttendanceStudentsForBlock = (block: CronogramaBlock) => {
+    const sheet = latestAprendizesSheetRef.current;
+
+    if (!sheet) {
+      return [];
+    }
+
+    return getAssignedStudents(sheet, block.turma, turmaNames).map(
+      ({ row, rowIndex }) => ({
+        aprendizId: getSheetRecordId(sheet, rowIndex, APRENDIZES_ENTITY_ID),
+        aprendiz: getCellValue(sheet, row, NAME_COLUMN) || `Aprendiz ${rowIndex + 1}`,
+        arco: getCellValue(sheet, row, LEARNING_ARC_COLUMN),
+      }),
+    );
+  };
+
+  const openAttendancePanel = (block: CronogramaBlock) => {
+    const anchor = boardFrameRef.current?.querySelector<HTMLElement>(
+      `[data-schedule-block-id="${block.id}"]`,
+    );
+    const statuses = getAttendanceStatusesForBlock(block.id);
+    const students = getAttendanceStudentsForBlock(block);
+    const nextDraft = Object.fromEntries(
+      students.map((student) => [
+        student.aprendizId,
+        statuses.get(student.aprendizId) === 'Presente',
+      ]),
+    );
+
+    setAttendanceDraft(nextDraft);
+
+    if (!anchor) {
+      setActiveAttendancePanel({
+        blockId: block.id,
+        style: { visibility: 'hidden' },
+      });
+      return;
+    }
+
+    const rect = anchor.getBoundingClientRect();
+    const panelWidth = 300;
+    const left = Math.min(
+      Math.max(12, Math.round(rect.right + 8)),
+      Math.max(12, Math.round(window.innerWidth - panelWidth - 12)),
+    );
+    const top = Math.min(
+      Math.max(12, Math.round(rect.top)),
+      Math.max(12, Math.round(window.innerHeight - 320)),
+    );
+
+    setActiveAttendancePanel({
+      blockId: block.id,
+      style: {
+        left,
+        top,
+        width: panelWidth,
+        visibility: 'visible',
+      },
+    });
+  };
+
+  const saveAttendanceForBlock = async (block: CronogramaBlock) => {
+    if (isSavingAttendance) {
+      return;
+    }
+
+    const students = getAttendanceStudentsForBlock(block);
+
+    if (!block.lessonId && !block.lesson) {
+      setImportError('Selecione uma aula antes de registrar presença.');
+      return;
+    }
+
+    setIsSavingAttendance(true);
+
+    try {
+      const syncedAcademicFile = await syncAcademicWorkbookFromSource().catch(
+        () => null,
+      );
+
+      if (syncedAcademicFile) {
+        await applyAcademicWorkbookFile(syncedAcademicFile);
+      }
+
+      const fileName =
+        latestCronogramaSheetRef.current?.fileName ??
+        latestTurmasSheetRef.current?.fileName ??
+        'DadosElevar.xlsx';
+      const eventSnapshot = getEventAttendanceSnapshot(block);
+      const selections: AcademicAttendanceSelection[] = students.map((student) => ({
+        ...student,
+        status: attendanceDraft[student.aprendizId] ? 'Presente' : 'Ausente',
+      }));
+      const nextAcademicSheets = updateAcademicAttendance(
+        fileName,
+        latestPresencasSheetRef.current,
+        latestHorasAplicadasSheetRef.current,
+        latestPlanoEnsinoSheetRef.current,
+        latestAulasCoverageSheetRef.current,
+        eventSnapshot,
+        selections,
+      );
+      const savedFile = await saveWorkbookSheets([
+        nextAcademicSheets.presencasSheet,
+        nextAcademicSheets.horasAplicadasSheet,
+        nextAcademicSheets.planoProgressoSheet,
+      ]);
+
+      latestPresencasSheetRef.current = nextAcademicSheets.presencasSheet;
+      setPresencasSheet(nextAcademicSheets.presencasSheet);
+      latestHorasAplicadasSheetRef.current =
+        nextAcademicSheets.horasAplicadasSheet;
+      setHorasAplicadasSheet(nextAcademicSheets.horasAplicadasSheet);
+      latestPlanoProgressoSheetRef.current =
+        nextAcademicSheets.planoProgressoSheet;
+      setPlanoProgressoSheet(nextAcademicSheets.planoProgressoSheet);
+      await persistAcademicDataIndexes({
+        planoEnsinoSheet: latestPlanoEnsinoSheetRef.current,
+        presencasSheet: nextAcademicSheets.presencasSheet,
+        horasAplicadasSheet: nextAcademicSheets.horasAplicadasSheet,
+        planoProgressoSheet: nextAcademicSheets.planoProgressoSheet,
+      });
+
+      if (savedFile) {
+        await applyAcademicWorkbookFile(savedFile);
+      }
+
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+      setActiveAttendancePanel(null);
+      setImportError('');
+    } catch {
+      setImportError('Não foi possível salvar a presença.');
+    } finally {
+      setIsSavingAttendance(false);
     }
   };
 
@@ -3614,6 +4146,13 @@ export function TurmasPage({
   };
 
   const deleteScheduleBlock = async (block: CronogramaBlock) => {
+    if (blockHasAttendance(block.id)) {
+      setImportError(
+        'Este evento já possui presença registrada e não pode ser deletado sem uma revisão.',
+      );
+      return;
+    }
+
     const sheet = getWorkingCronogramaSheet();
     const currentRowIndex = sheet.rows.findIndex(
       (row) => getCronogramaRowId(sheet, row) === block.id,
@@ -3655,6 +4194,13 @@ export function TurmasPage({
     originalRow: string[],
     nextRow: string[],
   ) => {
+    if (blockHasAttendance(blockId)) {
+      setImportError(
+        'Este evento já possui presença registrada e não pode ser movido sem uma revisão.',
+      );
+      return;
+    }
+
     const sheet = getWorkingCronogramaSheet();
     const currentRowIndex = sheet.rows.findIndex(
       (row) => getCronogramaRowId(sheet, row) === blockId,
@@ -4085,7 +4631,9 @@ export function TurmasPage({
         await Promise.all([
           applyTurmasFile(changedFile, nextAprendizesSheet),
           applyAulasFile(changedFile),
+          applyAulasCoverageFile(changedFile),
           applyCronogramaFile(changedFile),
+          applyAcademicWorkbookFile(changedFile),
         ]);
         return;
       }
@@ -4099,20 +4647,49 @@ export function TurmasPage({
           );
 
           if (!file) {
-            if (latestAulasSheetRef.current || latestCronogramaSheetRef.current) {
+            if (
+              latestAulasSheetRef.current ||
+              latestAulasCoverageSheetRef.current ||
+              latestCronogramaSheetRef.current ||
+              latestPlanoEnsinoSheetRef.current ||
+              latestPresencasSheetRef.current ||
+              latestHorasAplicadasSheetRef.current ||
+              latestPlanoProgressoSheetRef.current
+            ) {
               return;
             }
 
             latestAulasSheetRef.current = null;
             setAulasSheet(null);
             await persistAulasDataIndex(null);
+            latestAulasCoverageSheetRef.current = null;
+            setAulasCoverageSheet(null);
             latestCronogramaSheetRef.current = null;
             setCronogramaSheet(null);
             await persistCronogramaDataIndex(null);
+            latestPlanoEnsinoSheetRef.current = null;
+            setPlanoEnsinoSheet(null);
+            latestPresencasSheetRef.current = null;
+            setPresencasSheet(null);
+            latestHorasAplicadasSheetRef.current = null;
+            setHorasAplicadasSheet(null);
+            latestPlanoProgressoSheetRef.current = null;
+            setPlanoProgressoSheet(null);
+            await persistAcademicDataIndexes({
+              planoEnsinoSheet: null,
+              presencasSheet: null,
+              horasAplicadasSheet: null,
+              planoProgressoSheet: null,
+            });
             return;
           }
 
-          await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
+          await Promise.all([
+            applyAulasFile(file),
+            applyAulasCoverageFile(file),
+            applyCronogramaFile(file),
+            applyAcademicWorkbookFile(file),
+          ]);
         })(),
       ]);
     } finally {
@@ -4138,20 +4715,49 @@ export function TurmasPage({
           );
 
           if (!file) {
-            if (latestAulasSheetRef.current || latestCronogramaSheetRef.current) {
+            if (
+              latestAulasSheetRef.current ||
+              latestAulasCoverageSheetRef.current ||
+              latestCronogramaSheetRef.current ||
+              latestPlanoEnsinoSheetRef.current ||
+              latestPresencasSheetRef.current ||
+              latestHorasAplicadasSheetRef.current ||
+              latestPlanoProgressoSheetRef.current
+            ) {
               return;
             }
 
             latestAulasSheetRef.current = null;
             setAulasSheet(null);
             await persistAulasDataIndex(null);
+            latestAulasCoverageSheetRef.current = null;
+            setAulasCoverageSheet(null);
             latestCronogramaSheetRef.current = null;
             setCronogramaSheet(null);
             await persistCronogramaDataIndex(null);
+            latestPlanoEnsinoSheetRef.current = null;
+            setPlanoEnsinoSheet(null);
+            latestPresencasSheetRef.current = null;
+            setPresencasSheet(null);
+            latestHorasAplicadasSheetRef.current = null;
+            setHorasAplicadasSheet(null);
+            latestPlanoProgressoSheetRef.current = null;
+            setPlanoProgressoSheet(null);
+            await persistAcademicDataIndexes({
+              planoEnsinoSheet: null,
+              presencasSheet: null,
+              horasAplicadasSheet: null,
+              planoProgressoSheet: null,
+            });
             return;
           }
 
-          await Promise.all([applyAulasFile(file), applyCronogramaFile(file)]);
+          await Promise.all([
+            applyAulasFile(file),
+            applyAulasCoverageFile(file),
+            applyCronogramaFile(file),
+            applyAcademicWorkbookFile(file),
+          ]);
         })(),
       ]);
 
@@ -6146,8 +6752,8 @@ export function TurmasPage({
     [cronogramaSheet],
   );
   const aulaCatalogOptions = useMemo(
-    () => buildAulaCatalogOptions(aulasSheet),
-    [aulasSheet],
+    () => buildAulaCatalogOptions(aulasSheet, aulasCoverageSheet),
+    [aulasCoverageSheet, aulasSheet],
   );
   const scheduleInstructorOptions = useMemo(
     () =>
@@ -6503,6 +7109,7 @@ export function TurmasPage({
                           return (
                             <div
                               className="turma-schedule-block"
+                              data-schedule-block-id={block.id}
                               key={block.id}
                               style={
                                 {
@@ -6543,6 +7150,18 @@ export function TurmasPage({
                                   SCHEDULE_LESSON_PLACEHOLDER,
                                 )}
                                 <div className="turma-schedule-block-actions">
+                                  <button
+                                    className="turma-schedule-block-icon-button"
+                                    type="button"
+                                    aria-label="Registrar presença"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openAttendancePanel(block);
+                                    }}
+                                  >
+                                    <CheckIcon />
+                                  </button>
                                   <button
                                     className="turma-schedule-block-icon-button"
                                     type="button"
@@ -7313,7 +7932,11 @@ export function TurmasPage({
             )}
             {activeScheduleFieldEditor && (
               <div
-                className="turma-schedule-field-editor"
+                className={
+                  activeScheduleFieldEditor.field === 'lesson'
+                    ? 'turma-schedule-field-editor lesson-options'
+                    : 'turma-schedule-field-editor'
+                }
                 style={activeScheduleFieldEditor.style}
                 onMouseDown={(event) => event.stopPropagation()}
               >
@@ -7338,9 +7961,6 @@ export function TurmasPage({
                             }
                           >
                             <span>{option.name}</span>
-                            {option.disciplines ? (
-                              <small>{option.disciplines}</small>
-                            ) : null}
                           </button>
                         ))
                       ) : (
@@ -7387,6 +8007,82 @@ export function TurmasPage({
                 )}
               </div>
             )}
+            {activeAttendancePanel &&
+              (() => {
+                const activeBlock = cronogramaBlocks.find(
+                  (block) => block.id === activeAttendancePanel.blockId,
+                );
+                const attendanceStudents = activeBlock
+                  ? getAttendanceStudentsForBlock(activeBlock)
+                  : [];
+
+                if (!activeBlock) {
+                  return null;
+                }
+
+                return (
+                  <div
+                    className="turma-attendance-panel"
+                    style={activeAttendancePanel.style}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <div className="turma-attendance-panel-header">
+                      <div>
+                        <strong>Presença</strong>
+                        <span>{activeBlock.lesson || 'Selecionar aula'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Fechar presença"
+                        onClick={() => setActiveAttendancePanel(null)}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </div>
+                    <div className="turma-attendance-list">
+                      {attendanceStudents.length > 0 ? (
+                        attendanceStudents.map((student) => (
+                          <label
+                            className="turma-attendance-row"
+                            key={student.aprendizId}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(attendanceDraft[student.aprendizId])}
+                              onChange={(event) => {
+                                const isChecked = event.currentTarget.checked;
+
+                                setAttendanceDraft((currentDraft) => ({
+                                  ...currentDraft,
+                                  [student.aprendizId]: isChecked,
+                                }));
+                              }}
+                            />
+                            <span>{student.aprendiz}</span>
+                            <small>
+                              {attendanceDraft[student.aprendizId]
+                                ? 'Presente'
+                                : 'Ausente'}
+                            </small>
+                          </label>
+                        ))
+                      ) : (
+                        <div className="turma-attendance-empty">
+                          Nenhum aprendiz nesta turma.
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="turma-attendance-save"
+                      type="button"
+                      disabled={isSavingAttendance || attendanceStudents.length === 0}
+                      onClick={() => void saveAttendanceForBlock(activeBlock)}
+                    >
+                      {isSavingAttendance ? 'Salvando...' : 'Salvar presença'}
+                    </button>
+                  </div>
+                );
+              })()}
             {shouldShowStudentDetailsPanel &&
               aprendizesSheet &&
               selectedStudentRow && (
@@ -7820,6 +8516,14 @@ function PlusIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 5v14" />
       <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 12l5 5l9 -10" />
     </svg>
   );
 }

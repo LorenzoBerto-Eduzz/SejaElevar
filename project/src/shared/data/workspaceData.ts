@@ -5,12 +5,20 @@ import {
   ARCOS_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
   DISCIPLINAS_ENTITY_ID,
+  HORAS_APLICADAS_ENTITY_ID,
+  PLANO_ENSINO_ENTITY_ID,
+  PLANO_PROGRESSO_ENTITY_ID,
+  PRESENCAS_ENTITY_ID,
   buildAulasDisciplinasDataIndexEntity,
   buildAulasDataIndexEntity,
   buildArcosDataIndexEntity,
   buildCronogramaDataIndexEntity,
   buildDisciplinasDataIndexEntity,
   buildEmptyDataIndexEntity,
+  buildHorasAplicadasDataIndexEntity,
+  buildPlanoEnsinoDataIndexEntity,
+  buildPlanoProgressoDataIndexEntity,
+  buildPresencasDataIndexEntity,
   type SheetTable,
 } from './dataIndex';
 import {
@@ -19,6 +27,10 @@ import {
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
+  HORAS_APLICADAS_REQUIRED_COLUMNS,
+  PLANO_ENSINO_REQUIRED_COLUMNS,
+  PLANO_PROGRESSO_REQUIRED_COLUMNS,
+  PRESENCAS_REQUIRED_COLUMNS,
   findSchemaHeaderRowIndex,
   normalizeColumnsForSchema,
   normalizeFieldLabel,
@@ -128,6 +140,30 @@ const MANAGED_OPTIONAL_WORKBOOK_SHEETS = [
     label: 'Cronograma',
     requiredColumns: CRONOGRAMA_REQUIRED_COLUMNS,
   },
+  {
+    entityId: PLANO_ENSINO_ENTITY_ID,
+    sheetName: 'Plano de Ensino',
+    label: 'Plano de Ensino',
+    requiredColumns: PLANO_ENSINO_REQUIRED_COLUMNS,
+  },
+  {
+    entityId: PRESENCAS_ENTITY_ID,
+    sheetName: 'Presencas',
+    label: 'Presencas',
+    requiredColumns: PRESENCAS_REQUIRED_COLUMNS,
+  },
+  {
+    entityId: HORAS_APLICADAS_ENTITY_ID,
+    sheetName: 'Horas Aplicadas',
+    label: 'Horas Aplicadas',
+    requiredColumns: HORAS_APLICADAS_REQUIRED_COLUMNS,
+  },
+  {
+    entityId: PLANO_PROGRESSO_ENTITY_ID,
+    sheetName: 'Plano Progresso',
+    label: 'Plano Progresso',
+    requiredColumns: PLANO_PROGRESSO_REQUIRED_COLUMNS,
+  },
 ] as const;
 
 const toSheetRows = (
@@ -153,6 +189,54 @@ const getLastUsedColumnIndex = (rows: unknown[][], startRowIndex: number) => {
   });
 
   return lastColumnIndex;
+};
+
+const buildManagedSchemaRows = (
+  rows: unknown[][],
+  headerIndex: number,
+  rawColumns: readonly string[],
+  requiredColumns: readonly string[],
+) => {
+  const requiredKeys = new Set(
+    requiredColumns.map((column) => normalizeFieldLabel(column)),
+  );
+  const extraColumns = rawColumns.filter(
+    (column, columnIndex) =>
+      !requiredKeys.has(normalizeFieldLabel(column)) &&
+      rawColumns.findIndex(
+        (candidateColumn, candidateIndex) =>
+          candidateIndex < columnIndex &&
+          normalizeFieldLabel(candidateColumn) === normalizeFieldLabel(column),
+      ) < 0,
+  );
+  const nextColumns = [...requiredColumns, ...extraColumns];
+  const rawIndexesByColumnKey = rawColumns.reduce((indexMap, column, columnIndex) => {
+    const columnKey = normalizeFieldLabel(column);
+    const existingIndexes = indexMap.get(columnKey) ?? [];
+
+    indexMap.set(columnKey, [...existingIndexes, columnIndex]);
+    return indexMap;
+  }, new Map<string, number[]>());
+  const nextRows = rows.map((row, rowIndex) => {
+    if (rowIndex === headerIndex) {
+      return nextColumns;
+    }
+
+    return nextColumns.map((column) => {
+      const matchingIndexes =
+        rawIndexesByColumnKey.get(normalizeFieldLabel(column)) ?? [];
+      const firstFilledValue = matchingIndexes
+        .map((columnIndex) => normalizeCell(row[columnIndex]))
+        .find(Boolean);
+
+      return firstFilledValue ?? normalizeCell(row[matchingIndexes[0]]);
+    });
+  });
+
+  return {
+    nextColumns,
+    nextRows,
+  };
 };
 
 const normalizeManagedWorksheet = (
@@ -196,14 +280,26 @@ const normalizeManagedWorksheet = (
     rawColumns,
     requiredColumns,
   );
-  const nextColumns = [...normalizedColumns, ...missingColumns];
-  const originalColumns = Array.from(
+  const { nextColumns, nextRows: reorderedRows } = buildManagedSchemaRows(
+    nextRows,
+    headerIndex,
+    normalizedColumns,
+    [...requiredColumns, ...missingColumns],
+  );
+  const currentHeader = Array.from(
     { length: nextColumns.length },
     (_, index) => normalizeCell(headerRow[index]),
   );
   const didChange =
-    missingColumns.length > 0 ||
-    nextColumns.some((column, index) => column !== originalColumns[index]);
+    rawColumns.length !== nextColumns.length ||
+    reorderedRows.some((row, rowIndex) => {
+      const currentRow = nextRows[rowIndex] ?? [];
+
+      return row.some(
+        (cell, columnIndex) => cell !== normalizeCell(currentRow[columnIndex]),
+      );
+    }) ||
+    nextColumns.some((column, index) => column !== currentHeader[index]);
 
   if (!didChange) {
     return {
@@ -212,15 +308,8 @@ const normalizeManagedWorksheet = (
     };
   }
 
-  nextRows[headerIndex] = nextColumns;
-  for (let rowIndex = 0; rowIndex < nextRows.length; rowIndex += 1) {
-    while (nextRows[rowIndex].length < nextColumns.length) {
-      nextRows[rowIndex].push('');
-    }
-  }
-
   return {
-    worksheet: utils.aoa_to_sheet(nextRows),
+    worksheet: utils.aoa_to_sheet(reorderedRows),
     didChange: true,
   };
 };
@@ -638,9 +727,42 @@ export const persistManagedWorkbookDataIndexes = async (file: File | null) => {
             );
       }
 
+      if (sheetDefinition.entityId === CRONOGRAMA_ENTITY_ID) {
+        return sheet
+          ? buildCronogramaDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(CRONOGRAMA_ENTITY_ID, 'Cronograma');
+      }
+
+      if (sheetDefinition.entityId === PLANO_ENSINO_ENTITY_ID) {
+        return sheet
+          ? buildPlanoEnsinoDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(
+              PLANO_ENSINO_ENTITY_ID,
+              'Plano de Ensino',
+            );
+      }
+
+      if (sheetDefinition.entityId === PRESENCAS_ENTITY_ID) {
+        return sheet
+          ? buildPresencasDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(PRESENCAS_ENTITY_ID, 'Presencas');
+      }
+
+      if (sheetDefinition.entityId === HORAS_APLICADAS_ENTITY_ID) {
+        return sheet
+          ? buildHorasAplicadasDataIndexEntity(sheet)
+          : buildEmptyDataIndexEntity(
+              HORAS_APLICADAS_ENTITY_ID,
+              'Horas Aplicadas',
+            );
+      }
+
       return sheet
-        ? buildCronogramaDataIndexEntity(sheet)
-        : buildEmptyDataIndexEntity(CRONOGRAMA_ENTITY_ID, 'Cronograma');
+        ? buildPlanoProgressoDataIndexEntity(sheet)
+        : buildEmptyDataIndexEntity(
+            PLANO_PROGRESSO_ENTITY_ID,
+            'Plano Progresso',
+          );
     };
 
     return {

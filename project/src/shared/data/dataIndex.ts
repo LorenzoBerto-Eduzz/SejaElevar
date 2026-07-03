@@ -5,6 +5,10 @@ import {
   AULAS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
+  HORAS_APLICADAS_REQUIRED_COLUMNS,
+  PLANO_ENSINO_REQUIRED_COLUMNS,
+  PLANO_PROGRESSO_REQUIRED_COLUMNS,
+  PRESENCAS_REQUIRED_COLUMNS,
   TURMAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from './schemas';
@@ -18,6 +22,10 @@ export const DISCIPLINAS_ENTITY_ID = 'disciplinas';
 export const AULAS_ENTITY_ID = 'aulas';
 export const AULAS_DISCIPLINAS_ENTITY_ID = 'aulas-disciplinas';
 export const CRONOGRAMA_ENTITY_ID = 'cronograma';
+export const PLANO_ENSINO_ENTITY_ID = 'plano-ensino';
+export const PRESENCAS_ENTITY_ID = 'presencas';
+export const HORAS_APLICADAS_ENTITY_ID = 'horas-aplicadas';
+export const PLANO_PROGRESSO_ENTITY_ID = 'plano-progresso';
 
 export type SheetTable = {
   fileName: string;
@@ -201,4 +209,39 @@ export const buildCronogramaDataIndexEntity = (sheet: SheetTable) =>
     getBaseWorkbookSheetByEntity(CRONOGRAMA_ENTITY_ID)?.label ?? 'Cronograma',
     sheet,
     CRONOGRAMA_REQUIRED_COLUMNS,
+  );
+
+export const buildPlanoEnsinoDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    PLANO_ENSINO_ENTITY_ID,
+    getBaseWorkbookSheetByEntity(PLANO_ENSINO_ENTITY_ID)?.label ??
+      'Plano de Ensino',
+    sheet,
+    PLANO_ENSINO_REQUIRED_COLUMNS,
+  );
+
+export const buildPresencasDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    PRESENCAS_ENTITY_ID,
+    getBaseWorkbookSheetByEntity(PRESENCAS_ENTITY_ID)?.label ?? 'Presencas',
+    sheet,
+    PRESENCAS_REQUIRED_COLUMNS,
+  );
+
+export const buildHorasAplicadasDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    HORAS_APLICADAS_ENTITY_ID,
+    getBaseWorkbookSheetByEntity(HORAS_APLICADAS_ENTITY_ID)?.label ??
+      'Horas Aplicadas',
+    sheet,
+    HORAS_APLICADAS_REQUIRED_COLUMNS,
+  );
+
+export const buildPlanoProgressoDataIndexEntity = (sheet: SheetTable) =>
+  buildDataIndexEntity(
+    PLANO_PROGRESSO_ENTITY_ID,
+    getBaseWorkbookSheetByEntity(PLANO_PROGRESSO_ENTITY_ID)?.label ??
+      'Plano Progresso',
+    sheet,
+    PLANO_PROGRESSO_REQUIRED_COLUMNS,
   );
