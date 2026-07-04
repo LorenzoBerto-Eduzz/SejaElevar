@@ -10,6 +10,7 @@
     "build:single": "npm run build && node scripts/build-single-file.mjs",
     "export:release": "node scripts/export-release.mjs",
     "freshdev": "node scripts/fresh-dev.mjs",
+    "freshdata": "node scripts/fresh-data.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "preview:open": "vite preview --host 127.0.0.1 --open",
     "start": "node scripts/serve-preview.mjs --open",

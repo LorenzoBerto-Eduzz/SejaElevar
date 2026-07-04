@@ -97,11 +97,6 @@ const extractHours = (value: string) => {
   return match ? `${match[1]} horas` : '';
 };
 
-const extractHoursFromLine = (value: string) => {
-  const match = normalizeText(value).match(/\b(\d+)\s*(?:h|horas?)\b/i);
-  return match ? `${match[1]} horas` : '';
-};
-
 const extractArcoName = (lines: readonly LineColumns[]) => {
   const allText = lines.map((line) => line.text).join('\n');
   const directMatch = allText.match(
@@ -182,7 +177,11 @@ const buildLinesFromTextItems = (
         .map((part) => part.text)
         .join(' ');
       const right = parts
-        .filter((part) => part.x >= 490)
+        .filter(
+          (part) =>
+            part.x >= 490 ||
+            (part.x >= 480 && /^\d+\s*(?:h|horas?)/i.test(part.text)),
+        )
         .map((part) => part.text)
         .join(' ');
       const hasDisciplineColumnAnchor = parts.some((part) => part.x < 70);
@@ -259,7 +258,7 @@ export const parseEmentaPdf = async (file: File): Promise<ParsedEmenta> => {
       return;
     }
 
-    const hours = extractHours(line.right) || extractHoursFromLine(line.text);
+    const hours = extractHours(line.right);
 
     if (hours) {
       currentDiscipline = flushDisciplina(
@@ -268,13 +267,12 @@ export const parseEmentaPdf = async (file: File): Promise<ParsedEmenta> => {
         arco,
       );
 
-      if (line.left && line.hasDisciplineColumnAnchor) {
-        currentDiscipline = {
-          nameParts: [line.left],
-          module: currentModule,
-          hours,
-        };
-      }
+      currentDiscipline = {
+        nameParts:
+          line.left && line.hasDisciplineColumnAnchor ? [line.left] : [],
+        module: currentModule,
+        hours,
+      };
 
       return;
     }

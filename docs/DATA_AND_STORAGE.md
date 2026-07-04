@@ -334,6 +334,14 @@ npm --prefix project run freshdev
 
 This reset is for testing the dev app like a fresh first-use install. It clears active runtime data and generated traces under `project/dev/dados/`, including active `DadosElevar_*.xlsx` files, checkpoint files, imported Ementa PDF copies, workbook control JSON, and generated `data-index.json`, while keeping the required `dados/`, `dados/checkpoints/`, `dados/ementas/`, `dados/sistema/`, and `.gitkeep` structure. It also creates a one-shot marker consumed by the next dev app launch to clear browser-side data history: the global undo stack (`sejaelevar.globalUndo.v1`) and the dev action-history overlay (`sejaelevar.dev.actionHistory.v1`). Visual preferences such as dark/light mode, sidebar collapsed state, WebView zoom, and baked layout/color settings should remain unless the user explicitly asks for a full visual reset.
 
+When the user asks for `freshdata`, run:
+
+```text
+npm --prefix project run freshdata
+```
+
+This is the "blank but already imported" dev state. It clears the same runtime data/checkpoints/ementa copies/generated indexes as `freshdev`, then creates a new timestamped active `DadosElevar_HHmmssddMMyy.xlsx` under `project/dev/dados/` with all current app worksheets and headers but zero data rows. It writes `dados/sistema/dados-elevar-controle.json` so the app opens with an on-use workbook instead of the shared import prompt. Use this when the user wants to test registering/importing Arcos, Aprendizes, Turmas, Aulas, event blocks, attendance, and generated academic sheets from an empty current-schema workbook.
+
 ## Future Sync Direction
 
 The current idea for future multi-worker use is that the app can point at a shared/synced workspace, possibly a Google Drive folder.
