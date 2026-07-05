@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AprendizesPage } from './features/aprendizes/AprendizesPage';
 import { ArcosPage } from './features/arcos/ArcosPage';
 import { AulasPage } from './features/aulas/AulasPage';
+import { CalendarioPage } from './features/calendario/CalendarioPage';
 import { TurmasPage } from './features/turmas/TurmasPage';
 import { appBrand } from './shared/brand/appBrand';
 import type { AppTab } from './shared/navigation/tabs';
@@ -270,10 +271,17 @@ export function App() {
           isActive={activeTab === 'aulas'}
         />
       </div>
+      <div hidden={activeTab !== 'calendario'}>
+        <CalendarioPage
+          canInitialize={isInitialPageReady || activeTab === 'calendario'}
+          isActive={activeTab === 'calendario'}
+        />
+      </div>
       {activeTab !== 'aprendizes' &&
         activeTab !== 'turmas' &&
         activeTab !== 'arcos' &&
-        activeTab !== 'aulas' && (
+        activeTab !== 'aulas' &&
+        activeTab !== 'calendario' && (
         <FeaturePlaceholderPage
           title={appTabs.find((tab) => tab.id === activeTab)?.label ?? ''}
         />

@@ -77,6 +77,10 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 5. Build the search and document-generation foundations on the generated data index while keeping source spreadsheets plain and recoverable.
 6. Shape `Documentos` as the central document/template/generation area and `Calendário` as the global Cronograma visualization area.
 
+Current roadmap clarification: the immediate work is continuous reliability testing of the active workbook chain from Ementa/Arcos/Disciplinas through Aprendizes, Turmas, Aulas coverage, Cronograma event blocks, Presencas, Horas Aplicadas, Plano de Ensino, Plano Progresso, undo/redo, export, and recovery. Visual/buttons/elements refinements should happen as focused adjustments whenever the user or coworkers/supervisors notice them during use, so keep UI code modular and tweakable. The current substantial implementation is `Calendário`, as the global/universal Cronograma visualization for all scheduled event blocks across Turmas, dates, and eventually events without a Turma; its first week-grid foundation exists and should next render/sync real Cronograma event blocks. Deep `Documentos` work is intentionally paused until the user aligns with the supervisor on official documents, templates/models, required data, and generation/storage expectations. `Empresas` should remain undefined until the document/contract needs clarify its real purpose.
+
+Implementation status clarification: Aulas, Aulas-Disciplinas coverage, Cronograma event blocks inside Turmas, Presencas, Horas Aplicadas, Plano progress foundations, and the first `Calendário` week-view foundation now exist. The missing major areas are rendering real Cronograma events inside `Calendário`, full filters/search polish, document generation, and a defined Empresas workflow.
+
 ## Glossary
 
 - `SejaElevar`: Project/platform name.
@@ -94,7 +98,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 ## Known Pitfalls
 
 - This repo is initialized as Git on `main` and tracks `origin/main`.
-- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, Ementa-driven read-only Arcos/Disciplinas import/display foundation, generated data-index foundations, and global undo/recovery foundations, but no full filters, document generation, Calendário, or Aulas implementation yet.
+- `project/` now has the first app scaffold, a local exe/provider package flow, Aprendizes XLSX import/table/write-back behavior, linked Turmas behavior, editable Aulas and coverage foundations, Ementa-driven read-only Arcos/Disciplinas import/display foundation, generated data-index foundations, global undo/recovery foundations, and the first Calendário week-view foundation, but no full filters, document generation, Calendar event rendering, or Empresas workflow yet.
 - Do not treat `notes/todos.txt` as instructions unless the user explicitly asks.
 - Do not commit dependency folders, build outputs, local secrets, or real private data.
 - Future AI sessions should inspect `project/` before assuming the current UI state, commands, dependencies, or folder structure.

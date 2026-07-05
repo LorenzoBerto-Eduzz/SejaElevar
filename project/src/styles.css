@@ -626,7 +626,7 @@ svg {
   height: 100vh;
   background: var(--brand-page-background);
   overflow: visible;
-  padding: 42px;
+  padding: 28px;
 }
 
 .app-content > div:not([hidden]) {
@@ -3644,6 +3644,8 @@ svg {
 .turma-schedule-month-controls {
   display: grid;
   place-items: center;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   color: var(--brand-text);
   font-size: 0.72rem;
@@ -3695,11 +3697,131 @@ svg {
   color: var(--brand-text);
 }
 
-.turma-schedule-month-controls span {
+.turma-schedule-month-controls > span,
+.turma-schedule-month-controls .month-year-picker-trigger span {
   color: var(--brand-text);
   font-size: 0.86rem;
   font-weight: 400;
   line-height: 8px;
+}
+
+.month-year-picker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.month-year-picker-trigger {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 2px;
+  color: var(--brand-text);
+  background: transparent;
+}
+
+.month-year-picker-trigger:hover,
+.month-year-picker-trigger:focus-visible,
+.month-year-picker-trigger[aria-expanded='true'] {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.month-year-picker-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 80;
+  display: grid;
+  gap: 5px;
+  width: 176px;
+  padding: 6px;
+  border: 1px solid var(--brand-line);
+  border-radius: 7px;
+  color: var(--brand-text);
+  background: var(--brand-tertiary);
+  box-shadow: 0 12px 26px rgba(27, 36, 48, 0.16);
+}
+
+.month-year-picker-header {
+  display: grid;
+  grid-template-columns: 26px 1fr 26px;
+  align-items: center;
+  height: 24px;
+  color: var(--brand-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.month-year-picker-year-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0;
+  color: var(--brand-text);
+  background: transparent;
+}
+
+.month-year-picker-year-button:hover,
+.month-year-picker-year-button:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.month-year-picker-year-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.month-year-picker-year-button svg.previous {
+  transform: rotate(180deg);
+}
+
+.month-year-picker-months {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.month-year-picker-month {
+  display: grid;
+  place-items: center;
+  height: 21px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 4px;
+  color: var(--brand-text);
+  background: color-mix(in srgb, var(--brand-panel) 66%, transparent);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.month-year-picker-month:hover,
+.month-year-picker-month:focus-visible,
+.month-year-picker-month.selected {
+  border-color: var(--brand-primary);
+  color: var(--brand-active-text);
+  background: var(--brand-primary);
+  outline: none;
 }
 
 .turma-schedule-grid {
@@ -4332,6 +4454,240 @@ input.turma-schedule-block-field {
   font-size: 0.88rem;
   font-weight: 750;
   text-align: center;
+}
+
+.calendario-page {
+  overflow: hidden;
+}
+
+.calendario-data-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendario-week-grid {
+  --calendario-row-height: 22px;
+  display: grid;
+  grid-template-columns:
+    62px repeat(var(--calendario-day-count, 7), minmax(118px, 1fr));
+  align-content: start;
+  min-width: max-content;
+  min-height: 0;
+  overflow: auto;
+  background: var(--brand-panel);
+  scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
+}
+
+.calendario-week-grid::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.calendario-week-grid::-webkit-scrollbar-track,
+.calendario-week-grid::-webkit-scrollbar-corner,
+.calendario-week-grid::-webkit-scrollbar-button {
+  background: var(--brand-scroll-track);
+}
+
+.calendario-week-grid::-webkit-scrollbar-button {
+  display: none;
+}
+
+.calendario-week-grid::-webkit-scrollbar-thumb,
+.calendario-week-grid::-webkit-scrollbar-thumb:hover {
+  border: 3px solid var(--brand-scroll-track);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+}
+
+.calendario-week-corner,
+.calendario-week-day-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-height: var(--table-row-height, 30px);
+  height: var(--table-row-height, 30px);
+  border-top: 0;
+  border-bottom: 1px solid var(--cell-line-color);
+  background: var(--brand-panel);
+}
+
+.calendario-week-corner {
+  left: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--cell-line-color);
+  color: var(--brand-text);
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.calendario-week-corner > span,
+.calendario-week-corner .month-year-picker-trigger span {
+  display: inline-block;
+  color: var(--brand-text);
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 8px;
+}
+
+.calendario-week-day-header {
+  display: grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  align-content: center;
+  gap: 0;
+  padding: 2px 34px;
+  border-right: 1px solid var(--cell-line-color);
+  color: var(--brand-text);
+  font-size: 0.94rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.calendario-week-day-header.last {
+  border-right: 0;
+}
+
+.calendario-week-day-header span {
+  display: block;
+  color: var(--brand-text);
+  font-size: 0.94rem;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.calendario-week-nav-button {
+  position: absolute;
+  top: 50%;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0;
+  color: color-mix(in srgb, var(--brand-scroll-thumb) 72%, #000 28%);
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.calendario-week-nav-button-previous {
+  left: 4px;
+}
+
+.calendario-week-nav-button-next {
+  right: 4px;
+}
+
+.calendario-week-nav-button-previous svg {
+  transform: rotate(180deg);
+}
+
+.calendario-week-nav-button:hover,
+.calendario-week-nav-button:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.calendario-week-nav-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.dark-mode .calendario-week-nav-button {
+  color: var(--brand-text);
+}
+
+.calendario-week-row {
+  display: contents;
+}
+
+.calendario-week-time-label,
+.calendario-week-slot {
+  box-sizing: border-box;
+  min-height: var(--calendario-row-height, 22px);
+  height: var(--calendario-row-height, 22px);
+  border-right: 1px solid var(--cell-line-color);
+  border-bottom: 1px solid transparent;
+  background: var(--brand-panel);
+}
+
+.calendario-week-time-label.first-slot,
+.calendario-week-slot.first-slot {
+  min-height: calc(var(--calendario-row-height, 22px) - 1px);
+  height: calc(var(--calendario-row-height, 22px) - 1px);
+}
+
+.calendario-week-time-label {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  padding: 0 6px;
+  color: var(--brand-text);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1;
+  text-align: right;
+  overflow: visible;
+}
+
+.calendario-week-time-label.major {
+  z-index: 6;
+  overflow: visible;
+}
+
+.calendario-week-time-label span {
+  position: relative;
+  z-index: 9;
+  display: inline-block;
+  transform: translateY(3px);
+  background: var(--brand-panel);
+}
+
+.calendario-week-time-label.first-slot span {
+  transform: translateY(2px);
+}
+
+.calendario-week-time-label.major,
+.calendario-week-slot.major {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  box-shadow: inset 0 1px 0 var(--cell-line-color);
+}
+
+.calendario-week-time-label.quarter,
+.calendario-week-slot.quarter {
+  border-top-color: transparent;
+  box-shadow: inset 0 1px 0
+    color-mix(in srgb, var(--cell-line-color) 44%, transparent);
+}
+
+.calendario-week-time-label.footer-time,
+.calendario-week-slot.footer-slot {
+  border-bottom: 1px solid var(--cell-line-color);
+}
+
+.calendario-week-slot {
+  position: relative;
+  min-width: 118px;
+  overflow: visible;
+}
+
+.calendario-week-slot.last {
+  border-right: 0;
 }
 
 .turma-students-table {

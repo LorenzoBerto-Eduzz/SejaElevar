@@ -105,6 +105,7 @@ import {
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
 import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
+import { MonthYearPicker } from '../../shared/ui/MonthYearPicker';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -204,6 +205,7 @@ const CRONOGRAMA_LESSON_ID_COLUMN = 'Aula ID';
 const CRONOGRAMA_LESSON_COLUMN = 'Aula';
 const CRONOGRAMA_COLOR_COLUMN = 'Cor';
 const CRONOGRAMA_MIN_DURATION_MINUTES = 15;
+const CRONOGRAMA_DEFAULT_DURATION_MINUTES = 30;
 const CRONOGRAMA_SNAP_MINUTES = 5;
 const DEFAULT_CRONOGRAMA_BLOCK_TYPE = 'Aula';
 const SCHEDULE_LESSON_PLACEHOLDER = 'Selecionar aula';
@@ -4311,6 +4313,7 @@ export function TurmasPage({
     turmaName: string,
     date: Date,
     startMinutes: number,
+    periodEndMinutes: number,
     defaults: {
       instructor: string;
       room: string;
@@ -4324,7 +4327,12 @@ export function TurmasPage({
       [CRONOGRAMA_DATE_COLUMN]: formatScheduleDateKey(date),
       [CRONOGRAMA_START_COLUMN]: formatMinutesAsTime(startMinutes),
       [CRONOGRAMA_END_COLUMN]: formatMinutesAsTime(
-        startMinutes + CRONOGRAMA_MIN_DURATION_MINUTES,
+        startMinutes +
+          clampNumber(
+            CRONOGRAMA_DEFAULT_DURATION_MINUTES,
+            CRONOGRAMA_MIN_DURATION_MINUTES,
+            Math.max(CRONOGRAMA_MIN_DURATION_MINUTES, periodEndMinutes - startMinutes),
+          ),
       ),
       [CRONOGRAMA_TYPE_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_TYPE,
       [CRONOGRAMA_LESSON_ID_COLUMN]: '',
@@ -7104,7 +7112,12 @@ export function TurmasPage({
         <div className="turma-schedule-grid" style={gridStyle}>
           <div className="turma-schedule-corner">
             <div className="turma-schedule-month-controls">
-              <span>{scheduleMonthLabel}</span>
+              <MonthYearPicker
+                label={scheduleMonthLabel}
+                value={scheduleMonth}
+                ariaLabel="Selecionar mes do cronograma da turma"
+                onSelectMonth={setScheduleMonth}
+              />
             </div>
           </div>
           {scheduleDates.map((date, dateIndex) => (
@@ -7239,10 +7252,16 @@ export function TurmasPage({
                             className="turma-schedule-slot-add"
                             type="button"
                             onClick={() =>
-                              void createScheduleBlock(turmaName, date, slotMinutes, {
-                                instructor: turmaInstructorValue,
-                                room: turmaRoomValue,
-                              })
+                              void createScheduleBlock(
+                                turmaName,
+                                date,
+                                slotMinutes,
+                                periodRange.endMinutes,
+                                {
+                                  instructor: turmaInstructorValue,
+                                  room: turmaRoomValue,
+                                },
+                              )
                             }
                           >
                             <PlusIcon />
