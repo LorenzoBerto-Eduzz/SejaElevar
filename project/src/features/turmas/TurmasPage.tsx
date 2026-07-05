@@ -257,6 +257,12 @@ type RowDeleteUndoEntry = {
 
 type TableUndoEntry = CellEditUndoEntry | RowDeleteUndoEntry;
 
+type AcademicAttendanceUndoSnapshot = {
+  presencasSheet: SheetTable;
+  horasAplicadasSheet: SheetTable;
+  planoProgressoSheet: SheetTable;
+};
+
 type ActiveStudentEdit = {
   rowIndex: number;
   columnName: string;
@@ -2460,6 +2466,119 @@ export function TurmasPage({
     );
   };
 
+  const cloneSheetSnapshot = (sheet: SheetTable): SheetTable => ({
+    ...sheet,
+    columns: sheet.columns.map((column) => String(column ?? '')),
+    rows: sheet.rows.map((row) => row.map((cell) => String(cell ?? ''))),
+  });
+
+  const sheetSnapshotsHaveSameData = (first: SheetTable, second: SheetTable) =>
+    JSON.stringify([first.columns, first.rows]) ===
+    JSON.stringify([second.columns, second.rows]);
+
+  const getCurrentAttendanceUndoSnapshot = (
+    fileName: string,
+  ): AcademicAttendanceUndoSnapshot => ({
+    presencasSheet: cloneSheetSnapshot(
+      latestPresencasSheetRef.current ?? getPresencasFallbackSheet(fileName),
+    ),
+    horasAplicadasSheet: cloneSheetSnapshot(
+      latestHorasAplicadasSheetRef.current ??
+        getHorasAplicadasFallbackSheet(fileName),
+    ),
+    planoProgressoSheet: cloneSheetSnapshot(
+      latestPlanoProgressoSheetRef.current ??
+        getPlanoProgressoFallbackSheet(fileName),
+    ),
+  });
+
+  const areAttendanceSnapshotsEqual = (
+    first: AcademicAttendanceUndoSnapshot,
+    second: AcademicAttendanceUndoSnapshot,
+  ) =>
+    sheetSnapshotsHaveSameData(first.presencasSheet, second.presencasSheet) &&
+    sheetSnapshotsHaveSameData(
+      first.horasAplicadasSheet,
+      second.horasAplicadasSheet,
+    ) &&
+    sheetSnapshotsHaveSameData(
+      first.planoProgressoSheet,
+      second.planoProgressoSheet,
+    );
+
+  const normalizeUndoSheetSnapshot = (value: unknown) => {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !Array.isArray((value as SheetTable).columns) ||
+      !Array.isArray((value as SheetTable).rows)
+    ) {
+      return null;
+    }
+
+    return cloneSheetSnapshot({
+      fileName:
+        typeof (value as SheetTable).fileName === 'string'
+          ? (value as SheetTable).fileName
+          : 'DadosElevar.xlsx',
+      sheetName:
+        typeof (value as SheetTable).sheetName === 'string'
+          ? (value as SheetTable).sheetName
+          : '',
+      importedAt:
+        typeof (value as SheetTable).importedAt === 'string'
+          ? (value as SheetTable).importedAt
+          : new Date().toISOString(),
+      columns: (value as SheetTable).columns.map((column) =>
+        String(column ?? ''),
+      ),
+      rows: (value as SheetTable).rows.map((row) =>
+        Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : [],
+      ),
+    });
+  };
+
+  const normalizeAttendanceUndoSnapshot = (
+    value: unknown,
+  ): AcademicAttendanceUndoSnapshot | null => {
+    if (typeof value !== 'object' || value === null) {
+      return null;
+    }
+
+    const snapshot = value as Partial<AcademicAttendanceUndoSnapshot>;
+    const presencasSnapshot = normalizeUndoSheetSnapshot(
+      snapshot.presencasSheet,
+    );
+    const horasSnapshot = normalizeUndoSheetSnapshot(
+      snapshot.horasAplicadasSheet,
+    );
+    const progressoSnapshot = normalizeUndoSheetSnapshot(
+      snapshot.planoProgressoSheet,
+    );
+
+    if (!presencasSnapshot || !horasSnapshot || !progressoSnapshot) {
+      return null;
+    }
+
+    return {
+      presencasSheet: presencasSnapshot,
+      horasAplicadasSheet: horasSnapshot,
+      planoProgressoSheet: progressoSnapshot,
+    };
+  };
+
+  const isAttendanceUndoEntry = (
+    entry: GlobalUndoEntry | undefined,
+  ): entry is GlobalUndoEntry & {
+    kind: 'attendance-save';
+    previousAcademicSheets: AcademicAttendanceUndoSnapshot;
+    nextAcademicSheets: AcademicAttendanceUndoSnapshot;
+  } =>
+    Boolean(entry) &&
+    entry?.kind === 'attendance-save' &&
+    Boolean(normalizeAttendanceUndoSnapshot(entry.previousAcademicSheets)) &&
+    Boolean(normalizeAttendanceUndoSnapshot(entry.nextAcademicSheets));
+
   const selectStudentFromTable = (rowIndex: number, focusColumnName?: string) => {
     if (selectedStudentRowIndex !== null && selectedStudentRowIndex !== rowIndex) {
       void commitActiveStudentEditForUndo();
@@ -3316,7 +3435,18 @@ export function TurmasPage({
     }
 
     await fetchRecoveryInfo();
-    window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+    markGlobalWorkbookAvailable(result.recoveryInfo ?? null);
+    const recoveredFile = await fetchBaseWorkbookFile().catch(() => null);
+    window.dispatchEvent(
+      new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+        detail: {
+          file: recoveredFile,
+          reason: 'recovery',
+          force: true,
+        },
+      }),
+    );
+    window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
     setImportError('');
     return result;
   };
@@ -4038,6 +4168,7 @@ export function TurmasPage({
         latestCronogramaSheetRef.current?.fileName ??
         latestTurmasSheetRef.current?.fileName ??
         'DadosElevar.xlsx';
+      const previousAcademicSheets = getCurrentAttendanceUndoSnapshot(fileName);
       const eventSnapshot = getEventAttendanceSnapshot(block);
       const selections: AcademicAttendanceSelection[] = students.map((student) => ({
         ...student,
@@ -4052,6 +4183,22 @@ export function TurmasPage({
         eventSnapshot,
         selections,
       );
+      const nextAcademicUndoSheets: AcademicAttendanceUndoSnapshot = {
+        presencasSheet: cloneSheetSnapshot(nextAcademicSheets.presencasSheet),
+        horasAplicadasSheet: cloneSheetSnapshot(
+          nextAcademicSheets.horasAplicadasSheet,
+        ),
+        planoProgressoSheet: cloneSheetSnapshot(
+          nextAcademicSheets.planoProgressoSheet,
+        ),
+      };
+
+      if (areAttendanceSnapshotsEqual(previousAcademicSheets, nextAcademicUndoSheets)) {
+        setActiveAttendancePanel(null);
+        setImportError('');
+        return;
+      }
+
       const savedFile = await saveWorkbookSheets([
         nextAcademicSheets.presencasSheet,
         nextAcademicSheets.horasAplicadasSheet,
@@ -4075,15 +4222,88 @@ export function TurmasPage({
 
       if (savedFile) {
         await applyAcademicWorkbookFile(savedFile);
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+            detail: {
+              file: savedFile,
+              fileName: savedFile.name,
+              reason: 'attendance-save',
+              force: true,
+            },
+          }),
+        );
       }
 
+      await fetchRecoveryInfo();
       window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+      pushGlobalUndoEntry({
+        originTab: 'turmas',
+        kind: 'attendance-save',
+        itemRef: block.id,
+        itemLabel: block.lesson || block.id,
+        previousAcademicSheets,
+        nextAcademicSheets: nextAcademicUndoSheets,
+      });
       setActiveAttendancePanel(null);
       setImportError('');
     } catch {
       setImportError('Não foi possível salvar a presença.');
     } finally {
       setIsSavingAttendance(false);
+    }
+  };
+
+  const restoreAttendanceSnapshot = async (
+    snapshot: AcademicAttendanceUndoSnapshot,
+  ) => {
+    try {
+      const savedFile = await saveWorkbookSheets([
+        cloneSheetSnapshot(snapshot.presencasSheet),
+        cloneSheetSnapshot(snapshot.horasAplicadasSheet),
+        cloneSheetSnapshot(snapshot.planoProgressoSheet),
+      ]);
+
+      if (savedFile) {
+        await applyAcademicWorkbookFile(savedFile);
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+            detail: {
+              file: savedFile,
+              fileName: savedFile.name,
+              reason: 'attendance-restore',
+              force: true,
+            },
+          }),
+        );
+      } else {
+        latestPresencasSheetRef.current = cloneSheetSnapshot(
+          snapshot.presencasSheet,
+        );
+        setPresencasSheet(latestPresencasSheetRef.current);
+        latestHorasAplicadasSheetRef.current = cloneSheetSnapshot(
+          snapshot.horasAplicadasSheet,
+        );
+        setHorasAplicadasSheet(latestHorasAplicadasSheetRef.current);
+        latestPlanoProgressoSheetRef.current = cloneSheetSnapshot(
+          snapshot.planoProgressoSheet,
+        );
+        setPlanoProgressoSheet(latestPlanoProgressoSheetRef.current);
+        await persistAcademicDataIndexes({
+          planoEnsinoSheet: latestPlanoEnsinoSheetRef.current,
+          presencasSheet: latestPresencasSheetRef.current,
+          horasAplicadasSheet: latestHorasAplicadasSheetRef.current,
+          planoProgressoSheet: latestPlanoProgressoSheetRef.current,
+        });
+      }
+
+      await fetchRecoveryInfo();
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+      setActiveAttendancePanel(null);
+      setImportError('');
+      return true;
+    } catch {
+      setImportError('NÃ£o foi possÃ­vel restaurar a presenÃ§a.');
+      return false;
     }
   };
 
@@ -6541,6 +6761,30 @@ export function TurmasPage({
     return true;
   };
 
+  const undoAttendanceActionAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isAttendanceUndoEntry(entry)) {
+      return false;
+    }
+
+    const previousSnapshot = normalizeAttendanceUndoSnapshot(
+      entry.previousAcademicSheets,
+    );
+
+    return previousSnapshot
+      ? restoreAttendanceSnapshot(previousSnapshot)
+      : false;
+  };
+
+  const redoAttendanceActionAndSave = async (entry: GlobalUndoEntry) => {
+    if (!isAttendanceUndoEntry(entry)) {
+      return false;
+    }
+
+    const nextSnapshot = normalizeAttendanceUndoSnapshot(entry.nextAcademicSheets);
+
+    return nextSnapshot ? restoreAttendanceSnapshot(nextSnapshot) : false;
+  };
+
   const restoreUndoStackFromBoundary = (entry: GlobalUndoEntry) => {
     replaceGlobalUndoStack(
       Array.isArray(entry.previousUndoStack)
@@ -6690,6 +6934,10 @@ export function TurmasPage({
             return undoCronogramaActionAndSave(entry);
           }
 
+          if (isAttendanceUndoEntry(entry)) {
+            return undoAttendanceActionAndSave(entry);
+          }
+
           return undoLastActionAndSave(entry);
         },
         redo: (entry) => {
@@ -6711,6 +6959,10 @@ export function TurmasPage({
 
           if (isCronogramaUndoEntry(entry)) {
             return redoCronogramaActionAndSave(entry);
+          }
+
+          if (isAttendanceUndoEntry(entry)) {
+            return redoAttendanceActionAndSave(entry);
           }
 
           return redoLastActionAndSave(entry);
@@ -8495,9 +8747,8 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
     case 'import_original':
       return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
-      return 'Recupere os dados para como estavam antes da última recuperação.';
     case 'after_recovery':
-      return 'Recupere os dados para como estavam após a última recuperação.';
+      return 'Recupere os dados para como estavam antes da última recuperação.';
     default:
       return 'Nenhum backup disponível para recuperar.';
   }

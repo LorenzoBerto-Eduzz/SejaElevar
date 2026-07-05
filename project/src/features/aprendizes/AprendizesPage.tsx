@@ -1068,7 +1068,18 @@ export function AprendizesPage({
       resetColumnWidths: false,
     });
     await fetchRecoveryInfo();
-    window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
+    markGlobalWorkbookAvailable(result.recoveryInfo ?? null);
+    const recoveredFile = await fetchBaseWorkbookFile().catch(() => null);
+    window.dispatchEvent(
+      new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+        detail: {
+          file: recoveredFile,
+          reason: 'recovery',
+          force: true,
+        },
+      }),
+    );
+    window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
     setImportError('');
     return result;
   };
@@ -5044,9 +5055,8 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
     case 'import_original':
       return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
-      return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     case 'after_recovery':
-      return 'Recupere os dados para como estavam ap\u00f3s a \u00faltima recupera\u00e7\u00e3o.';
+      return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     default:
       return 'Nenhum backup dispon\u00edvel para recuperar.';
   }

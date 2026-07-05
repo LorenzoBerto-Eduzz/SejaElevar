@@ -4,9 +4,15 @@ import {
   DISCIPLINAS_ENTITY_ID,
   type SheetTable,
 } from '../../shared/data/dataIndex';
-import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
+import {
+  GLOBAL_DATA_CHANGED_EVENT,
+  GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
+} from '../../shared/data/events';
 import { importEmentaFromPicker } from '../../shared/data/ementas/ementaImport';
-import { syncAcademicWorkbookFromSource } from '../../shared/data/academicProgress';
+import {
+  saveWorkbookSheets,
+  syncAcademicWorkbookFromSource,
+} from '../../shared/data/academicProgress';
 import {
   ARCOS_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
@@ -24,6 +30,11 @@ import {
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
 import { useTimedToast } from '../../shared/ui/useTimedToast';
+import {
+  pushGlobalUndoEntry,
+  registerGlobalUndoController,
+  type GlobalUndoEntry,
+} from '../../shared/undo/globalUndo';
 
 type ArcosPageProps = {
   canInitialize?: boolean;
@@ -139,6 +150,81 @@ type Disciplina = {
   hours: string;
 };
 
+type EmentaImportUndoSnapshot = {
+  arcosSheet: SheetTable;
+  disciplinasSheet: SheetTable;
+};
+
+const cloneSheetSnapshot = (sheet: SheetTable): SheetTable => ({
+  ...sheet,
+  columns: sheet.columns.map((column) => String(column ?? '')),
+  rows: sheet.rows.map((row) => row.map((cell) => String(cell ?? ''))),
+});
+
+const sheetSnapshotsHaveSameData = (first: SheetTable, second: SheetTable) =>
+  JSON.stringify([first.columns, first.rows]) ===
+  JSON.stringify([second.columns, second.rows]);
+
+const areEmentaSnapshotsEqual = (
+  first: EmentaImportUndoSnapshot,
+  second: EmentaImportUndoSnapshot,
+) =>
+  sheetSnapshotsHaveSameData(first.arcosSheet, second.arcosSheet) &&
+  sheetSnapshotsHaveSameData(first.disciplinasSheet, second.disciplinasSheet);
+
+const normalizeUndoSheetSnapshot = (value: unknown) => {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !Array.isArray((value as SheetTable).columns) ||
+    !Array.isArray((value as SheetTable).rows)
+  ) {
+    return null;
+  }
+
+  return cloneSheetSnapshot({
+    fileName:
+      typeof (value as SheetTable).fileName === 'string'
+        ? (value as SheetTable).fileName
+        : 'DadosElevar.xlsx',
+    sheetName:
+      typeof (value as SheetTable).sheetName === 'string'
+        ? (value as SheetTable).sheetName
+        : '',
+    importedAt:
+      typeof (value as SheetTable).importedAt === 'string'
+        ? (value as SheetTable).importedAt
+        : new Date().toISOString(),
+    columns: (value as SheetTable).columns.map((column) => String(column ?? '')),
+    rows: (value as SheetTable).rows.map((row) =>
+      Array.isArray(row) ? row.map((cell) => String(cell ?? '')) : [],
+    ),
+  });
+};
+
+const normalizeEmentaUndoSnapshot = (
+  value: unknown,
+): EmentaImportUndoSnapshot | null => {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const snapshot = value as Partial<EmentaImportUndoSnapshot>;
+  const arcosSnapshot = normalizeUndoSheetSnapshot(snapshot.arcosSheet);
+  const disciplinasSnapshot = normalizeUndoSheetSnapshot(
+    snapshot.disciplinasSheet,
+  );
+
+  if (!arcosSnapshot || !disciplinasSnapshot) {
+    return null;
+  }
+
+  return {
+    arcosSheet: arcosSnapshot,
+    disciplinasSheet: disciplinasSnapshot,
+  };
+};
+
 const getArcoModuleDisciplines = (
   disciplines: readonly Disciplina[],
   arcoName: string,
@@ -185,6 +271,91 @@ export function ArcosPage({
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     () => new Set(DEFAULT_EXPANDED_MODULE_KEYS),
   );
+
+  const getEmentaSnapshotFromFile = async (
+    file: File,
+  ): Promise<EmentaImportUndoSnapshot> => {
+    const {
+      arcosSheet: nextArcosSheet,
+      disciplinasSheet: nextDisciplinasSheet,
+    } = await readArcosWorkbookBundle(file);
+
+    return {
+      arcosSheet: cloneSheetSnapshot(nextArcosSheet),
+      disciplinasSheet: cloneSheetSnapshot(nextDisciplinasSheet),
+    };
+  };
+
+  const getCurrentEmentaSnapshot = async () => {
+    const activeFile = await fetchBaseWorkbookFileWithRetry().catch(() => null);
+
+    if (activeFile) {
+      return getEmentaSnapshotFromFile(activeFile);
+    }
+
+    return {
+      arcosSheet: cloneSheetSnapshot(
+        latestArcosSheetRef.current ?? createEmptyArcosSheet(),
+      ),
+      disciplinasSheet: cloneSheetSnapshot(
+        latestDisciplinasSheetRef.current ?? createEmptyDisciplinasSheet(),
+      ),
+    };
+  };
+
+  const applyEmentaSnapshot = async (snapshot: EmentaImportUndoSnapshot) => {
+    try {
+      const savedFile = await saveWorkbookSheets([
+        cloneSheetSnapshot(snapshot.arcosSheet),
+        cloneSheetSnapshot(snapshot.disciplinasSheet),
+      ]);
+      const syncedFile = await syncAcademicWorkbookFromSource().catch(() => null);
+      const nextFile = syncedFile ?? savedFile;
+
+      if (nextFile) {
+        const {
+          arcosSheet: nextArcosSheet,
+          disciplinasSheet: nextDisciplinasSheet,
+        } = await readArcosWorkbookBundle(nextFile);
+
+        latestArcosSheetRef.current = nextArcosSheet;
+        latestDisciplinasSheetRef.current = nextDisciplinasSheet;
+        setArcosSheet(nextArcosSheet);
+        setDisciplinasSheet(nextDisciplinasSheet);
+        setHasActiveWorkbook(true);
+        setHasCheckedWorkbook(true);
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_DATA_CHANGED_EVENT, {
+            detail: {
+              file: nextFile,
+              fileName: nextFile.name,
+              reason: 'ementa-undo',
+              force: true,
+            },
+          }),
+        );
+      }
+
+      markGlobalWorkbookAvailable(await fetchRecoveryInfo().catch(() => null));
+      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+      return true;
+    } catch {
+      showEmentaToast('N\u00e3o foi poss\u00edvel restaurar a ementa');
+      return false;
+    }
+  };
+
+  const isEmentaImportUndoEntry = (
+    entry: GlobalUndoEntry | undefined,
+  ): entry is GlobalUndoEntry & {
+    kind: 'ementa-import';
+    previousEmentaSheets: EmentaImportUndoSnapshot;
+    nextEmentaSheets: EmentaImportUndoSnapshot;
+  } =>
+    Boolean(entry) &&
+    entry?.kind === 'ementa-import' &&
+    Boolean(normalizeEmentaUndoSnapshot(entry.previousEmentaSheets)) &&
+    Boolean(normalizeEmentaUndoSnapshot(entry.nextEmentaSheets));
 
   useEffect(() => {
     latestArcosSheetRef.current = arcosSheet;
@@ -380,10 +551,18 @@ export function ArcosPage({
     setIsImportingEmenta(true);
 
     try {
-      await importEmentaFromPicker();
+      const previousEmentaSheets = await getCurrentEmentaSnapshot();
+      const importResult = await importEmentaFromPicker();
+
+      if (!importResult) {
+        return;
+      }
+
       const syncedFile = await syncAcademicWorkbookFromSource().catch(
         () => null,
       );
+      const nextFile = syncedFile ?? importResult.workbook;
+      const nextEmentaSheets = await getEmentaSnapshotFromFile(nextFile);
 
       if (syncedFile) {
         window.dispatchEvent(
@@ -391,6 +570,17 @@ export function ArcosPage({
             detail: { file: syncedFile },
           }),
         );
+      }
+
+      if (!areEmentaSnapshotsEqual(previousEmentaSheets, nextEmentaSheets)) {
+        pushGlobalUndoEntry({
+          originTab: 'arcos',
+          kind: 'ementa-import',
+          itemLabel: importResult.parsed.arco,
+          itemRef: importResult.parsed.id,
+          previousEmentaSheets,
+          nextEmentaSheets,
+        });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '';
@@ -407,6 +597,33 @@ export function ArcosPage({
       setIsImportingEmenta(false);
     }
   };
+
+  useEffect(
+    () =>
+      registerGlobalUndoController('arcos', {
+        undo: (entry) => {
+          if (!isEmentaImportUndoEntry(entry)) {
+            return false;
+          }
+
+          const previousSnapshot = normalizeEmentaUndoSnapshot(
+            entry.previousEmentaSheets,
+          );
+
+          return previousSnapshot ? applyEmentaSnapshot(previousSnapshot) : false;
+        },
+        redo: (entry) => {
+          if (!isEmentaImportUndoEntry(entry)) {
+            return false;
+          }
+
+          const nextSnapshot = normalizeEmentaUndoSnapshot(entry.nextEmentaSheets);
+
+          return nextSnapshot ? applyEmentaSnapshot(nextSnapshot) : false;
+        },
+      }),
+    [],
+  );
 
   return (
     <section className="feature-page" aria-labelledby="arcos-title">

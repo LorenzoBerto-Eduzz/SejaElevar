@@ -2651,10 +2651,7 @@ internal static class Program
     {
         var control = LoadGlobalCheckpointControl(appFolder);
 
-        if (control.Reason == BackupReasonBeforeEdit)
-        {
-            control.Reason = BackupReasonBeforeSessionEdit;
-        }
+        AgeGlobalEditCheckpointsForNewSession(control);
 
         var shouldKeepFirstImportMarker =
             control.LastCheckpointAction == "import" &&
@@ -2676,6 +2673,27 @@ internal static class Program
         {
             SaveGlobalCheckpointControl(appFolder, control);
             PruneOrphanGlobalCheckpoints(appFolder, control.Checkpoints);
+        }
+    }
+
+    private static void AgeGlobalEditCheckpointsForNewSession(GlobalCheckpointControl control)
+    {
+        if (control.Reason == BackupReasonBeforeEdit)
+        {
+            control.Reason = BackupReasonBeforeSessionEdit;
+        }
+
+        if (control.Checkpoints is null)
+        {
+            return;
+        }
+
+        foreach (var checkpoint in control.Checkpoints)
+        {
+            if (NormalizeBackupReason(checkpoint.Reason) == BackupReasonBeforeEdit)
+            {
+                checkpoint.Reason = BackupReasonBeforeSessionEdit;
+            }
         }
     }
 
@@ -3749,7 +3767,7 @@ internal static class Program
             BackupReasonBeforeSessionEdit => BackupReasonBeforeSessionEdit,
             BackupReasonImportOriginal => BackupReasonImportOriginal,
             BackupReasonBeforeRecovery => BackupReasonBeforeRecovery,
-            BackupReasonAfterRecovery => BackupReasonAfterRecovery,
+            BackupReasonAfterRecovery => BackupReasonBeforeRecovery,
             "previous_session" => BackupReasonBeforeSessionEdit,
             BackupReasonRestored => BackupReasonRestored,
             _ => null

@@ -30,6 +30,7 @@ const controllers = new Map<AppTab, GlobalUndoController>();
 let getActiveTab: () => AppTab = () => 'aprendizes';
 let focusTab: (tab: AppTab) => void | Promise<void> = () => {};
 let isRunningUndo = false;
+let lastMissingWorkbookHistoryWarningAt = 0;
 
 const canUseStorage = () =>
   typeof window !== 'undefined' && Boolean(window.localStorage);
@@ -206,11 +207,23 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
   }
 
   if (entry.kind === 'row-insert') {
-    return formatHistoryLine(tabLabel, itemLabel, 'cadastrado');
+    return formatHistoryLine(
+      tabLabel,
+      itemLabel,
+      entry.originTab === 'aprendizes' ? 'cadastrado' : 'criada',
+    );
+  }
+
+  if (entry.kind === 'row-create') {
+    return formatHistoryLine(tabLabel, itemLabel, 'criada');
   }
 
   if (entry.kind === 'row-delete') {
-    return formatHistoryLine(tabLabel, itemLabel, 'descadastrado');
+    return formatHistoryLine(
+      tabLabel,
+      itemLabel,
+      entry.originTab === 'aprendizes' ? 'descadastrado' : 'deletada',
+    );
   }
 
   if (entry.kind === 'registration-draft-edit') {
@@ -242,6 +255,14 @@ const describeGlobalUndoEntry = (entry: GlobalUndoEntry) => {
 
   if (entry.kind === 'cronograma-delete') {
     return formatHistoryLine(tabLabel, itemLabel, 'aula deletada');
+  }
+
+  if (entry.kind === 'attendance-save') {
+    return formatHistoryLine(tabLabel, itemLabel, 'presença salva');
+  }
+
+  if (entry.kind === 'ementa-import') {
+    return formatHistoryLine(tabLabel, itemLabel, 'ementa importada');
   }
 
   if (entry.kind === 'aula-coverage-insert') {
@@ -294,6 +315,125 @@ const clearRedoPathForNewAction = () => {
     'Refazer descartado: nova a\u00e7\u00e3o substituiu o caminho anterior.',
   );
   redoStack = [];
+};
+
+const getCheckpointDependency = (
+  entry: GlobalUndoEntry,
+  direction: 'undo' | 'redo',
+) => {
+  const checkpointId =
+    direction === 'undo' ? entry.checkpointId : entry.redoCheckpointId;
+
+  return typeof checkpointId === 'string' && checkpointId ? checkpointId : null;
+};
+
+const isCheckpointBoundaryEntry = (entry: GlobalUndoEntry) =>
+  entry.kind === 'global-import' || entry.kind === 'global-recovery';
+
+const fetchValidRecoveryCheckpointIds = async () => {
+  try {
+    const response = await fetch('/api/recovery', { cache: 'no-store' });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const recoveryInfo = (await response.json()) as {
+      checkpointId?: unknown;
+      checkpoints?: Array<{ checkpointId?: unknown }>;
+    };
+    const checkpointIds = new Set<string>();
+
+    if (typeof recoveryInfo.checkpointId === 'string') {
+      checkpointIds.add(recoveryInfo.checkpointId);
+    }
+
+    recoveryInfo.checkpoints?.forEach((checkpoint) => {
+      if (typeof checkpoint.checkpointId === 'string') {
+        checkpointIds.add(checkpoint.checkpointId);
+      }
+    });
+
+    return checkpointIds;
+  } catch {
+    return null;
+  }
+};
+
+const hasActiveWorkbook = async () => {
+  try {
+    const response = await fetch('/api/base-workbook/file', {
+      cache: 'no-store',
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+const discardUndoPathBecauseCheckpointIsMissing = (message: string) => {
+  setActionHistoryLinesState(undoStack.flatMap(getEntryHistoryIds), 'discarded');
+  setActionHistoryLinesState(redoStack.flatMap(getEntryHistoryIds), 'discarded');
+  undoStack = [];
+  redoStack = [];
+  recordActionHistoryCut(message);
+  saveGlobalUndoStacks();
+};
+
+const discardRedoPathBecauseCheckpointIsMissing = (message: string) => {
+  setActionHistoryLinesState(redoStack.flatMap(getEntryHistoryIds), 'discarded');
+  redoStack = [];
+  recordActionHistoryCut(message);
+  saveGlobalUndoStacks();
+};
+
+const warnMissingActiveWorkbook = () => {
+  const now = Date.now();
+
+  if (now - lastMissingWorkbookHistoryWarningAt < 5000) {
+    return;
+  }
+
+  lastMissingWorkbookHistoryWarningAt = now;
+  recordActionHistoryCut(
+    'Histórico pausado: arquivo de dados em uso não está disponível.',
+  );
+};
+
+const validateHistoryEntryDependencies = async (
+  entry: GlobalUndoEntry,
+  direction: 'undo' | 'redo',
+) => {
+  const checkpointId = getCheckpointDependency(entry, direction);
+
+  if (checkpointId || isCheckpointBoundaryEntry(entry)) {
+    const validCheckpointIds = await fetchValidRecoveryCheckpointIds();
+
+    if (validCheckpointIds && (!checkpointId || !validCheckpointIds.has(checkpointId))) {
+      const message =
+        'Histórico cortado: backup usado por recuperação/importação não existe mais.';
+
+      if (direction === 'undo') {
+        discardUndoPathBecauseCheckpointIsMissing(message);
+      } else {
+        discardRedoPathBecauseCheckpointIsMissing(message);
+      }
+
+      return false;
+    }
+  }
+
+  if (!checkpointId && !isCheckpointBoundaryEntry(entry)) {
+    const workbookAvailable = await hasActiveWorkbook();
+
+    if (!workbookAvailable) {
+      warnMissingActiveWorkbook();
+      return false;
+    }
+  }
+
+  return true;
 };
 
 const withHistoryLine = (entry: GlobalUndoEntry) => {
@@ -476,6 +616,10 @@ export const runGlobalUndo = async () => {
     return false;
   }
 
+  if (!(await validateHistoryEntryDependencies(undoEntry, 'undo'))) {
+    return false;
+  }
+
   undoStack = undoStack.slice(0, -1);
   isRunningUndo = true;
 
@@ -504,6 +648,10 @@ export const runGlobalRedo = async () => {
   const redoEntry = redoStack.at(-1);
 
   if (!redoEntry) {
+    return false;
+  }
+
+  if (!(await validateHistoryEntryDependencies(redoEntry, 'redo'))) {
     return false;
   }
 

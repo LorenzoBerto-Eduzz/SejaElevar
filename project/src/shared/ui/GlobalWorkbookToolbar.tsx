@@ -164,9 +164,8 @@ const getRecoveryDescription = (info: RecoveryInfo | null) => {
     case 'import_original':
       return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
-      return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     case 'after_recovery':
-      return 'Recupere os dados para como estavam ap\u00f3s a \u00faltima recupera\u00e7\u00e3o.';
+      return 'Recupere os dados para como estavam antes da \u00faltima recupera\u00e7\u00e3o.';
     default:
       return 'Nenhum backup dispon\u00edvel para recuperar.';
   }
