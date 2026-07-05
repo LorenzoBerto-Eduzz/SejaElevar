@@ -103,6 +103,8 @@ The smarter long-term model is a global/universal Cronograma as the real source 
 
 The `Calendário` tab should be the main global Cronograma visualization area. It should eventually let the user see scheduled events across Turmas, while each Turma can still show a filtered timetable view of the same global Cronograma data.
 
+Current UI alignment: event blocks should become a shared surface across the global `Calendário` view and filtered Turmas timetable views. The same scheduled instance should look, display, and edit the same way wherever it appears. Avoid building separate Calendar-only and Turma-only block behavior unless a context truly requires a wrapper. Future event blocks should expose the linked `Turma` value as part of the block's displayed/editable instance data, so an event can be assigned or reassigned to a Turma from the block itself.
+
 Each Cronograma block should know:
 
 ```text

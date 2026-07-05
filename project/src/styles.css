@@ -4690,6 +4690,62 @@ input.turma-schedule-block-field {
   border-right: 0;
 }
 
+.calendario-event-block {
+  position: absolute;
+  box-sizing: border-box;
+  top: var(--calendar-event-top, 0);
+  left: calc(
+    2px +
+      (
+        (100% - 4px) / var(--calendar-event-lane-count, 1) *
+          var(--calendar-event-lane, 0)
+      )
+  );
+  z-index: 5;
+  display: flex;
+  width: calc(
+    (100% - 4px) / var(--calendar-event-lane-count, 1) - 2px
+  );
+  min-height: var(--calendario-row-height, 22px);
+  height: var(--calendar-event-height, var(--calendario-row-height, 22px));
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--calendar-event-color, var(--brand-primary)) 82%, #ffffff 18%);
+  border-radius: 5px;
+  padding: 0 2px;
+  color: #ffffff;
+  background: color-mix(in srgb, var(--calendar-event-color, var(--brand-primary)) 88%, #168c55 12%);
+  box-shadow: 0 4px 10px rgba(8, 35, 72, 0.14);
+  overflow: hidden;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.calendario-event-line {
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--calendario-row-height, 22px) / 2);
+  height: calc(var(--calendario-row-height, 22px) / 2);
+  min-width: 0;
+}
+
+.calendario-event-line span {
+  overflow: hidden;
+  display: block;
+  width: 100%;
+  color: inherit;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendario-event-main-line span {
+  font-weight: 650;
+}
+
 .turma-students-table {
   width: max-content;
   min-width: 100%;

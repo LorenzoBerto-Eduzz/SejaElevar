@@ -7,10 +7,14 @@ import {
   type CSSProperties,
 } from 'react';
 import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
+import { getBaseWorkbookSheetByEntity } from '../../shared/data/baseWorkbook';
+import { CRONOGRAMA_ENTITY_ID, type SheetTable } from '../../shared/data/dataIndex';
+import { CRONOGRAMA_REQUIRED_COLUMNS, normalizeFieldLabel } from '../../shared/data/schemas';
 import {
   ensureActiveWorkbookManagedSheets,
   fetchBaseWorkbookFileWithRetry,
   fetchRecoveryInfo,
+  readWorkbookSheetFile,
 } from '../../shared/data/workspaceData';
 import {
   markGlobalWorkbookAvailable,
@@ -43,6 +47,20 @@ const MONTH_LABELS = [
 const MINUTES_PER_DAY = 24 * 60;
 const SLOT_MINUTES = 15;
 const DEFAULT_VISIBLE_START_MINUTES = 8 * 60;
+const CRONOGRAMA_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(CRONOGRAMA_ENTITY_ID)?.sheetName ?? 'Cronograma';
+const TURMA_COLUMN = 'Turma';
+const CRONOGRAMA_DATE_COLUMN = 'Data';
+const CRONOGRAMA_START_COLUMN = 'Início';
+const CRONOGRAMA_END_COLUMN = 'Fim';
+const CRONOGRAMA_TYPE_COLUMN = 'Tipo';
+const CRONOGRAMA_LESSON_COLUMN = 'Aula';
+const TURMA_INSTRUCTOR_COLUMN = 'Instrutor';
+const TURMA_ROOM_COLUMN = 'Sala';
+const CRONOGRAMA_COLOR_COLUMN = 'Cor';
+const CRONOGRAMA_ID_COLUMN = 'ID';
+const DEFAULT_CRONOGRAMA_BLOCK_COLOR = '#2069df';
+const DEFAULT_CRONOGRAMA_BLOCK_TYPE = 'Aula';
 
 const padTimePart = (value: number) => String(value).padStart(2, '0');
 
@@ -114,6 +132,258 @@ const formatCalendarDateLabel = (date: Date) =>
     month: '2-digit',
   }).format(date);
 
+const getColumnIndex = (sheet: SheetTable | null, columnName: string) =>
+  sheet?.columns.findIndex(
+    (column) => normalizeFieldLabel(column) === normalizeFieldLabel(columnName),
+  ) ?? -1;
+
+const getCellValue = (sheet: SheetTable, row: readonly string[], columnName: string) => {
+  const columnIndex = getColumnIndex(sheet, columnName);
+
+  return columnIndex >= 0 ? String(row[columnIndex] ?? '').trim() : '';
+};
+
+const parseScheduleTimeValue = (value: string) => {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})/);
+
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
+type CalendarEventBlock = {
+  id: string;
+  rowIndex: number;
+  turma: string;
+  dateKey: string;
+  startMinutes: number;
+  endMinutes: number;
+  type: string;
+  lesson: string;
+  instructor: string;
+  room: string;
+  color: string;
+};
+
+type CalendarEventSegment = CalendarEventBlock & {
+  segmentId: string;
+  sourceDateKey: string;
+  slotMinutes: number;
+  topRowUnits: number;
+  heightRowUnits: number;
+  lane: number;
+  laneCount: number;
+};
+
+const readCronogramaSheetFromFile = async (file: File) => {
+  try {
+    return await readWorkbookSheetFile(file, {
+      entityId: CRONOGRAMA_ENTITY_ID,
+      ensureRecordIds: false,
+      preferredSheetName: CRONOGRAMA_WORKBOOK_SHEET,
+      requiredColumns: CRONOGRAMA_REQUIRED_COLUMNS,
+    });
+  } catch {
+    return {
+      fileName: file.name,
+      sheetName: CRONOGRAMA_WORKBOOK_SHEET,
+      importedAt: new Date().toISOString(),
+      columns: [...CRONOGRAMA_REQUIRED_COLUMNS],
+      rows: [],
+    };
+  }
+};
+
+const buildCalendarEventBlocks = (sheet: SheetTable | null): CalendarEventBlock[] => {
+  if (!sheet) {
+    return [];
+  }
+
+  return sheet.rows.flatMap((row, rowIndex) => {
+    const startMinutes = parseScheduleTimeValue(
+      getCellValue(sheet, row, CRONOGRAMA_START_COLUMN),
+    );
+    const rawEndMinutes = parseScheduleTimeValue(
+      getCellValue(sheet, row, CRONOGRAMA_END_COLUMN),
+    );
+    const dateKey = getCellValue(sheet, row, CRONOGRAMA_DATE_COLUMN);
+    const turma = getCellValue(sheet, row, TURMA_COLUMN);
+
+    if (!dateKey || startMinutes === null || rawEndMinutes === null) {
+      return [];
+    }
+
+    const endMinutes =
+      rawEndMinutes <= startMinutes ? rawEndMinutes + MINUTES_PER_DAY : rawEndMinutes;
+    const id =
+      getCellValue(sheet, row, CRONOGRAMA_ID_COLUMN) ||
+      `${CRONOGRAMA_ENTITY_ID}#${rowIndex + 1}`;
+
+    return [
+      {
+        id,
+        rowIndex,
+        turma,
+        dateKey,
+        startMinutes,
+        endMinutes,
+        type: getCellValue(sheet, row, CRONOGRAMA_TYPE_COLUMN) || DEFAULT_CRONOGRAMA_BLOCK_TYPE,
+        lesson: getCellValue(sheet, row, CRONOGRAMA_LESSON_COLUMN),
+        instructor: getCellValue(sheet, row, TURMA_INSTRUCTOR_COLUMN),
+        room: getCellValue(sheet, row, TURMA_ROOM_COLUMN),
+        color: getCellValue(sheet, row, CRONOGRAMA_COLOR_COLUMN) || DEFAULT_CRONOGRAMA_BLOCK_COLOR,
+      },
+    ];
+  });
+};
+
+const splitEventBlockByDay = (block: CalendarEventBlock) => {
+  const startDate = parseDateKey(block.dateKey);
+
+  if (!startDate) {
+    return [];
+  }
+
+  const segments: CalendarEventSegment[] = [];
+
+  for (
+    let dayOffset = Math.floor(block.startMinutes / MINUTES_PER_DAY);
+    dayOffset <= Math.floor((block.endMinutes - 1) / MINUTES_PER_DAY);
+    dayOffset += 1
+  ) {
+    const dayStartMinutes = dayOffset * MINUTES_PER_DAY;
+    const segmentStart = Math.max(block.startMinutes, dayStartMinutes);
+    const segmentEnd = Math.min(block.endMinutes, dayStartMinutes + MINUTES_PER_DAY);
+    const segmentDate = addDays(startDate, dayOffset);
+    const startMinutes = segmentStart - dayStartMinutes;
+    const endMinutes = segmentEnd - dayStartMinutes;
+    const slotMinutes = Math.floor(startMinutes / SLOT_MINUTES) * SLOT_MINUTES;
+
+    if (endMinutes <= startMinutes) {
+      continue;
+    }
+
+    segments.push({
+      ...block,
+      segmentId: `${block.id}-${dayOffset}`,
+      sourceDateKey: block.dateKey,
+      dateKey: formatDateKey(segmentDate),
+      startMinutes,
+      endMinutes,
+      slotMinutes,
+      topRowUnits: (startMinutes - slotMinutes) / SLOT_MINUTES,
+      heightRowUnits: Math.max((endMinutes - startMinutes) / SLOT_MINUTES, 1),
+      lane: 0,
+      laneCount: 1,
+    });
+  }
+
+  return segments;
+};
+
+const doSegmentsOverlap = (
+  first: Pick<CalendarEventSegment, 'startMinutes' | 'endMinutes'>,
+  second: Pick<CalendarEventSegment, 'startMinutes' | 'endMinutes'>,
+) => first.startMinutes < second.endMinutes && first.endMinutes > second.startMinutes;
+
+const assignEventSegmentLanes = (segments: CalendarEventSegment[]) => {
+  const sortedSegments = [...segments].sort((first, second) =>
+    first.startMinutes === second.startMinutes
+      ? second.endMinutes - first.endMinutes
+      : first.startMinutes - second.startMinutes,
+  );
+  const laidOutSegments: CalendarEventSegment[] = [];
+  let currentGroup: CalendarEventSegment[] = [];
+  let currentGroupEnd = -1;
+
+  const flushGroup = () => {
+    if (currentGroup.length === 0) {
+      return;
+    }
+
+    const laneEnds: number[] = [];
+    const groupWithLanes = currentGroup.map((segment) => {
+      const laneIndex = laneEnds.findIndex((laneEnd) => laneEnd <= segment.startMinutes);
+      const lane = laneIndex >= 0 ? laneIndex : laneEnds.length;
+
+      laneEnds[lane] = segment.endMinutes;
+      return {
+        ...segment,
+        lane,
+      };
+    });
+    const laneCount = Math.max(1, laneEnds.length);
+
+    laidOutSegments.push(
+      ...groupWithLanes.map((segment) => ({
+        ...segment,
+        laneCount,
+      })),
+    );
+    currentGroup = [];
+    currentGroupEnd = -1;
+  };
+
+  sortedSegments.forEach((segment) => {
+    if (currentGroup.length > 0 && segment.startMinutes >= currentGroupEnd) {
+      flushGroup();
+    }
+
+    currentGroup.push(segment);
+    currentGroupEnd = Math.max(currentGroupEnd, segment.endMinutes);
+  });
+  flushGroup();
+
+  return laidOutSegments.sort((first, second) => {
+    if (first.slotMinutes !== second.slotMinutes) {
+      return first.slotMinutes - second.slotMinutes;
+    }
+
+    return first.lane - second.lane;
+  });
+};
+
+const buildEventSegmentsByDateAndSlot = (blocks: CalendarEventBlock[]) => {
+  const segmentsByDate = new Map<string, CalendarEventSegment[]>();
+
+  blocks.flatMap(splitEventBlockByDay).forEach((segment) => {
+    const dateSegments = segmentsByDate.get(segment.dateKey) ?? [];
+
+    dateSegments.push(segment);
+    segmentsByDate.set(segment.dateKey, dateSegments);
+  });
+
+  const segmentsByDateAndSlot = new Map<string, CalendarEventSegment[]>();
+
+  segmentsByDate.forEach((dateSegments, dateKey) => {
+    assignEventSegmentLanes(dateSegments).forEach((segment) => {
+      const slotKey = `${dateKey}-${segment.slotMinutes}`;
+      const slotSegments = segmentsByDateAndSlot.get(slotKey) ?? [];
+
+      slotSegments.push(segment);
+      segmentsByDateAndSlot.set(slotKey, slotSegments);
+    });
+  });
+
+  return segmentsByDateAndSlot;
+};
+
 export function CalendarioPage({
   canInitialize = true,
   isActive = true,
@@ -121,6 +391,7 @@ export function CalendarioPage({
   const calendarGridRef = useRef<HTMLDivElement | null>(null);
   const [hasActiveWorkbook, setHasActiveWorkbook] = useState(false);
   const [hasCheckedWorkbook, setHasCheckedWorkbook] = useState(false);
+  const [cronogramaSheet, setCronogramaSheet] = useState<SheetTable | null>(null);
   const [weekStart, setWeekStart] = useState(getStoredWeekStart);
   const globalWorkbookState = useGlobalWorkbookState();
 
@@ -153,7 +424,16 @@ export function CalendarioPage({
           return;
         }
 
+        const nextCronogramaSheet = file
+          ? await readCronogramaSheetFromFile(file)
+          : null;
+
+        if (!isMounted) {
+          return;
+        }
+
         setHasActiveWorkbook(Boolean(file) || globalWorkbookState.hasWorkbook);
+        setCronogramaSheet(nextCronogramaSheet);
         setHasCheckedWorkbook(true);
 
         if (file || globalWorkbookState.hasWorkbook) {
@@ -165,6 +445,7 @@ export function CalendarioPage({
         }
 
         setHasActiveWorkbook(globalWorkbookState.hasWorkbook);
+        setCronogramaSheet(null);
         setHasCheckedWorkbook(true);
       }
     };
@@ -198,6 +479,14 @@ export function CalendarioPage({
     [],
   );
   const monthLabel = formatCalendarMonthLabel(weekStart);
+  const cronogramaBlocks = useMemo(
+    () => buildCalendarEventBlocks(cronogramaSheet),
+    [cronogramaSheet],
+  );
+  const eventSegmentsByDateAndSlot = useMemo(
+    () => buildEventSegmentsByDateAndSlot(cronogramaBlocks),
+    [cronogramaBlocks],
+  );
   const hasWorkbookForPage = hasActiveWorkbook || globalWorkbookState.hasWorkbook;
   const shouldShowImportState = hasCheckedWorkbook && !hasWorkbookForPage;
   const shouldShowCalendar = hasCheckedWorkbook && hasWorkbookForPage;
@@ -338,19 +627,57 @@ export function CalendarioPage({
                     {isMajorSlot ? <span>{formatTimeLabel(slotMinutes)}</span> : null}
                   </div>
                   {weekDates.map((date, dateIndex) => (
-                    <div
-                      className={[
-                        'calendario-week-slot',
-                        lineClass,
-                        slotIndex === 0 ? 'first-slot' : '',
-                        isFooterSlot ? 'footer-slot' : '',
-                        dateIndex === weekDates.length - 1 ? 'last' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      key={`${formatDateKey(date)}-${slotMinutes}`}
-                      data-slot-minutes={slotMinutes}
-                    />
+                    (() => {
+                      const dateKey = formatDateKey(date);
+                      const slotSegments =
+                        eventSegmentsByDateAndSlot.get(`${dateKey}-${slotMinutes}`) ??
+                        [];
+
+                      return (
+                        <div
+                          className={[
+                            'calendario-week-slot',
+                            lineClass,
+                            slotIndex === 0 ? 'first-slot' : '',
+                            isFooterSlot ? 'footer-slot' : '',
+                            dateIndex === weekDates.length - 1 ? 'last' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          key={`${dateKey}-${slotMinutes}`}
+                          data-slot-minutes={slotMinutes}
+                        >
+                          {slotSegments.map((segment) => (
+                            <article
+                              className="calendario-event-block"
+                              key={segment.segmentId}
+                              style={
+                                {
+                                  '--calendar-event-color': segment.color,
+                                  '--calendar-event-top': `calc(var(--calendario-row-height, 22px) * ${segment.topRowUnits})`,
+                                  '--calendar-event-height': `calc(var(--calendario-row-height, 22px) * ${segment.heightRowUnits})`,
+                                  '--calendar-event-lane': segment.lane,
+                                  '--calendar-event-lane-count': segment.laneCount,
+                                } as CSSProperties
+                              }
+                            >
+                              <div className="calendario-event-line calendario-event-main-line">
+                                <span>{segment.lesson || segment.type}</span>
+                              </div>
+                              <div className="calendario-event-line">
+                                <span>{segment.turma || '-'}</span>
+                              </div>
+                              <div className="calendario-event-line">
+                                <span>
+                                  {formatTimeLabel(segment.startMinutes)} -{' '}
+                                  {formatTimeLabel(segment.endMinutes)}
+                                </span>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      );
+                    })()
                   ))}
                 </div>
               );
