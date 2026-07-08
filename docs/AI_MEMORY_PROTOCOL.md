@@ -61,12 +61,36 @@ When the user says `memcheck`, or uses similar phrasing such as "memcheck this a
 
 `memcheck` does not mean save a transcript. It means preserve the distilled decision, vocabulary, plan, model, or design direction that future AI sessions need.
 
-`memcheck` only updates the appropriate long-term memory files. It does not commit or push by itself. If the user wants both memory updates and a Git handoff, they can ask for both `memcheck` and `gitcheckpoint`.
+`memcheck` only updates the appropriate long-term memory files. It does not commit or push by itself. If the user wants memory updates plus Git continuity, they can ask for `gitcheck`.
 
 1. Put the durable idea in the appropriate `docs/` file, creating or updating a focused doc if needed.
 2. Add only a short pointer to `docs/AI_HANDOFF.md` if future sessions need to find it quickly.
 3. Do not write to `notes/` unless the user explicitly says to use `notes/`.
 4. Keep it concise and current, not a transcript.
+
+## Owner Commands: memcheck And gitcheck
+
+These are owner workflow commands, not shell commands.
+
+### memcheck
+
+When the owner says `memcheck`, the AI must thoroughly update durable project docs/meta memory so future AIs, future sessions, and other devices can continue with the same understanding. It should preserve distilled decisions, alignments, functionality, plans, workflow rules, data models, commands, pitfalls, and project vocabulary. It does not commit or push by itself.
+
+### gitcheck
+
+When the owner says `gitcheck`, the AI must perform `memcheck` first, then save the current project state to Git for continuity across AIs/devices.
+
+The expected `gitcheck` flow is:
+
+1. Update durable memory/docs as needed, just like `memcheck`.
+2. Inspect the worktree and relevant diffs.
+3. Run relevant checks for the project when practical.
+4. Verify `.git-identity`, `git config user.email`, and `git config core.hooksPath`.
+5. Stage the intended files.
+6. Commit.
+7. Push to the configured remote, unless the owner explicitly says not to.
+
+`gitcheck` commit messages must use a concise title sentence followed by one or more `-` bullet points describing the completed changes.
 
 Good durable context includes:
 
@@ -124,7 +148,7 @@ Focused memory docs should explain the mechanic or system clearly enough that a 
 
 `docs/AI_HANDOFF.md` should stay concise. It is a snapshot, not a diary.
 
-Update it only when the user asks, during a requested git checkpoint when continuity needs it, or when the task is specifically about project documentation or AI workflow.
+Update it only when the user asks, during a requested `gitcheck` when continuity needs it, or when the task is specifically about project documentation or AI workflow.
 
 When updating it:
 

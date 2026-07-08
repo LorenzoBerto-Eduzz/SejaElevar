@@ -14,6 +14,11 @@ import {
 
 export const BASE_WORKBOOK_FILE_PREFIX = 'DadosElevar';
 export const BASE_WORKBOOK_FILE_NAME = `${BASE_WORKBOOK_FILE_PREFIX}.xlsx`;
+export const CURRENT_WORKBOOK_SCHEMA_VERSION = 1;
+export const WORKBOOK_SYSTEM_SHEET_NAME = 'Sistema SejaElevar';
+export const WORKBOOK_SYSTEM_REQUIRED_COLUMNS = ['Chave', 'Valor'] as const;
+export const WORKBOOK_SCHEMA_VERSION_KEY = 'schemaVersion';
+export const WORKBOOK_SCHEMA_UPDATED_AT_KEY = 'schemaUpdatedAt';
 
 export type BaseWorkbookSheetStatus =
   | 'active-legacy-workbook'

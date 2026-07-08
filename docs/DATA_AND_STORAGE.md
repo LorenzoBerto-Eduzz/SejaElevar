@@ -53,6 +53,7 @@ Current migration anchor:
 - During the transition, the existing Aprendizes/Turmas import buttons detect a selected workbook that contains both `Aprendizes` and `Turmas` worksheet tabs and store it through the base workbook endpoint. Once an active `DadosElevar` workbook exists, it becomes the primary app data source for Aprendizes and Turmas, and global checkpoints should track that one active workbook rather than separate Aprendizes/Turmas files. Those pages prefer their named worksheet when reading a multi-sheet workbook, while still accepting old one-sheet files when no unified workbook is active.
 - Aprendizes now follows the unified-save path when `DadosElevar` exists: edits, registrations, deletes, and column changes read the active workbook, replace only the `Aprendizes` worksheet, save the whole workbook back through `/api/base-workbook/file`, re-read the saved worksheet, refresh the generated index, and broadcast the global data-change event. The legacy `/api/aprendizes/values` patch path remains only as fallback when no active base workbook exists.
 - The app now treats `Arcos`, `Disciplinas`, `Aulas`, `Aulas Disciplinas`, and `Cronograma` as managed optional worksheets in the active unified workbook. Import/recovery/system normalization can create or extend those tabs without making them required for global workbook validation. Human-facing columns should come first, and app/system columns such as row IDs and source-document IDs should trail after those values. `Arcos` currently has columns `Arco`, `Arquivo Ementa`, `ID`, and `Ementa ID`. `Disciplinas` has columns `Disciplina`, `Módulo`, `Arco`, `Carga Horária`, `ID`, and `Ementa ID`; `Ementa` is the official source PDF concept, not a worksheet/entity name. `Aulas` is the reusable catalog/model layer with columns `Aula`, `Cor`, `Instrutor Padrao`, `Sala Padrao`, and `ID`. Aula-to-Disciplina coverage is stored separately in `Aulas Disciplinas` with columns `Aula ID`, `Aula`, `Arco`, `Módulo`, `Disciplina`, `Disciplina ID`, and `ID`, so coverage is indexed/validated as rows instead of a fragile comma list in one cell. `Cronograma` is the scheduled-instance layer with columns `Turma`, `Data`, `Inicio`, `Fim`, `Tipo`, `Aula ID`, `Aula`, `Instrutor`, `Sala`, `Cor`, and `ID`. Cronograma rows copy display/default values from an Aula model when one is used, so scheduled instances can stay historically stable or be overridden independently.
+- Current workbook schema metadata lives in a hidden worksheet named `Sistema SejaElevar` with key/value rows such as `schemaVersion` and `schemaUpdatedAt`. Managed workbook normalization can add or update this sheet, and when that changes an existing active workbook it must create a recoverable `before_migration` checkpoint first.
 - Current academic storage update: `Plano de Ensino`, `Presencas`, `Horas Aplicadas`, and `Plano Progresso` are now managed optional workbook sheets. Managed optional sheets can be normalized by the app: created, extended, reordered, and de-duplicated so human-facing columns stay first and relationship/internal IDs stay at the end. Attendance save writes `Presencas`, writes `Horas Aplicadas` only for `Presente`, resolves Aula coverage against the Aprendiz's own `Plano de Ensino`, and recalculates `Plano Progresso` as a cache.
 - The current storage mode is still `multi-workbook-transition`; do not remove the existing Aprendizes/Turmas endpoints until the UI has been migrated to read/write named worksheets from the unified workbook adapter.
 
@@ -109,7 +110,7 @@ Current Turmas behavior:
 
 Expanded Turmas timetable visual/storage note:
 
-- The expanded Turma body is a split work surface. The left side shows assigned Aprendizes and owns vertical scrolling when the list is longer than the available space. The right side is a filtered timetable preview for that Turma's `Dia` and `PerÃ­odo`; it should not have independent vertical scrolling.
+- The expanded Turma body is a split work surface. The left side shows assigned Aprendizes and owns vertical scrolling when the list is longer than the available space. The right side is a filtered timetable preview for that Turma's `Dia` and `Período`; it should not have independent vertical scrolling.
 - The timetable currently renders true 15-minute rows aligned to the Aprendizes row height, with a small visual tail after the period end. It intentionally does not render 5-minute rows. Aula/Cronograma blocks snap to thirds of a 15-minute row for 5-minute movement/resizing.
 
 Current planning checkpoint: the upstream academic catalog now exists far enough to begin the `Aulas` foundation. The `Arcos` worksheet/UI foundation reads `Arcos` and `Disciplinas` from the active unified workbook, driven by official Ementa PDFs. `Aulas` should be treated as predefined templates that select Disciplina coverage from that catalog; scheduled blocks in `Cronograma` instantiate those predefined Aulas. Aula coverage belongs in `Aulas Disciplinas`, and the specific-module rule is: one `Específico` Disciplina per Arco per Aula. `Inicial`/`Básico` shared rows can be selected as shared/general coverage. Existing scheduled blocks should not freely create new Aula definitions in Turmas/Cronograma.
@@ -275,6 +276,37 @@ project/dev/
 ```
 
 A release/export package should use the same structure under `exports/SejaElevar/` when the user explicitly asks for a release.
+
+## Release Updates And Workspace Preservation
+
+Release updates must treat the app package/code and the coworker's workspace data as separate things.
+
+When a coworker receives a newer SejaElevar version, the update should replace the app code/package only. It must preserve the coworker's existing runtime workspace exactly as their working data:
+
+- active `dados/` workbook files and checkpoints
+- imported Ementa PDFs under `dados/ementas/`
+- generated/system metadata under `dados/sistema/`
+- `modelos/` templates
+- `documentos_gerados/`
+- user/release configuration and visual/workspace settings
+- any future document/template/company assets created by the worker
+
+The app must never treat a version update like `freshdev`, `freshdata`, or a clean install. Those reset commands are development-only testing tools. A real coworker update is code replacement, not data replacement.
+
+If a newer app version needs a newer workbook/config shape, it should run a safe migration/normalization path when opening/importing/recovering old data:
+
+- detect the existing data/schema version when possible
+- create a recoverable checkpoint before modifying existing workspace data
+- add missing worksheets, columns, and generated metadata without deleting user rows/files
+- preserve unknown/custom workbook columns and worksheet data unless a deliberate migration says otherwise
+- rebuild disposable indexes from the workbook rather than treating indexes as source truth
+- stop with a clear warning if a migration cannot be completed safely
+
+The target product expectation is that a coworker can use a release, create/edit/import documents and data, then receive a later fixed/improved release and continue with the same data intact.
+
+Current simplest update flow: the user opens their current installed folder, goes to `Configurações -> Atualizar versão`, and selects the newly downloaded SejaElevar folder. The current app launches the new folder's `SejaElevar.exe` in update mode, exits, and the new exe copies app files back into the current folder. This preserves root data/config folders (`dados/`, `modelos/`, `documentos_gerados/`) and the local window settings file (`assets/window-settings.json`) while replacing app code/assets. The downloaded folder is only the source of the update; the user keeps opening the same familiar app folder after the update.
+
+The displayed app version is part of the release/update contract, not a counter that every local build should advance. It is shown in Configurações beside `Atualizar versão`, uses `VITE_SEJAELEVAR_VERSION` when intentionally injected, and falls back to `0.0.1` in source. Do not increase it automatically during dev builds, localrelease/export tests, or updater tests. Only bump it when the user explicitly asks to increase the version.
 
 Suggested meaning:
 

@@ -38,11 +38,11 @@ export type AulaCoverageValidationResult = {
 const normalizeCoverageColumnLabel = (value: string) => {
   const normalizedValue = normalizeFieldLabel(value);
 
-  if (normalizedValue === normalizeFieldLabel('MÃ³dulo')) {
+  if (normalizedValue === normalizeFieldLabel('Módulo')) {
     return normalizeFieldLabel('Módulo');
   }
 
-  if (normalizedValue === normalizeFieldLabel('Carga HorÃ¡ria')) {
+  if (normalizedValue === normalizeFieldLabel('Carga Horária')) {
     return normalizeFieldLabel('Carga Horária');
   }
 

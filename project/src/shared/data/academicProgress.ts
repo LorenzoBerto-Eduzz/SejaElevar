@@ -766,6 +766,50 @@ const getCoverageRowsForAttendance = (
   });
 };
 
+export const validateAcademicAttendance = (
+  planoEnsinoSheet: SheetTable | null,
+  aulasDisciplinasSheet: SheetTable | null,
+  event: AcademicEventSnapshot,
+  selections: AcademicAttendanceSelection[],
+) => {
+  const presentSelections = selections.filter(
+    (selection) => selection.status === 'Presente',
+  );
+
+  if (presentSelections.length === 0) {
+    return { ok: true as const };
+  }
+
+  if (!event.aulaId && !event.aula) {
+    return {
+      ok: false as const,
+      message: 'Selecione uma aula antes de registrar presença.',
+    };
+  }
+
+  if (!aulasDisciplinasSheet) {
+    return {
+      ok: false as const,
+      message:
+        'A aula selecionada ainda não possui disciplinas vinculadas para contabilizar horas.',
+    };
+  }
+
+  const aulaCoverageRows = aulasDisciplinasSheet.rows.filter((row) =>
+    isCoverageForAula(aulasDisciplinasSheet, row, event),
+  );
+
+  if (aulaCoverageRows.length === 0) {
+    return {
+      ok: false as const,
+      message:
+        'A aula selecionada ainda não possui disciplinas vinculadas para contabilizar horas.',
+    };
+  }
+
+  return { ok: true as const };
+};
+
 export const updateAcademicAttendance = (
   fileName: string,
   presencasSheet: SheetTable | null,

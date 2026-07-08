@@ -71,10 +71,10 @@ when you want AI to save the durable outcome of a discussion into the memory doc
 Use:
 
 ```text
-gitcheckpoint
+gitcheck
 ```
 
-when you want AI to update docs if needed, commit the current work, and push so another computer/session can continue.
+when you want AI to do `memcheck`, inspect/check the repo, commit the current work, and push so another computer/session can continue.
 
 ## How AI Should Adapt The Template
 
@@ -132,5 +132,5 @@ If you do not have a remote yet, skip the remote and push steps until later.
 - If AI seems confused, limited by model/account/tools, or unable to confidently understand the project, it should say that clearly and ask before changing files.
 - Prefer small commits with messages descriptive enough to understand later from Git history.
 - AI should not create commits or update docs/handoff notes unless you explicitly ask.
-- When you ask for `memcheck`, AI should update long-term memory docs only. It should not commit or push unless you also ask for `gitcheckpoint`.
-- When you ask for `gitcheckpoint` or a "git checkpoint", AI should update docs only if needed for future AI continuity, commit the current work, and push it so another computer can pull and continue.
+- When you ask for `memcheck`, AI should update long-term memory docs only. It should not commit or push by default.
+- When you ask for `gitcheck`, AI should do `memcheck`, inspect/check the repo, verify Git identity, commit the current work, and push it so another computer can pull and continue, unless you say not to.

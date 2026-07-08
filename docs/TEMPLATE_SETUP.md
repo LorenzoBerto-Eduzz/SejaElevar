@@ -56,7 +56,7 @@ Use this order:
 6. Ask the user if project identity, folder naming, stack, or Git remote are unclear.
 7. Replace generic placeholders with real project facts.
 8. Update `docs/PROJECT_BRIEF.md` first, then `docs/AI_HANDOFF.md`, then any stack-specific parts of `docs/WORKFLOW_AND_STYLE.md`, `docs/PROJECT_ORGANIZATION.md`, and `AGENTS.md`.
-9. Preserve the core memory workflow: `memcheck`, `gitcheckpoint`, repo-over-chat memory, notes ownership, and caution before major changes.
+9. Preserve the core memory workflow: `memcheck`, `gitcheck`, repo-over-chat memory, notes ownership, and caution before major changes.
 10. Keep the template neutral only where the project is still undecided. Once a fact is known, write the fact instead of leaving vague template wording.
 
 Do not do these things:
@@ -154,7 +154,7 @@ If you apply this template to an existing repo, be more careful:
 After setup, a useful first prompt is:
 
 ```text
-Read AGENTS.md and docs/TEMPLATE_SETUP.md, then adapt this template to the project I am starting. Inspect the files, tell me what placeholders still need replacing, ask only for facts you cannot infer safely, and preserve the memcheck/gitcheckpoint workflow.
+Read AGENTS.md and docs/TEMPLATE_SETUP.md, then adapt this template to the project I am starting. Inspect the files, tell me what placeholders still need replacing, ask only for facts you cannot infer safely, and preserve the memcheck/gitcheck workflow.
 ```
 
 If the real source project already exists inside `project/`, use:

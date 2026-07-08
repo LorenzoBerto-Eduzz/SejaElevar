@@ -50,7 +50,7 @@ Use this sequence when starting a fresh AI session, after switching machines, af
 - If this repo still has template placeholders, follow the adaptation rules in `docs/TEMPLATE_SETUP.md` before doing project-specific implementation. Preserve the AI memory system while adapting the stack-specific details.
 - `asset_staging/` is kept in Git with a hidden `.keep` placeholder so the empty organizational folder exists on every machine after pull.
 - `local_assets/` is a local-only folder for assets/files that should not be pushed. Do not read, reorganize, or depend on it unless the user explicitly asks.
-- This repo intentionally allows only `lorenzo.berto@eduzz.com` as the Git contributor email. Before gitcheck/gitcheckpoint, verify the local Git email matches `.git-identity`; if it does not, stop and fix/ask instead of committing. The local Git name may vary by device because GitHub contributor attribution is tied to the email/account.
+- This repo intentionally allows only `lorenzo.berto@eduzz.com` as the Git contributor email. Before `gitcheck`, commit, or push, verify the local Git email matches `.git-identity`; if it does not, stop and fix/ask instead of committing. The local Git name may vary by device because GitHub contributor attribution is tied to the email/account.
 - Keep generated caches, dependency folders, local secrets, build outputs, and machine-specific files out of Git.
 - Keep code simple, explicit, and easy for the user to read and change. Prefer clear names and small responsibilities over clever abstractions.
 - Keep new systems modular by default. Debug tools, tuning UI, product logic, visuals, data definitions, and integration glue should live in separate files or clearly isolated blocks when practical.
@@ -59,8 +59,9 @@ Use this sequence when starting a fresh AI session, after switching machines, af
 - When the user asks for suggestions, recommendations, or "what do you think?", answer with options first and wait for confirmation before adding files, changing workflow, or editing project organization.
 - Do not create Git commits unless the user explicitly asks.
 - Do not update project documentation or handoff notes unless the user explicitly asks, or unless the requested task is specifically to change documentation/workflow guidance.
-- When the user asks for `memcheck`, update the appropriate long-term memory docs only. Do not commit or push unless the user also asks for `gitcheckpoint`.
-- When the user asks for `gitcheckpoint` or a "git checkpoint", inspect the worktree, update handoff/project docs only if needed for future AI continuity, commit the current work, and push so another machine can pull and continue.
+- When the user asks for `memcheck`, thoroughly update the appropriate long-term memory docs only. Do not commit or push by default.
+- When the user asks for `gitcheck`, perform `memcheck`, inspect the worktree, run relevant checks, verify the Git identity guard, stage the intended files, commit the current work, and push to the configured remote unless the user says not to.
+- `gitcheck` commit messages must use a concise title sentence followed by one or more `-` bullet points describing the completed changes.
 - If the Git identity hook blocks a commit or push, do not bypass it. Configure the clone with the identity from `.git-identity` and keep `git config core.hooksPath .githooks` enabled.
 
 ## Root Layout

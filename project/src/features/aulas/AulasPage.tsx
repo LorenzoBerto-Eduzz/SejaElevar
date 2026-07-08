@@ -12,6 +12,7 @@ import {
   ARCOS_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
   DISCIPLINAS_ENTITY_ID,
+  PRESENCAS_ENTITY_ID,
   type SheetTable,
 } from '../../shared/data/dataIndex';
 import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
@@ -21,6 +22,7 @@ import {
   ARCOS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
+  PRESENCAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
 import {
@@ -96,6 +98,10 @@ const AULA_DEFAULT_INSTRUCTOR_COLUMN = 'Instrutor Padrão';
 const AULA_DEFAULT_ROOM_COLUMN = 'Sala Padrão';
 const CRONOGRAMA_LESSON_ID_COLUMN = 'Aula ID';
 const CRONOGRAMA_LESSON_COLUMN = 'Aula';
+const CRONOGRAMA_ID_COLUMN = 'ID';
+const CRONOGRAMA_COLOR_COLUMN = 'Cor';
+const PRESENCA_STATUS_COLUMN = 'Status Presença';
+const PRESENCA_EVENT_ID_COLUMN = 'Evento ID';
 const DEFAULT_AULA_COLOR = '#2069df';
 const AULA_COLOR_HISTORY_STORAGE_KEY = 'sejaelevar.aulas.colorHistory.v1';
 const AULA_COLOR_HISTORY_LIMIT = 29;
@@ -205,11 +211,11 @@ const createEmptyWorkbookSheet = (
 const normalizeAulasColumnLabel = (value: string) => {
   const normalizedValue = normalizeFieldLabel(value);
 
-  if (normalizedValue === normalizeFieldLabel('MÃ³dulo')) {
+  if (normalizedValue === normalizeFieldLabel('Módulo')) {
     return normalizeFieldLabel('Módulo');
   }
 
-  if (normalizedValue === normalizeFieldLabel('Carga HorÃ¡ria')) {
+  if (normalizedValue === normalizeFieldLabel('Carga Horária')) {
     return normalizeFieldLabel('Carga Horária');
   }
 
@@ -829,6 +835,59 @@ export function AulasPage({
       return '';
     });
 
+  const matchesAulaReference = (
+    sheet: SheetTable,
+    row: string[],
+    aulaId: string,
+    aulaName: string,
+    idColumn: string,
+    nameColumn: string,
+  ) => {
+    const rowAulaId = getCellValue(sheet, row, idColumn);
+    const rowAulaName = getCellValue(sheet, row, nameColumn);
+
+    return (
+      (!!aulaId && rowAulaId === aulaId) ||
+      (!rowAulaId &&
+        !!aulaName &&
+        normalizeWorkbookOptionKey(rowAulaName) ===
+          normalizeWorkbookOptionKey(aulaName))
+    );
+  };
+
+  const eventHasConfirmedPresence = (
+    presencasSheet: SheetTable,
+    eventId: string,
+  ) =>
+    presencasSheet.rows.some((row) => {
+      if (
+        !eventId ||
+        getCellValue(presencasSheet, row, PRESENCA_EVENT_ID_COLUMN) !== eventId
+      ) {
+        return false;
+      }
+
+      return (
+        normalizeFieldLabel(getCellValue(presencasSheet, row, PRESENCA_STATUS_COLUMN)) ===
+        normalizeFieldLabel('Presente')
+      );
+    });
+
+  const clearCronogramaAulaReference = (sheet: SheetTable, row: string[]) =>
+    sheet.columns.map((column, columnIndex) => {
+      const columnKey = normalizeFieldLabel(column);
+
+      if (
+        columnKey === normalizeFieldLabel(CRONOGRAMA_LESSON_ID_COLUMN) ||
+        columnKey === normalizeFieldLabel(CRONOGRAMA_LESSON_COLUMN) ||
+        columnKey === normalizeFieldLabel(CRONOGRAMA_COLOR_COLUMN)
+      ) {
+        return '';
+      }
+
+      return String(row[columnIndex] ?? '');
+    });
+
   const addAulaCoverage = async (aula: AulaItem, option: AulaCoverageOption) => {
     const currentSheet =
       latestCoverageSheetRef.current ??
@@ -1232,43 +1291,47 @@ export function AulasPage({
       CRONOGRAMA_WORKBOOK_SHEET,
       CRONOGRAMA_REQUIRED_COLUMNS,
     );
-    const matchesReference = (
-      sheet: SheetTable,
-      row: string[],
-      idColumn: string,
-      nameColumn: string,
-    ) => {
-      const rowAulaId = getCellValue(sheet, row, idColumn);
-      const rowAulaName = getCellValue(sheet, row, nameColumn);
+    const presencasSheet = await readWorkbookSheetWithFallback(
+      sourceFile,
+      PRESENCAS_ENTITY_ID,
+      'Presencas',
+      PRESENCAS_REQUIRED_COLUMNS,
+    );
 
-      return (
-        (!!deletedAulaId && rowAulaId === deletedAulaId) ||
-        (!rowAulaId &&
-          !!deletedAulaName &&
-          normalizeWorkbookOptionKey(rowAulaName) ===
-            normalizeWorkbookOptionKey(deletedAulaName))
-      );
-    };
     const deletedCoverageRows = coverageSheet.rows
       .map((row, rowIndex) => ({ rowIndex, row }))
       .filter(({ row }) =>
-        matchesReference(
+        matchesAulaReference(
           coverageSheet,
           row,
+          deletedAulaId,
+          deletedAulaName,
           AULA_COVERAGE_LESSON_ID_COLUMN,
           AULA_COVERAGE_LESSON_COLUMN,
         ),
       );
-    const deletedCronogramaRows = cronogramaSheet.rows
+    const cronogramaRowUpdates = cronogramaSheet.rows
       .map((row, rowIndex) => ({ rowIndex, row }))
       .filter(({ row }) =>
-        matchesReference(
+        matchesAulaReference(
           cronogramaSheet,
           row,
+          deletedAulaId,
+          deletedAulaName,
           CRONOGRAMA_LESSON_ID_COLUMN,
           CRONOGRAMA_LESSON_COLUMN,
         ),
-      );
+      )
+      .filter(({ row }) => {
+        const eventId = getCellValue(cronogramaSheet, row, CRONOGRAMA_ID_COLUMN);
+
+        return !eventHasConfirmedPresence(presencasSheet, eventId);
+      })
+      .map(({ rowIndex, row }) => ({
+        rowIndex,
+        previousRow: row.map((cell) => String(cell ?? '')),
+        nextRow: clearCronogramaAulaReference(cronogramaSheet, row),
+      }));
     const nextAulasSheet = {
       ...currentSheet,
       rows: currentSheet.rows
@@ -1284,10 +1347,13 @@ export function AulasPage({
     };
     const nextCronogramaSheet = {
       ...cronogramaSheet,
-      rows: cronogramaSheet.rows.filter(
-        (_row, rowIndex) =>
-          !deletedCronogramaRows.some((deleted) => deleted.rowIndex === rowIndex),
-      ),
+      rows: cronogramaSheet.rows.map((row, rowIndex) => {
+        const update = cronogramaRowUpdates.find(
+          (currentUpdate) => currentUpdate.rowIndex === rowIndex,
+        );
+
+        return update ? [...update.nextRow] : [...row];
+      }),
     };
 
     latestAulasSheetRef.current = nextAulasSheet;
@@ -1315,7 +1381,7 @@ export function AulasPage({
         itemLabel: deletedAulaName || deletedAulaId || `aula#${currentRowIndex + 1}`,
         recordId: deletedAulaId,
         coverageRows: deletedCoverageRows,
-        cronogramaRows: deletedCronogramaRows,
+        cronogramaRowUpdates,
       });
     }
 
@@ -1356,6 +1422,40 @@ export function AulasPage({
               ): item is {
                 rowIndex: number;
                 row: string[];
+              } => Boolean(item),
+            )
+        : [];
+    const normalizeStoredRowUpdates = (value: unknown) =>
+      Array.isArray(value)
+        ? value
+            .map((item) => {
+              if (
+                typeof item !== 'object' ||
+                item === null ||
+                typeof (item as { rowIndex?: unknown }).rowIndex !== 'number' ||
+                !Array.isArray((item as { previousRow?: unknown }).previousRow) ||
+                !Array.isArray((item as { nextRow?: unknown }).nextRow)
+              ) {
+                return null;
+              }
+
+              return {
+                rowIndex: (item as { rowIndex: number }).rowIndex,
+                previousRow: (item as { previousRow: unknown[] }).previousRow.map(
+                  (cell) => String(cell ?? ''),
+                ),
+                nextRow: (item as { nextRow: unknown[] }).nextRow.map((cell) =>
+                  String(cell ?? ''),
+                ),
+              };
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                rowIndex: number;
+                previousRow: string[];
+                nextRow: string[];
               } => Boolean(item),
             )
         : [];
@@ -1402,6 +1502,30 @@ export function AulasPage({
 
         return !storedKeys.has(row.map((cell) => cell.trim()).join('\u001f'));
       });
+    };
+    const applyStoredRowUpdates = (
+      rows: string[][],
+      storedUpdates: {
+        rowIndex: number;
+        previousRow: string[];
+        nextRow: string[];
+      }[],
+      nextValueKey: 'previousValue' | 'nextValue',
+    ) => {
+      const nextRows = rows.map((row) => [...row]);
+
+      storedUpdates.forEach((update) => {
+        if (update.rowIndex < 0 || update.rowIndex >= nextRows.length) {
+          return;
+        }
+
+        nextRows[update.rowIndex] =
+          nextValueKey === 'previousValue'
+            ? [...update.previousRow]
+            : [...update.nextRow];
+      });
+
+      return nextRows;
     };
 
     if (
@@ -1573,6 +1697,9 @@ export function AulasPage({
       );
       const coverageRows = normalizeStoredRows(entry.coverageRows);
       const cronogramaRows = normalizeStoredRows(entry.cronogramaRows);
+      const cronogramaRowUpdates = normalizeStoredRowUpdates(
+        entry.cronogramaRowUpdates,
+      );
       const rowIndex = typeof entry.rowIndex === 'number' ? entry.rowIndex : -1;
       const deletedAulaRows = [{ rowIndex, row: rowData }];
       const nextAulasSheet = {
@@ -1592,9 +1719,15 @@ export function AulasPage({
       const nextCronogramaSheet = {
         ...cronogramaSheet,
         rows:
-          valueKey === 'previousValue'
-            ? insertStoredRows(cronogramaSheet.rows, cronogramaRows)
-            : removeStoredRows(cronogramaSheet, cronogramaRows),
+          cronogramaRowUpdates.length > 0
+            ? applyStoredRowUpdates(
+                cronogramaSheet.rows,
+                cronogramaRowUpdates,
+                valueKey,
+              )
+            : valueKey === 'previousValue'
+              ? insertStoredRows(cronogramaSheet.rows, cronogramaRows)
+              : removeStoredRows(cronogramaSheet, cronogramaRows),
       };
 
       latestAulasSheetRef.current = nextAulasSheet;
@@ -1970,6 +2103,7 @@ export function AulasPage({
           </div>
         </div>
       )}
+
     </section>
   );
 }

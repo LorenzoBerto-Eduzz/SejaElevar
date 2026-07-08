@@ -45,6 +45,16 @@ const readme = `# SejaElevar
 
 Observacao: o aplicativo usa a pasta \`dados/\` como local central dos dados. Ao importar ou editar, a planilha em uso e gravada como \`DadosElevar_hhmmssddmmyy.xlsx\`.
 
+## Como atualizar preservando dados
+
+1. Baixe e extraia a nova versao em uma pasta temporaria, como Downloads.
+2. Abra a versao antiga/atual que voce ja usa.
+3. Entre em \`Configuracoes\` e clique em \`Atualizar versao\`.
+4. Selecione a pasta nova que acabou de extrair.
+5. O app fecha, copia os arquivos novos para a pasta atual, preserva seus dados/modelos/documentos, e abre novamente.
+
+Continue usando a mesma pasta antiga depois da atualizacao. A pasta baixada serve apenas como fonte da nova versao.
+
 ## Pastas
 
 - \`assets/\`: arquivos internos do app e futuros arquivos de configuracao/salvamento local.

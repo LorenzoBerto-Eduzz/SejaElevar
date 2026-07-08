@@ -8,6 +8,7 @@ import {
 import type { AppBrand } from '../brand/appBrand';
 import type { AppTab, NavigationIcon, NavigationTab } from '../navigation/tabs';
 import { TOGGLE_ACTION_HISTORY_EVENT } from '../actionLog/ActionLogOverlay';
+import { APP_VERSION } from '../appVersion';
 import { GlobalWorkbookToolbar } from './GlobalWorkbookToolbar';
 import { ThemeToggleButton } from './ThemeToggleButton';
 import {
@@ -19,6 +20,7 @@ import {
   type LayoutSettings,
   type ThemeSettings,
 } from './appShellSettings';
+import { useTimedToast } from './useTimedToast';
 
 const SIDEBAR_STORAGE_KEY = 'sejaelevar.sidebarCollapsed';
 
@@ -59,6 +61,8 @@ export function AppShell({
   const [isMiniMenuOpen, setIsMiniMenuOpen] = useState(false);
   const [isMiniMenuArmed, setIsMiniMenuArmed] = useState(true);
   const [settings, setSettings] = useState(() => readSavedAppSettings(brand));
+  const [isStartingUpdate, setIsStartingUpdate] = useState(false);
+  const { message: updateToast, showToast: showUpdateToast } = useTimedToast();
   const defaultSettings = createDefaultAppSettings(brand);
 
   useEffect(() => {
@@ -323,6 +327,46 @@ export function AppShell({
     window.dispatchEvent(new Event(TOGGLE_ACTION_HISTORY_EVENT));
   };
 
+  const startVersionUpdate = async () => {
+    if (isStartingUpdate) {
+      return;
+    }
+
+    setIsStartingUpdate(true);
+
+    try {
+      const response = await fetch('/api/app/update/start', {
+        method: 'POST',
+      });
+
+      if (response.status === 200) {
+        const result = (await response.json().catch(() => null)) as
+          | { canceled?: boolean; updating?: boolean }
+          | null;
+
+        if (result?.canceled) {
+          return;
+        }
+
+        if (result?.updating) {
+          return;
+        }
+      }
+
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+
+        showUpdateToast(result?.error || 'N\u00e3o foi poss\u00edvel iniciar a atualiza\u00e7\u00e3o.');
+      }
+    } catch {
+      showUpdateToast('N\u00e3o foi poss\u00edvel iniciar a atualiza\u00e7\u00e3o.');
+    } finally {
+      setIsStartingUpdate(false);
+    }
+  };
+
   const activeNavigationTab =
     tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
@@ -331,6 +375,7 @@ export function AppShell({
       className={
         [
           'app-shell',
+          `active-tab-${activeTab}`,
           isSidebarCollapsed ? 'sidebar-collapsed' : '',
           isStartMotionDisabled ? 'no-start-motion' : '',
         ]
@@ -647,6 +692,20 @@ export function AppShell({
           </div>
 
           <div className="settings-fields">
+            <button
+              className="settings-update-button"
+              type="button"
+              disabled={isStartingUpdate}
+              onClick={startVersionUpdate}
+            >
+              <UpdateIcon />
+              <span className="settings-update-label">
+                {isStartingUpdate
+                  ? 'Preparando atualiza\u00e7\u00e3o...'
+                  : 'Atualizar vers\u00e3o'}
+              </span>
+              <span className="settings-version-label">v{APP_VERSION}</span>
+            </button>
             <ColorField
               label="Cor Primária - Modo Claro"
               value={settings.theme.primary}
@@ -884,7 +943,7 @@ export function AppShell({
                   className="dev-visible-slider-field"
                 />
                 <SliderField
-                  label="Arcos mÃ³dulos gap"
+                  label="Arcos módulos gap"
                   min={-24}
                   max={40}
                   step={1}
@@ -894,7 +953,7 @@ export function AppShell({
                   className="dev-visible-slider-field"
                 />
                 <SliderField
-                  label="Arcos mÃƒÂ³dulo conteÃƒÂºdo gap"
+                  label="Arcos módulo conteúdo gap"
                   min={0}
                   max={48}
                   step={1}
@@ -1305,6 +1364,12 @@ export function AppShell({
         </section>
       )}
 
+      {updateToast && (
+        <div className="app-warning-toast" role="status" aria-live="polite">
+          {updateToast}
+        </div>
+      )}
+
       <main className="app-content">{children}</main>
     </div>
   );
@@ -1505,6 +1570,17 @@ function HistoryIcon() {
       <path d="M3 12a9 9 0 1 0 3 -6.7" />
       <path d="M3 4v6h6" />
       <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function UpdateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2" />
+      <path d="M4 5v4h4" />
+      <path d="M4 13a8.1 8.1 0 0 0 15.5 2" />
+      <path d="M20 19v-4h-4" />
     </svg>
   );
 }

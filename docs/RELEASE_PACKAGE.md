@@ -15,6 +15,8 @@ The dev package should be as close as possible to the release package so the use
 
 Before creating a release, make sure the approved dev state is baked into source defaults. The release should not surprise the user with different colors, spacing, alignment, icons, text encoding, app shell behavior, data import behavior, or folder structure.
 
+User-facing PT-BR text must stay correctly encoded in source and generated app files. Treat mojibake such as `Ã`, `Â`, or replacement characters as a bug, especially in Configurações, workbook labels, toasts, and generated/readable release instructions.
+
 ## Current Shape
 
 ```text
@@ -57,6 +59,9 @@ Current lifecycle:
 - The script packages the already-tested app in `project/dev/`: it copies the dev executable and app assets, writes a release-mode HTML copy, adds `README.md`, and creates clean empty runtime folders under `exports/SejaElevar/`.
 - Exporting does not rebuild source or republish `SejaElevar.exe`. If source changed since the user last tested dev, refresh dev first with `npm run build:single`, test it, and only then export.
 - Generating a release replaces the previous `exports/SejaElevar/` package, including its runtime data folders. Never use that export folder as the only copy of real operational data.
+- Current in-app update flow: the worker opens the currently used/old app folder, goes to `Configurações -> Atualizar versão`, and selects the newly downloaded/extracted SejaElevar folder. The current app launches the selected new folder's `SejaElevar.exe` in updater mode, exits, then the new exe copies the new app code/assets into the old/current folder. Afterward the worker keeps using the same old/current folder, now updated.
+- Version updates must preserve runtime workspace data/config: `dados/`, `modelos/`, `documentos_gerados/`, and `assets/window-settings.json`. The downloaded release folder is only the update source.
+- The app displays its version on the `Atualizar versão` row in Configurações. The source fallback is `0.0.1`, and build/export scripts may inject `VITE_SEJAELEVAR_VERSION` for a deliberate test/release package. Do not increase the app version automatically just because a build/export/update test was made; only bump it when the user explicitly asks to increase the version.
 - Do not rebuild/give the release package during normal dev work. The user explicitly wants to continue testing in dev and only receive a release/export when they ask for it.
 - Do not commit zip files.
 - The dev package is tracked so another PC can pull a runnable/testable app package and generate its own release. The generated `exports/` folder is ignored by Git and stays local. Do not commit real operational/student data placed under `dados/`, `modelos/`, or `documentos_gerados/` unless the user explicitly chooses that after considering privacy.

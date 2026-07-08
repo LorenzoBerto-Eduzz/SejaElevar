@@ -26,14 +26,14 @@ SejaElevar's UI should be in Brazilian Portuguese. The first planned product are
 
 The planned initial stack is Vite + React + TypeScript for the browser UI, plus a small local Node service/backend for local workspace file access and document generation. Inspect `project/` before assuming commands or dependencies, because the app may not be scaffolded yet.
 
-If this repo still contains template placeholders, follow docs/TEMPLATE_SETUP.md to adapt the frame to the actual project before serious implementation work. Preserve the memcheck/gitcheckpoint memory workflow, but replace generic template wording with real project facts once known.
+If this repo still contains template placeholders, follow docs/TEMPLATE_SETUP.md to adapt the frame to the actual project before serious implementation work. Preserve the memcheck/gitcheck memory workflow, but replace generic template wording with real project facts once known.
 
 Keep code simple, explicit, modular, and easy for the user to read.
 Ask before major structural changes, broad renames, deleting files, changing branch strategy, or introducing a new framework.
 When I ask for suggestions or recommendations, suggest first and wait for approval before editing.
 Do not create Git commits unless I explicitly ask.
 Do not update docs/AI_HANDOFF.md or docs/OWNER_NOTES.md unless I explicitly ask, or unless the task is specifically about documentation/workflow guidance.
-If I ask for memcheck, update the appropriate long-term memory docs only. Do not commit or push unless I also ask for gitcheckpoint.
-If I ask for gitcheckpoint or a "git checkpoint", inspect the current worktree, update project/handoff docs only if needed for future AI continuity, commit the current work, and push it so another computer can pull and continue.
+If I ask for memcheck, update the appropriate long-term memory docs only. Do not commit or push by default.
+If I ask for gitcheck, do memcheck, inspect/check the repo, verify Git identity, commit the current work, and push it so another computer can pull and continue unless I say not to.
 If you are confused, missing tools, limited by model/account capability, or cannot confidently understand the repo state, stop before editing. Tell me plainly what you understand, what is unclear, and ask for confirmation.
 ```

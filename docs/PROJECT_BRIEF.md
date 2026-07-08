@@ -93,7 +93,7 @@ Implementation status clarification: Aulas, Aulas-Disciplinas coverage, Cronogra
 - `Project frame`: The outer repository structure that stores AI memory, docs, notes, staging assets, and Git/editor configuration.
 - `project/`: The actual app/source folder inside the project frame.
 - `memcheck`: Update durable memory docs only.
-- `gitcheckpoint`: Update continuity docs if needed, commit current work, and push.
+- `gitcheck`: Perform `memcheck`, inspect/check the repo, commit current work, and push unless told otherwise.
 
 ## Known Pitfalls
 

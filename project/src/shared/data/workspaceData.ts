@@ -1,4 +1,11 @@
-import { BASE_WORKBOOK_SHEETS } from './baseWorkbook';
+import {
+  BASE_WORKBOOK_SHEETS,
+  CURRENT_WORKBOOK_SCHEMA_VERSION,
+  WORKBOOK_SCHEMA_UPDATED_AT_KEY,
+  WORKBOOK_SCHEMA_VERSION_KEY,
+  WORKBOOK_SYSTEM_REQUIRED_COLUMNS,
+  WORKBOOK_SYSTEM_SHEET_NAME,
+} from './baseWorkbook';
 import {
   AULAS_DISCIPLINAS_ENTITY_ID,
   AULAS_ENTITY_ID,
@@ -46,6 +53,7 @@ export type RecoveryReason =
   | 'before_import'
   | 'before_edit'
   | 'before_session_edit'
+  | 'before_migration'
   | 'import_original'
   | 'before_recovery'
   | 'after_recovery'
@@ -314,11 +322,112 @@ const normalizeManagedWorksheet = (
   };
 };
 
+const normalizeWorkbookSystemWorksheet = (
+  utils: XlsxModule['utils'],
+  worksheet: XlsxWorksheet | null,
+) => {
+  const rows = worksheet ? toSheetRows(utils, worksheet) : [];
+  const headerIndex = worksheet
+    ? findSchemaHeaderRowIndex(rows, WORKBOOK_SYSTEM_REQUIRED_COLUMNS)
+    : -1;
+  const headerRow =
+    headerIndex >= 0
+      ? rows[headerIndex].map((cell) => normalizeCell(cell))
+      : [...WORKBOOK_SYSTEM_REQUIRED_COLUMNS];
+  const keyColumnIndex = headerRow.findIndex(
+    (column) => normalizeFieldLabel(column) === normalizeFieldLabel('Chave'),
+  );
+  const valueColumnIndex = headerRow.findIndex(
+    (column) => normalizeFieldLabel(column) === normalizeFieldLabel('Valor'),
+  );
+  const sourceRows =
+    headerIndex >= 0 && keyColumnIndex >= 0 && valueColumnIndex >= 0
+      ? rows.slice(headerIndex + 1)
+      : [];
+  const valuesByKey = new Map<string, string>();
+
+  sourceRows.forEach((row) => {
+    const key = normalizeCell(row[keyColumnIndex]);
+
+    if (!key || valuesByKey.has(key)) {
+      return;
+    }
+
+    valuesByKey.set(key, normalizeCell(row[valueColumnIndex]));
+  });
+
+  const previousSchemaVersion =
+    valuesByKey.get(WORKBOOK_SCHEMA_VERSION_KEY) ?? '';
+  const nextSchemaVersion = String(CURRENT_WORKBOOK_SCHEMA_VERSION);
+  const didSchemaVersionChange = previousSchemaVersion !== nextSchemaVersion;
+
+  valuesByKey.set(WORKBOOK_SCHEMA_VERSION_KEY, nextSchemaVersion);
+
+  if (didSchemaVersionChange || !valuesByKey.has(WORKBOOK_SCHEMA_UPDATED_AT_KEY)) {
+    valuesByKey.set(WORKBOOK_SCHEMA_UPDATED_AT_KEY, new Date().toISOString());
+  }
+
+  const nextRows = [
+    [...WORKBOOK_SYSTEM_REQUIRED_COLUMNS],
+    ...Array.from(valuesByKey.entries()).map(([key, value]) => [key, value]),
+  ];
+  const currentRows =
+    headerIndex >= 0
+      ? [
+          [...WORKBOOK_SYSTEM_REQUIRED_COLUMNS],
+          ...sourceRows.map((row) => [
+            normalizeCell(row[keyColumnIndex]),
+            normalizeCell(row[valueColumnIndex]),
+          ]),
+        ]
+      : [];
+  const didChange =
+    !worksheet ||
+    currentRows.length !== nextRows.length ||
+    nextRows.some(
+      (row, rowIndex) =>
+        row[0] !== (currentRows[rowIndex]?.[0] ?? '') ||
+        row[1] !== (currentRows[rowIndex]?.[1] ?? ''),
+    );
+
+  return {
+    didChange,
+    previousSchemaVersion,
+    schemaVersion: nextSchemaVersion,
+    worksheet: utils.aoa_to_sheet(nextRows),
+  };
+};
+
+const hideWorkbookSystemSheet = (workbook: XlsxWorkbook) => {
+  const workbookMetadata = workbook.Workbook ?? {};
+  const existingSheetMetadata = workbookMetadata.Sheets ?? [];
+
+  workbook.Workbook = {
+    ...workbookMetadata,
+    Sheets: workbook.SheetNames.map((sheetName) => {
+      const existingMetadata = existingSheetMetadata.find(
+        (metadata) => metadata.name === sheetName,
+      );
+
+      return {
+        ...existingMetadata,
+        name: sheetName,
+        Hidden:
+          normalizeFieldLabel(sheetName) ===
+          normalizeFieldLabel(WORKBOOK_SYSTEM_SHEET_NAME)
+            ? 1
+            : existingMetadata?.Hidden,
+      };
+    }),
+  };
+};
+
 const ensureManagedWorkbookSheets = (
   utils: XlsxModule['utils'],
   workbook: XlsxWorkbook,
 ) => {
   let didChange = false;
+  let previousSchemaVersion = '';
 
   MANAGED_OPTIONAL_WORKBOOK_SHEETS.forEach((sheetDefinition) => {
     const { sheetName, worksheet } = getWorkbookSheet(
@@ -343,7 +452,35 @@ const ensureManagedWorkbookSheets = (
     }
   });
 
-  return didChange;
+  const { sheetName: existingSystemSheetName, worksheet: systemWorksheet } =
+    getWorkbookSheet(workbook, WORKBOOK_SYSTEM_SHEET_NAME);
+  const targetSystemSheetName = (
+    existingSystemSheetName ?? WORKBOOK_SYSTEM_SHEET_NAME
+  ).slice(0, 31);
+  const normalizedSystemSheet = normalizeWorkbookSystemWorksheet(
+    utils,
+    systemWorksheet,
+  );
+
+  previousSchemaVersion = normalizedSystemSheet.previousSchemaVersion;
+
+  if (!systemWorksheet || normalizedSystemSheet.didChange) {
+    workbook.Sheets[targetSystemSheetName] = normalizedSystemSheet.worksheet;
+    didChange = true;
+  }
+
+  if (!workbook.SheetNames.includes(targetSystemSheetName)) {
+    workbook.SheetNames.push(targetSystemSheetName);
+    didChange = true;
+  }
+
+  hideWorkbookSystemSheet(workbook);
+
+  return {
+    didChange,
+    previousSchemaVersion,
+    schemaVersion: normalizedSystemSheet.schemaVersion,
+  };
 };
 
 const extractColumns = (
@@ -397,8 +534,8 @@ export const prepareManagedWorkbookFile = async (file: File) => {
   const workbook = read(inputBuffer, {
     cellDates: true,
   });
-  const didChange = ensureManagedWorkbookSheets(utils, workbook);
-  const outputBuffer = didChange
+  const migrationResult = ensureManagedWorkbookSheets(utils, workbook);
+  const outputBuffer = migrationResult.didChange
     ? (write(workbook, {
         bookType: 'xlsx',
         type: 'array',
@@ -413,7 +550,9 @@ export const prepareManagedWorkbookFile = async (file: File) => {
   return {
     file: preparedFile,
     buffer: outputBuffer,
-    didChange,
+    didChange: migrationResult.didChange,
+    previousSchemaVersion: migrationResult.previousSchemaVersion,
+    schemaVersion: migrationResult.schemaVersion,
   };
 };
 
@@ -813,6 +952,8 @@ const ensureActiveWorkbookManagedSheetsOnce = async () => {
       headers: {
         'content-type':
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'x-capture-global-checkpoint': 'true',
+        'x-checkpoint-reason': 'before_migration',
       },
       body: preparedWorkbook.buffer,
     });

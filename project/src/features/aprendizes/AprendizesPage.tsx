@@ -12,8 +12,10 @@ import {
 } from 'react';
 import {
   APRENDIZES_ENTITY_ID,
+  AULAS_ENTITY_ID,
   buildAprendizesDataIndexEntity,
   buildEmptyDataIndexEntity,
+  type SheetTable,
 } from '../../shared/data/dataIndex';
 import { getBaseWorkbookSheetByEntity } from '../../shared/data/baseWorkbook';
 import {
@@ -22,9 +24,20 @@ import {
   GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT,
   GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
 } from '../../shared/data/events';
-import { syncAcademicWorkbookFromSource } from '../../shared/data/academicProgress';
+import {
+  readAcademicWorkbookSheets,
+  syncAcademicWorkbookFromSource,
+  type AcademicWorkbookSheets,
+} from '../../shared/data/academicProgress';
+import {
+  APRENDIZ_PROGRESS_OVERLAY_STORAGE_KEY,
+  aprendizHasAppliedHours,
+  getAprendizProgressItems,
+  readSavedProgressOverlayOpen,
+} from '../../shared/data/aprendizProgressView';
 import {
   APRENDIZES_REQUIRED_COLUMNS,
+  AULAS_REQUIRED_COLUMNS,
   findSchemaHeaderRowIndex,
   normalizeFieldLabel,
   normalizeColumnsForSchema,
@@ -53,6 +66,7 @@ import {
   useGlobalWorkbookState,
 } from '../../shared/ui/GlobalWorkbookToolbar';
 import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
+import { TruncatedProgressName } from '../../shared/ui/TruncatedProgressName';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -97,6 +111,8 @@ const APRENDIZES_WORKBOOK_SHEET =
   getBaseWorkbookSheetByEntity(APRENDIZES_ENTITY_ID)?.sheetName ?? 'Aprendizes';
 const ARCOS_WORKBOOK_SHEET = 'Arcos';
 const TURMAS_WORKBOOK_SHEET = 'Turmas';
+const AULAS_WORKBOOK_SHEET =
+  getBaseWorkbookSheetByEntity(AULAS_ENTITY_ID)?.sheetName ?? 'Aulas';
 const REMOVED_APRENDIZES_COLUMNS = new Set([normalizeFieldLabel('Período')]);
 const ROW_DETAILS_PANEL_MARGIN = 20;
 const ROW_DETAILS_PANEL_HEIGHT = 360;
@@ -175,6 +191,11 @@ type ImportedSheet = {
   hasGeneratedRecordIds?: boolean;
 };
 
+type AprendizProgressSheets = {
+  academic: AcademicWorkbookSheets | null;
+  aulas: SheetTable | null;
+};
+
 type TableViewSettings = {
   columnOrder: string[];
   columnWidths: Record<string, number>;
@@ -238,6 +259,7 @@ type RecoveryReason =
   | 'before_import'
   | 'before_edit'
   | 'before_session_edit'
+  | 'before_migration'
   | 'import_original'
   | 'before_recovery'
   | 'after_recovery'
@@ -458,6 +480,13 @@ export function AprendizesPage({
   const globalWorkbookState = useGlobalWorkbookState();
   const [turmaOptions, setTurmaOptions] = useState<string[]>([]);
   const [arcoOptions, setArcoOptions] = useState<string[]>([]);
+  const [progressSheets, setProgressSheets] = useState<AprendizProgressSheets>({
+    academic: null,
+    aulas: null,
+  });
+  const [isProgressOverlayOpen, setIsProgressOverlayOpen] = useState(
+    readSavedProgressOverlayOpen,
+  );
   const [hasCheckedWorkspace, setHasCheckedWorkspace] = useState(false);
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -560,8 +589,8 @@ export function AprendizesPage({
       return row.every((cell, columnIndex) => cell === otherRow[columnIndex]);
     });
   };
-  const showInvalidImportToast = () => {
-    setInvalidImportToast(invalidImportedFileMessage);
+  const showInvalidImportToast = (message = invalidImportedFileMessage) => {
+    setInvalidImportToast(message);
 
     if (invalidImportToastTimerRef.current !== null) {
       window.clearTimeout(invalidImportToastTimerRef.current);
@@ -717,6 +746,51 @@ export function AprendizesPage({
       'Arco',
     );
 
+  const readAulasProgressFile = async (file: File): Promise<SheetTable> => {
+    try {
+      return await readWorkbookSheetFile(file, {
+        entityId: AULAS_ENTITY_ID,
+        ensureRecordIds: false,
+        preferredSheetName: AULAS_WORKBOOK_SHEET,
+        requiredColumns: AULAS_REQUIRED_COLUMNS,
+      });
+    } catch {
+      return {
+        fileName: file.name,
+        sheetName: AULAS_WORKBOOK_SHEET,
+        importedAt: new Date().toISOString(),
+        columns: [...AULAS_REQUIRED_COLUMNS],
+        rows: [],
+      };
+    }
+  };
+
+  const applyProgressSheetsFromFile = async (file: File) => {
+    const [academic, aulas] = await Promise.all([
+      readAcademicWorkbookSheets(file),
+      readAulasProgressFile(file),
+    ]);
+
+    setProgressSheets({ academic, aulas });
+
+    return { academic, aulas };
+  };
+
+  const loadProgressSheets = async () => {
+    try {
+      const file = await fetchBaseWorkbookFile();
+
+      if (!file) {
+        setProgressSheets({ academic: null, aulas: null });
+        return;
+      }
+
+      await applyProgressSheetsFromFile(file);
+    } catch {
+      setProgressSheets({ academic: null, aulas: null });
+    }
+  };
+
   const applyReferenceOptionsFromFile = async (file: File) => {
     const [nextTurmaOptions, nextArcoOptions] = await Promise.all([
       readTurmaOptionsFile(file),
@@ -795,6 +869,7 @@ export function AprendizesPage({
     setHighlightedRegisteredRowIndex(null);
     setTurmaOptions([]);
     setArcoOptions([]);
+    setProgressSheets({ academic: null, aulas: null });
   };
 
   const saveImportedSheet = (
@@ -944,7 +1019,10 @@ export function AprendizesPage({
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
       const parsedSheet = await readSheetFile(file);
-      const nextReferenceOptions = await applyReferenceOptionsFromFile(file);
+      const [nextReferenceOptions] = await Promise.all([
+        applyReferenceOptionsFromFile(file),
+        applyProgressSheetsFromFile(file),
+      ]);
       const response = await fetch(
         shouldImportBaseWorkbook
           ? '/api/base-workbook/import'
@@ -1122,7 +1200,10 @@ export function AprendizesPage({
 
     try {
       const nextSheet = await readSheetFile(file);
-      const nextReferenceOptions = await applyReferenceOptionsFromFile(file);
+      const [nextReferenceOptions] = await Promise.all([
+        applyReferenceOptionsFromFile(file),
+        applyProgressSheetsFromFile(file),
+      ]);
       const currentSheet = latestSheetRef.current;
 
       if (
@@ -2125,6 +2206,7 @@ export function AprendizesPage({
         storeImportedSheet(savedBaseWorkbookSheet);
         void persistAprendizesDataIndex(savedBaseWorkbookSheet);
         await syncAcademicWorkbookFromSource().catch(() => null);
+        await loadProgressSheets();
         await fetchRecoveryInfo();
         suppressNextAprendizesChangeEventRef.current = true;
         suppressNextGlobalDataChangeEventRef.current = true;
@@ -2323,6 +2405,34 @@ export function AprendizesPage({
         : previousValue;
 
     activeCellEditRef.current = null;
+
+    if (
+      columnName === LEARNING_ARC_COLUMN &&
+      initialValue !== value &&
+      aprendizHasAppliedHours(
+        progressSheets.academic?.horasAplicadas ?? null,
+        getSheetRecordId(currentSheet, rowIndex, APRENDIZES_ENTITY_ID),
+      )
+    ) {
+      const restoredRows = currentSheet.rows.map((row, index) => {
+        if (index !== rowIndex) {
+          return row;
+        }
+
+        const nextRow = [...row];
+        nextRow[columnIndex] = initialValue;
+        return nextRow;
+      });
+
+      storeImportedSheet({
+        ...currentSheet,
+        rows: restoredRows,
+      });
+      showInvalidImportToast(
+        'Este aprendiz já possui progresso no plano de ensino e não pode trocar de arco.',
+      );
+      return null;
+    }
 
     if (previousValue === value) {
       if (initialValue !== value) {
@@ -3828,6 +3938,22 @@ export function AprendizesPage({
     importedSheet && selectedDetailsRowValues
       ? getDisplayCellValue(importedSheet, selectedDetailsRowValues, CLASS_COLUMN)
       : '';
+  const selectedDetailsAprendizId =
+    importedSheet && selectedDetailsRow
+      ? getSheetRecordId(
+          importedSheet,
+          selectedDetailsRow.rowIndex,
+          APRENDIZES_ENTITY_ID,
+        )
+      : '';
+  const selectedDetailsProgressItems = getAprendizProgressItems(
+    {
+      planoProgresso: progressSheets.academic?.planoProgresso ?? null,
+      horasAplicadas: progressSheets.academic?.horasAplicadas ?? null,
+      aulas: progressSheets.aulas,
+    },
+    selectedDetailsAprendizId,
+  );
   const isRowDetailsPanelPositioned =
     rowDetailsPanelStyle.display !== 'none' &&
     rowDetailsPanelStyle.left !== undefined &&
@@ -4215,6 +4341,86 @@ export function AprendizesPage({
       )}
     </button>
   );
+  const toggleProgressOverlay = () => {
+    setIsProgressOverlayOpen((currentValue) => {
+      const nextValue = !currentValue;
+
+      try {
+        window.localStorage.setItem(
+          APRENDIZ_PROGRESS_OVERLAY_STORAGE_KEY,
+          String(nextValue),
+        );
+      } catch {
+        // The toggle still works for the current session when storage is blocked.
+      }
+
+      return nextValue;
+    });
+  };
+  const renderProgressOverlay = () => {
+    if (
+      !selectedDetailsRow ||
+      isRegistrationDetailsMode ||
+      !isProgressOverlayOpen
+    ) {
+      return null;
+    }
+
+    return (
+      <div
+        className="row-details-progress-overlay"
+        role="region"
+        aria-label="Progresso do plano de ensino"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="row-details-progress-list">
+          {selectedDetailsProgressItems.length > 0 ? (
+            selectedDetailsProgressItems.map((item) => (
+              <div
+                className={[
+                  'row-details-progress-group',
+                  item.appliedLessons.length > 0 ? 'has-lessons' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                key={item.id}
+              >
+                <div className="row-details-progress-row row-details-progress-discipline-row">
+                  <TruncatedProgressName>
+                    {item.discipline || '-'}
+                  </TruncatedProgressName>
+                  <span className="row-details-progress-value">
+                    {item.progressLabel}
+                  </span>
+                </div>
+                {item.appliedLessons.length > 0 && (
+                  <div className="row-details-progress-lessons">
+                    {item.appliedLessons.map((lesson) => (
+                      <div
+                        className="row-details-progress-row row-details-progress-lesson-row"
+                        key={lesson.id}
+                      >
+                        <TruncatedProgressName>
+                          {lesson.aula}
+                        </TruncatedProgressName>
+                        <span className="row-details-progress-value">
+                          {lesson.date || '-'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="row-details-progress-empty">
+              Nenhum progresso registrado.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
   const renderRowDetailsPanel = () => {
     if (!shouldShowRowDetailsPanel || isEditMode) {
       return null;
@@ -4368,6 +4574,7 @@ export function AprendizesPage({
               })}
             </div>
           </section>
+          {renderProgressOverlay()}
           <footer className="row-details-actions" aria-label="Ações do aprendiz">
             {isRegistrationDetailsMode ? (
               <button
@@ -4384,15 +4591,33 @@ export function AprendizesPage({
                 <UserPlusIcon />
               </button>
             ) : selectedDetailsRow ? (
-              <button
-                className="row-details-action-button row-details-delete-button"
-                type="button"
-                aria-label="Descadastrar aprendiz"
-                title="Descadastrar Aprendiz"
-                onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
-              >
-                <UserXIcon />
-              </button>
+              <>
+                <button
+                  className="row-details-action-button row-details-delete-button"
+                  type="button"
+                  aria-label="Descadastrar aprendiz"
+                  title="Descadastrar Aprendiz"
+                  onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
+                >
+                  <UserXIcon />
+                </button>
+                <button
+                  className={[
+                    'row-details-action-button',
+                    'row-details-progress-button',
+                    isProgressOverlayOpen ? 'active' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  type="button"
+                  aria-label="Ver progresso do plano de ensino"
+                  title="Progresso"
+                  aria-pressed={isProgressOverlayOpen}
+                  onClick={toggleProgressOverlay}
+                >
+                  <ProgressCheckIcon />
+                </button>
+              </>
             ) : null}
           </footer>
         </div>
@@ -4888,6 +5113,7 @@ export function AprendizesPage({
                         })}
                       </div>
                     </section>
+                    {renderProgressOverlay()}
                     <footer
                       className="row-details-actions"
                       aria-label="Ações do aprendiz"
@@ -4907,15 +5133,35 @@ export function AprendizesPage({
                           <UserPlusIcon />
                         </button>
                       ) : selectedDetailsRow ? (
-                        <button
-                          className="row-details-action-button row-details-delete-button"
-                          type="button"
-                          aria-label="Descadastrar aprendiz"
-                          title="Descadastrar Aprendiz"
-                          onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
-                        >
-                          <UserXIcon />
-                        </button>
+                        <>
+                          <button
+                            className="row-details-action-button row-details-delete-button"
+                            type="button"
+                            aria-label="Descadastrar aprendiz"
+                            title="Descadastrar Aprendiz"
+                            onClick={() =>
+                              deleteRowAndSave(selectedDetailsRow.rowIndex)
+                            }
+                          >
+                            <UserXIcon />
+                          </button>
+                          <button
+                            className={[
+                              'row-details-action-button',
+                              'row-details-progress-button',
+                              isProgressOverlayOpen ? 'active' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            type="button"
+                            aria-label="Ver progresso do plano de ensino"
+                            title="Progresso"
+                            aria-pressed={isProgressOverlayOpen}
+                            onClick={toggleProgressOverlay}
+                          >
+                            <ProgressCheckIcon />
+                          </button>
+                        </>
                       ) : null}
                     </footer>
                 </div>
@@ -5052,6 +5298,8 @@ function getRecoveryDescription(info: RecoveryInfo | null) {
       return 'Recupere os dados para como estavam antes de edi\u00e7\u00f5es nesta sess\u00e3o.';
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da \u00faltima sess\u00e3o com edi\u00e7\u00f5es.';
+    case 'before_migration':
+      return 'Recupere os dados para como estavam antes da \u00faltima atualiza\u00e7\u00e3o de estrutura.';
     case 'import_original':
       return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
@@ -5111,6 +5359,19 @@ function SquarePlusIcon() {
       <path d="M9 12h6" />
       <path d="M12 9v6" />
       <path d="M4 4m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z" />
+    </svg>
+  );
+}
+
+function ProgressCheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 20.777a8.942 8.942 0 0 1 -2.48 -.969" />
+      <path d="M14 3.223a9.003 9.003 0 0 1 0 17.554" />
+      <path d="M4.579 17.093a8.961 8.961 0 0 1 -1.227 -2.592" />
+      <path d="M3.124 10.5c.16 -.95 .468 -1.85 .9 -2.675l.169 -.305" />
+      <path d="M6.907 4.579a8.954 8.954 0 0 1 3.093 -1.356" />
+      <path d="M9 12l2 2l4 -4" />
     </svg>
   );
 }

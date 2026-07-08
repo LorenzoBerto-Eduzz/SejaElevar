@@ -120,6 +120,14 @@ const workbookSheets = [
       'ID',
     ],
   ],
+  [
+    'Sistema SejaElevar',
+    ['Chave', 'Valor'],
+    [
+      ['schemaVersion', '1'],
+      ['schemaUpdatedAt', new Date().toISOString()],
+    ],
+  ],
 ];
 
 const ensureGitkeep = async (dir) => {
@@ -149,9 +157,21 @@ const keepGitkeepOnly = async (dir) => {
 const createEmptyWorkbook = (filePath) => {
   const workbook = utils.book_new();
 
-  workbookSheets.forEach(([sheetName, columns]) => {
-    utils.book_append_sheet(workbook, utils.aoa_to_sheet([columns]), sheetName);
+  workbookSheets.forEach(([sheetName, columns, rows = []]) => {
+    utils.book_append_sheet(
+      workbook,
+      utils.aoa_to_sheet([columns, ...rows]),
+      sheetName,
+    );
   });
+
+  workbook.Workbook = {
+    ...(workbook.Workbook ?? {}),
+    Sheets: workbook.SheetNames.map((sheetName) => ({
+      name: sheetName,
+      Hidden: sheetName === 'Sistema SejaElevar' ? 1 : 0,
+    })),
+  };
 
   writeWorkbookFile(workbook, filePath);
 };

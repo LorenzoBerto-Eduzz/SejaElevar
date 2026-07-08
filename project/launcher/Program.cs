@@ -1,4 +1,5 @@
 ﻿using System.Drawing;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -7,6 +8,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -17,11 +19,13 @@ internal static class Program
     private const string BackupReasonBeforeImport = "before_import";
     private const string BackupReasonBeforeEdit = "before_edit";
     private const string BackupReasonBeforeSessionEdit = "before_session_edit";
+    private const string BackupReasonBeforeMigration = "before_migration";
     private const string BackupReasonImportOriginal = "import_original";
     private const string BackupReasonBeforeRecovery = "before_recovery";
     private const string BackupReasonAfterRecovery = "after_recovery";
     private const string BackupReasonRestored = "restored";
     private const string GlobalCheckpointFolderName = "checkpoints";
+    private const string UpdateArgument = "--apply-update";
     private const int MaxGlobalCheckpoints = 3;
     private const double DefaultZoomFactor = 1.1;
     private static readonly int PreferredPort = GetIntEnvironment("SEJAELEVAR_PORT", 3838);
@@ -38,6 +42,20 @@ internal static class Program
         PropertyNameCaseInsensitive = true,
     };
     private static readonly object HeartbeatLock = new();
+    private static readonly HashSet<string> UpdatePreservedRootEntries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "dados",
+        "modelos",
+        "documentos_gerados"
+    };
+    private static readonly HashSet<string> UpdateIgnoredRootEntries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SejaElevar.log"
+    };
+    private static readonly HashSet<string> UpdatePreservedRelativeFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        Path.Combine("assets", "window-settings.json")
+    };
     private static DateTime _lastHeartbeatAt = DateTime.UtcNow;
     private static string? _logPath;
     private static TcpListener? _listener;
@@ -46,8 +64,13 @@ internal static class Program
     private static int _isClosingMainWindow;
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == UpdateArgument)
+        {
+            return ApplyAppUpdate(args);
+        }
+
         if (TryFocusRunningApp().GetAwaiter().GetResult())
         {
             return 0;
@@ -104,6 +127,248 @@ internal static class Program
             ShowMessage($"Nao foi possivel abrir o SejaElevar.\n\n{error.Message}", Title);
             return 1;
         }
+    }
+
+    private static int ApplyAppUpdate(string[] args)
+    {
+        var sourceFolder = GetArgumentValue(args, "--source") ??
+            Path.GetDirectoryName(Environment.ProcessPath) ??
+            AppContext.BaseDirectory;
+        var targetFolder = GetArgumentValue(args, "--target");
+        var oldProcessId = GetArgumentValue(args, "--old-pid");
+
+        if (string.IsNullOrWhiteSpace(targetFolder))
+        {
+            ShowMessage("Nao foi possivel identificar a pasta atual do SejaElevar.", Title);
+            return 1;
+        }
+
+        try
+        {
+            sourceFolder = Path.GetFullPath(sourceFolder);
+            targetFolder = Path.GetFullPath(targetFolder);
+
+            if (!IsValidUpdateSourceFolder(sourceFolder))
+            {
+                ShowMessage("A pasta escolhida nao parece ser uma versao valida do SejaElevar.", Title);
+                return 1;
+            }
+
+            if (!IsSafeUpdateFolderPair(sourceFolder, targetFolder))
+            {
+                ShowMessage("A pasta da nova versao nao pode ser a mesma pasta da versao atual.", Title);
+                return 1;
+            }
+
+            WaitForOldAppToExit(oldProcessId);
+            CopyUpdatePackage(sourceFolder, targetFolder);
+
+            var targetExePath = Path.Combine(targetFolder, "SejaElevar.exe");
+
+            if (File.Exists(targetExePath))
+            {
+                Process.Start(new ProcessStartInfo(targetExePath)
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = targetFolder
+                });
+            }
+
+            return 0;
+        }
+        catch (Exception error)
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(targetFolder, "SejaElevar-update.log"),
+                    $"[{DateTime.Now:O}] {error}{Environment.NewLine}",
+                    Encoding.UTF8
+                );
+            }
+            catch
+            {
+                // Update logging is best-effort.
+            }
+
+            ShowMessage($"Nao foi possivel atualizar o SejaElevar.\n\n{error.Message}", Title);
+            return 1;
+        }
+    }
+
+    private static string? GetArgumentValue(string[] args, string name)
+    {
+        for (var index = 0; index < args.Length - 1; index++)
+        {
+            if (string.Equals(args[index], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return args[index + 1];
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsValidUpdateSourceFolder(string sourceFolder)
+    {
+        return Directory.Exists(sourceFolder) &&
+            File.Exists(Path.Combine(sourceFolder, "SejaElevar.exe")) &&
+            File.Exists(Path.Combine(sourceFolder, "SejaElevar.html")) &&
+            Directory.Exists(Path.Combine(sourceFolder, "assets"));
+    }
+
+    private static bool IsSafeUpdateFolderPair(string sourceFolder, string targetFolder)
+    {
+        var normalizedSource = NormalizeFolderForComparison(sourceFolder);
+        var normalizedTarget = NormalizeFolderForComparison(targetFolder);
+
+        if (string.Equals(normalizedSource, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !normalizedSource.StartsWith(
+            $"{normalizedTarget}{Path.DirectorySeparatorChar}",
+            StringComparison.OrdinalIgnoreCase
+        ) &&
+            !normalizedTarget.StartsWith(
+                $"{normalizedSource}{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase
+            );
+    }
+
+    private static string NormalizeFolderForComparison(string folder)
+    {
+        return Path.GetFullPath(folder)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static void WaitForOldAppToExit(string? rawProcessId)
+    {
+        if (!int.TryParse(rawProcessId, out var processId) || processId <= 0)
+        {
+            Thread.Sleep(800);
+            return;
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            process.WaitForExit(20000);
+        }
+        catch
+        {
+            Thread.Sleep(800);
+        }
+    }
+
+    private static void CopyUpdatePackage(string sourceFolder, string targetFolder)
+    {
+        Directory.CreateDirectory(targetFolder);
+
+        foreach (var sourceEntryPath in Directory.EnumerateFileSystemEntries(sourceFolder))
+        {
+            var entryName = Path.GetFileName(sourceEntryPath);
+
+            if (UpdateIgnoredRootEntries.Contains(entryName))
+            {
+                continue;
+            }
+
+            var targetEntryPath = Path.Combine(targetFolder, entryName);
+
+            if (UpdatePreservedRootEntries.Contains(entryName))
+            {
+                if (!Directory.Exists(targetEntryPath) && !File.Exists(targetEntryPath))
+                {
+                    CopyFileSystemEntry(sourceEntryPath, targetEntryPath, entryName);
+                }
+
+                continue;
+            }
+
+            CopyFileSystemEntry(sourceEntryPath, targetEntryPath, entryName);
+        }
+    }
+
+    private static void CopyFileSystemEntry(
+        string sourcePath,
+        string targetPath,
+        string relativePath
+    )
+    {
+        if (File.Exists(sourcePath))
+        {
+            if (IsUpdatePreservedRelativeFile(relativePath) && File.Exists(targetPath))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? ".");
+            File.Copy(sourcePath, targetPath, true);
+            return;
+        }
+
+        if (!Directory.Exists(sourcePath))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(targetPath);
+        PruneUpdatedDirectory(targetPath, relativePath);
+
+        foreach (var childSourcePath in Directory.EnumerateFileSystemEntries(sourcePath))
+        {
+            var childName = Path.GetFileName(childSourcePath);
+            var childRelativePath = Path.Combine(relativePath, childName);
+            var childTargetPath = Path.Combine(targetPath, childName);
+
+            CopyFileSystemEntry(childSourcePath, childTargetPath, childRelativePath);
+        }
+    }
+
+    private static void PruneUpdatedDirectory(string targetPath, string relativePath)
+    {
+        if (!Directory.Exists(targetPath))
+        {
+            return;
+        }
+
+        foreach (var childTargetPath in Directory.EnumerateFileSystemEntries(targetPath))
+        {
+            var childName = Path.GetFileName(childTargetPath);
+            var childRelativePath = Path.Combine(relativePath, childName);
+
+            if (IsUpdatePreservedRelativePath(childRelativePath))
+            {
+                continue;
+            }
+
+            if (Directory.Exists(childTargetPath))
+            {
+                Directory.Delete(childTargetPath, true);
+            }
+            else
+            {
+                File.Delete(childTargetPath);
+            }
+        }
+    }
+
+    private static bool IsUpdatePreservedRelativePath(string relativePath)
+    {
+        return UpdatePreservedRelativeFiles.Any(preservedPath =>
+            string.Equals(preservedPath, relativePath, StringComparison.OrdinalIgnoreCase) ||
+            preservedPath.StartsWith(
+                $"{relativePath}{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase
+            )
+        );
+    }
+
+    private static bool IsUpdatePreservedRelativeFile(string relativePath)
+    {
+        return UpdatePreservedRelativeFiles.Contains(relativePath);
     }
 
     private static async Task<int> RunProviderOnlyAsync(TcpListener listener, string appFolder)
@@ -301,6 +566,13 @@ internal static class Program
                 MarkHeartbeat();
                 ApplyWindowThemeFromRequest(request);
                 await WriteJsonAsync(stream, 200, new { ok = true });
+                return;
+            }
+
+            if (request.Method == "POST" && request.Path == "/api/app/update/start")
+            {
+                MarkHeartbeat();
+                await StartAppUpdateAsync(stream, appFolder);
                 return;
             }
 
@@ -1046,6 +1318,113 @@ internal static class Program
         return completion.Task;
     }
 
+    private static Task<string?> PickUpdateFolderPathAsync()
+    {
+        var window = _mainWindow;
+
+        if (window is null || window.IsDisposed)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        var completion = new TaskCompletionSource<string?>();
+
+        try
+        {
+            window.BeginInvoke(() =>
+            {
+                try
+                {
+                    completion.SetResult(window.PickUpdateFolderPath());
+                }
+                catch
+                {
+                    completion.SetResult(null);
+                }
+            });
+        }
+        catch
+        {
+            completion.SetResult(null);
+        }
+
+        return completion.Task;
+    }
+
+    private static async Task StartAppUpdateAsync(NetworkStream stream, string appFolder)
+    {
+        var sourceFolder = await PickUpdateFolderPathAsync();
+
+        if (string.IsNullOrWhiteSpace(sourceFolder))
+        {
+            await WriteJsonAsync(stream, 200, new { canceled = true });
+            return;
+        }
+
+        sourceFolder = Path.GetFullPath(sourceFolder);
+        appFolder = Path.GetFullPath(appFolder);
+
+        if (!IsValidUpdateSourceFolder(sourceFolder))
+        {
+            await WriteJsonAsync(
+                stream,
+                400,
+                new { error = "A pasta escolhida nao parece ser uma versao valida do SejaElevar." }
+            );
+            return;
+        }
+
+        if (!IsSafeUpdateFolderPair(sourceFolder, appFolder))
+        {
+            await WriteJsonAsync(
+                stream,
+                400,
+                new { error = "Escolha uma pasta de nova versao diferente da pasta atual." }
+            );
+            return;
+        }
+
+        var sourceExePath = Path.Combine(sourceFolder, "SejaElevar.exe");
+        var startInfo = new ProcessStartInfo(sourceExePath)
+        {
+            UseShellExecute = false,
+            WorkingDirectory = sourceFolder
+        };
+        startInfo.ArgumentList.Add(UpdateArgument);
+        startInfo.ArgumentList.Add("--source");
+        startInfo.ArgumentList.Add(sourceFolder);
+        startInfo.ArgumentList.Add("--target");
+        startInfo.ArgumentList.Add(appFolder);
+        startInfo.ArgumentList.Add("--old-pid");
+        startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+
+        try
+        {
+            Process.Start(startInfo);
+        }
+        catch
+        {
+            await WriteJsonAsync(stream, 500, new { error = "Nao foi possivel iniciar a atualizacao." });
+            return;
+        }
+
+        await WriteJsonAsync(
+            stream,
+            200,
+            new
+            {
+                ok = true,
+                updating = true
+            }
+        );
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(350);
+            RequestShutdown("app-update");
+        });
+    }
+
     private static async Task PickEmentaPdfAsync(NetworkStream stream)
     {
         var pdfPath = await PickEmentaPdfPathAsync();
@@ -1387,6 +1766,27 @@ internal static class Program
         {
             await WriteJsonAsync(stream, 404, new { error = "Arquivo ativo não encontrado." });
             return;
+        }
+
+        var shouldCaptureGlobalCheckpoint =
+            request.Headers.TryGetValue("x-capture-global-checkpoint", out var rawCaptureHeader) &&
+            (
+                string.Equals(rawCaptureHeader, "true", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rawCaptureHeader, "1", StringComparison.OrdinalIgnoreCase)
+            );
+
+        if (shouldCaptureGlobalCheckpoint)
+        {
+            var checkpointReason =
+                request.Headers.TryGetValue("x-checkpoint-reason", out var rawCheckpointReason)
+                    ? NormalizeBackupReason(rawCheckpointReason) ?? BackupReasonBeforeMigration
+                    : BackupReasonBeforeMigration;
+            var checkpointId = CaptureGlobalCheckpoint(appFolder, checkpointReason, true);
+
+            if (checkpointId is not null)
+            {
+                MarkGlobalCheckpointMigrated(appFolder);
+            }
         }
 
         await File.WriteAllBytesAsync(onUsePath, request.Body);
@@ -2766,6 +3166,22 @@ internal static class Program
         SaveGlobalCheckpointControl(appFolder, control);
     }
 
+    private static void MarkGlobalCheckpointMigrated(string appFolder)
+    {
+        var control = LoadGlobalCheckpointControl(appFolder);
+
+        if (control.CheckpointId is null)
+        {
+            return;
+        }
+
+        control.RecoveryEnabled = true;
+        control.HasEditingHistory = true;
+        control.CaptureBackupOnNextSave = false;
+        control.LastCheckpointAction = "migration";
+        SaveGlobalCheckpointControl(appFolder, control);
+    }
+
     private static string? CaptureGlobalCheckpoint(
         string appFolder,
         string reason,
@@ -3765,6 +4181,7 @@ internal static class Program
             BackupReasonBeforeImport => BackupReasonBeforeImport,
             BackupReasonBeforeEdit => BackupReasonBeforeEdit,
             BackupReasonBeforeSessionEdit => BackupReasonBeforeSessionEdit,
+            BackupReasonBeforeMigration => BackupReasonBeforeMigration,
             BackupReasonImportOriginal => BackupReasonImportOriginal,
             BackupReasonBeforeRecovery => BackupReasonBeforeRecovery,
             BackupReasonAfterRecovery => BackupReasonBeforeRecovery,
@@ -4087,6 +4504,21 @@ internal static class Program
 
             return dialog.ShowDialog(this) == DialogResult.OK
                 ? dialog.FileName
+                : null;
+        }
+
+        public string? PickUpdateFolderPath()
+        {
+            using var dialog = new FolderBrowserDialog
+            {
+                Description = "Selecione a pasta da nova versao do SejaElevar",
+                InitialDirectory = GetDownloadsFolder(),
+                ShowNewFolderButton = false,
+                UseDescriptionForTitle = true
+            };
+
+            return dialog.ShowDialog(this) == DialogResult.OK
+                ? dialog.SelectedPath
                 : null;
         }
 

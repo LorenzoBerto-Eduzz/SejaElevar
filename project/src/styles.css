@@ -109,6 +109,13 @@ svg {
   pointer-events: none;
 }
 
+.app-shell.active-tab-calendario .sidebar {
+  will-change: auto;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
 .sidebar-logo {
   display: grid;
   place-items: center;
@@ -751,6 +758,63 @@ svg {
 .settings-fields > .color-field:nth-of-type(n + 5),
 .settings-fields > .slider-field:not(.dev-visible-slider-field) {
   display: none;
+}
+
+.settings-update-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--brand-primary);
+  background: var(--brand-panel);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.settings-update-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-version-label {
+  flex: 0 0 auto;
+  margin-left: auto;
+  opacity: 0.72;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.settings-update-button svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.settings-update-button:hover,
+.settings-update-button:focus-visible {
+  color: var(--light-active-icon, #fff);
+  background: var(--brand-primary);
+  outline: none;
+}
+
+.settings-update-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .color-field {
@@ -3828,8 +3892,10 @@ svg {
   --turma-schedule-row-height: 22px;
   display: grid;
   grid-template-columns:
-    62px repeat(var(--turma-schedule-date-count, 1), minmax(78px, 1fr));
-  min-width: max-content;
+    62px repeat(var(--turma-schedule-date-count, 1), minmax(96px, 1fr));
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-color: var(--brand-scroll-thumb) var(--brand-scroll-track);
@@ -4017,9 +4083,16 @@ svg {
 }
 
 .turma-schedule-slot:hover > .turma-schedule-slot-add,
+.calendario-week-slot:hover > .turma-schedule-slot-add,
 .turma-schedule-slot-add:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+.turma-schedule-grid:has(.turma-schedule-block:hover) .turma-schedule-slot-add,
+.calendario-week-grid:has(.turma-schedule-block:hover) .turma-schedule-slot-add {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .turma-schedule-slot-add svg {
@@ -4469,11 +4542,14 @@ input.turma-schedule-block-field {
 
 .calendario-week-grid {
   --calendario-row-height: 22px;
+  --turma-schedule-row-height: var(--calendario-row-height);
   display: grid;
   grid-template-columns:
-    62px repeat(var(--calendario-day-count, 7), minmax(118px, 1fr));
+    62px repeat(var(--calendario-day-count, 7), minmax(138px, 1fr));
   align-content: start;
-  min-width: max-content;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   overflow: auto;
   background: var(--brand-panel);
@@ -4691,9 +4767,6 @@ input.turma-schedule-block-field {
 }
 
 .calendario-event-block {
-  position: absolute;
-  box-sizing: border-box;
-  top: var(--calendar-event-top, 0);
   left: calc(
     2px +
       (
@@ -4701,29 +4774,16 @@ input.turma-schedule-block-field {
           var(--calendar-event-lane, 0)
       )
   );
-  z-index: 5;
-  display: flex;
   width: calc(
     (100% - 4px) / var(--calendar-event-lane-count, 1) - 2px
   );
-  min-height: var(--calendario-row-height, 22px);
-  height: var(--calendar-event-height, var(--calendario-row-height, 22px));
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 0;
-  border: 1px solid color-mix(in srgb, var(--calendar-event-color, var(--brand-primary)) 82%, #ffffff 18%);
-  border-radius: 5px;
-  padding: 0 2px;
-  color: #ffffff;
-  background: color-mix(in srgb, var(--calendar-event-color, var(--brand-primary)) 88%, #168c55 12%);
-  box-shadow: 0 4px 10px rgba(8, 35, 72, 0.14);
-  overflow: hidden;
-  pointer-events: auto;
-  user-select: none;
+  right: auto;
 }
 
 .calendario-event-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 4px;
   align-items: center;
   min-height: calc(var(--calendario-row-height, 22px) / 2);
   height: calc(var(--calendario-row-height, 22px) / 2);
@@ -4733,6 +4793,7 @@ input.turma-schedule-block-field {
 .calendario-event-line span {
   overflow: hidden;
   display: block;
+  min-width: 0;
   width: 100%;
   color: inherit;
   font-size: 0.72rem;
@@ -4740,6 +4801,10 @@ input.turma-schedule-block-field {
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendario-event-line span:last-child:not(:first-child) {
+  text-align: right;
 }
 
 .calendario-event-main-line span {
@@ -4982,6 +5047,10 @@ input.turma-schedule-block-field {
 
 .turma-student-details-panel {
   z-index: 16;
+}
+
+.row-details-panel.turma-student-details-panel {
+  z-index: 30;
 }
 
 .turma-student-details-fields {
@@ -5247,11 +5316,10 @@ input.turma-schedule-block-field {
 }
 
 .row-details-actions {
-  display: grid;
-  grid-template-columns: max-content;
-  grid-template-rows: 60px;
+  display: flex;
   align-items: center;
-  align-content: start;
+  justify-content: space-between;
+  gap: 10px;
   position: absolute;
   right: 0;
   bottom: 0;
@@ -5314,6 +5382,192 @@ input.turma-schedule-block-field {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.9;
+}
+
+.row-details-progress-button {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  height: 60px;
+  min-height: 60px;
+  max-height: 60px;
+  margin-left: auto;
+  padding: 0;
+}
+
+.row-details-progress-button svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
+.row-details-progress-button.active {
+  color: var(--brand-active-icon);
+  background: var(--brand-primary);
+}
+
+.row-details-progress-overlay {
+  position: absolute;
+  z-index: 3;
+  top: 56px;
+  right: 0;
+  bottom: 88px;
+  width: 50%;
+  min-width: 260px;
+  border: 1px solid var(--brand-line);
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  padding: 4px;
+  background: var(--brand-page-background);
+  box-shadow: 0 14px 28px rgba(16, 42, 64, 0.18);
+  overflow: auto;
+  scrollbar-color: var(--brand-scroll-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.row-details-progress-overlay::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.row-details-progress-overlay::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.row-details-progress-overlay::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
+  background-clip: content-box;
+}
+
+.row-details-progress-list {
+  display: grid;
+  min-width: 340px;
+  gap: 1px;
+}
+
+.row-details-progress-group {
+  display: grid;
+  gap: 0;
+}
+
+.row-details-progress-row {
+  --progress-row-bg: var(--brand-primary);
+  --progress-row-height: 24px;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  min-height: 24px;
+  height: 24px;
+  column-gap: 8px;
+  border-radius: 5px;
+  padding: 0 6px;
+  color: var(--brand-active-icon);
+  background: var(--progress-row-bg);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.24;
+  overflow: visible;
+}
+
+.row-details-progress-group.has-lessons .row-details-progress-discipline-row {
+  border-radius: 5px 5px 0 0;
+}
+
+.row-details-progress-lessons {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--brand-line);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  padding: 1px 3px 2px;
+  background: var(--brand-page-background);
+}
+
+.row-details-progress-lesson-row {
+  --progress-row-bg: var(--brand-page-background);
+  --progress-row-height: 22px;
+  height: 22px;
+  min-height: 22px;
+  border-radius: 3px;
+  padding: 0 3px;
+  color: var(--brand-primary);
+  background: var(--brand-page-background);
+  font-weight: 800;
+}
+
+.row-details-progress-name-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  overflow: visible;
+}
+
+.row-details-progress-name {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--progress-row-height);
+  padding: 0 4px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  line-height: var(--progress-row-height);
+  white-space: nowrap;
+}
+
+.row-details-progress-name-wrap.can-expand:hover .row-details-progress-name {
+  --progress-expanded-line-height: 0.82rem;
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-width: 100%;
+  min-height: var(--progress-row-height);
+  height: auto;
+  padding:
+    calc((var(--progress-row-height) - var(--progress-expanded-line-height)) / 2)
+    4px
+    4px;
+  overflow: visible;
+  color: inherit;
+  background: var(--progress-row-bg);
+  border-radius: 5px;
+  box-shadow: none;
+  line-height: var(--progress-expanded-line-height);
+  white-space: normal;
+  pointer-events: none;
+}
+
+.row-details-progress-lesson-row .row-details-progress-name-wrap.can-expand:hover .row-details-progress-name {
+  background: var(--brand-page-background);
+  box-shadow: none;
+}
+
+.row-details-progress-value {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.row-details-progress-empty {
+  min-height: 22px;
+  border-radius: 5px;
+  padding: 5px 6px;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  font-size: 0.72rem;
+  font-weight: 750;
 }
 
 .row-details-close-button {

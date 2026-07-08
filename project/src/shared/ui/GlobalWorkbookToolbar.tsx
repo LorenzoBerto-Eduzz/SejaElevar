@@ -161,6 +161,8 @@ const getRecoveryDescription = (info: RecoveryInfo | null) => {
       return 'Recupere os dados para como estavam antes de edi\u00e7\u00f5es nesta sess\u00e3o.';
     case 'before_session_edit':
       return 'Recupere os dados para como estavam antes da \u00faltima sess\u00e3o com edi\u00e7\u00f5es.';
+    case 'before_migration':
+      return 'Recupere os dados para como estavam antes da \u00faltima atualiza\u00e7\u00e3o de estrutura.';
     case 'import_original':
       return 'Recupere os dados para como estavam quando o arquivo foi importado.';
     case 'before_recovery':
