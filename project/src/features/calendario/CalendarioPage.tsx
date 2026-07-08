@@ -41,10 +41,8 @@ import {
   ensureActiveWorkbookManagedSheets,
   fetchBaseWorkbookFileWithRetry,
   fetchRecoveryInfo,
-  loadXlsx,
   persistManagedWorkbookDataIndexes,
   readWorkbookSheetFile,
-  responseToWorkbookFile,
 } from '../../shared/data/workspaceData';
 import {
   markGlobalWorkbookAvailable,
@@ -73,6 +71,19 @@ import {
   getCronogramaAttendanceDraft,
   getCronogramaAttendanceStatusesForBlock,
 } from '../cronograma/cronogramaAttendance';
+import {
+  appendCronogramaRow,
+  areCronogramaRowsEqual,
+  buildCronogramaBlockRow,
+  buildCronogramaRow,
+  findCronogramaRowIndex,
+  getCronogramaRowId,
+  insertCronogramaRow,
+  removeCronogramaRow,
+  removeCronogramaRowByIdentity,
+  replaceCronogramaRow,
+  saveCronogramaSheetToActiveWorkbook,
+} from '../cronograma/cronogramaRows';
 import {
   pushGlobalUndoEntry,
   registerGlobalUndoController,
@@ -605,102 +616,6 @@ const buildEventSegmentsByDateAndSlot = (blocks: CalendarEventBlock[]) => {
   return segmentsByDateAndSlot;
 };
 
-const getCronogramaRowId = (sheet: SheetTable, row: string[]) =>
-  getCellValue(sheet, row, CRONOGRAMA_ID_COLUMN);
-
-const getCronogramaRowWithBlockValues = (
-  sheet: SheetTable,
-  sourceRow: string[],
-  values: {
-    id: string;
-    turmaName: string;
-    dateKey: string;
-    startMinutes: number;
-    endMinutes: number;
-    type?: string;
-    lessonId?: string;
-    lesson?: string;
-    instructor?: string;
-    room?: string;
-    color?: string;
-  },
-) =>
-  sheet.columns.map((column, columnIndex) => {
-    const currentValue = sourceRow[columnIndex] ?? '';
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_ID_COLUMN)) {
-      return values.id;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_COLUMN)) {
-      return values.turmaName;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_DATE_COLUMN)) {
-      return values.dateKey;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_START_COLUMN)) {
-      return formatTimeLabel(values.startMinutes);
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_END_COLUMN)) {
-      return formatTimeLabel(values.endMinutes);
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_TYPE_COLUMN)) {
-      return values.type ?? currentValue;
-    }
-
-    if (
-      normalizeFieldLabel(column) ===
-      normalizeFieldLabel(CRONOGRAMA_LESSON_ID_COLUMN)
-    ) {
-      return values.lessonId ?? currentValue;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_LESSON_COLUMN)) {
-      return values.lesson ?? currentValue;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_INSTRUCTOR_COLUMN)) {
-      return values.instructor ?? currentValue;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_ROOM_COLUMN)) {
-      return values.room ?? currentValue;
-    }
-
-    if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_COLOR_COLUMN)) {
-      return values.color ?? currentValue;
-    }
-
-    return currentValue;
-  });
-
-const getCronogramaRowWithValues = (
-  sheet: SheetTable,
-  values: Record<string, string>,
-) =>
-  sheet.columns.map((column) => {
-    const matchingValue = Object.entries(values).find(
-      ([key]) => normalizeFieldLabel(key) === normalizeFieldLabel(column),
-    );
-
-    return matchingValue?.[1] ?? '';
-  });
-
-const replaceCronogramaRow = (
-  sheet: SheetTable,
-  rowIndex: number,
-  nextRow: string[],
-): SheetTable => ({
-  ...sheet,
-  rows: sheet.rows.map((row, currentIndex) =>
-    currentIndex === rowIndex ? nextRow : row,
-  ),
-});
-
 const persistCronogramaDataIndex = async (sheet: SheetTable | null) => {
   try {
     const entityIndex = sheet
@@ -725,64 +640,6 @@ const persistCronogramaDataIndex = async (sheet: SheetTable | null) => {
   } catch {
     // The workbook remains the source of truth; the index can be rebuilt.
   }
-};
-
-const saveCronogramaSheetToSourceFile = async (sheet: SheetTable) => {
-  const { read, utils, write } = await loadXlsx();
-  const sourceResponse = await fetch('/api/base-workbook/file', {
-    cache: 'no-store',
-  });
-
-  if (!sourceResponse.ok) {
-    return null;
-  }
-
-  const sourceFile = await responseToWorkbookFile(
-    sourceResponse,
-    'DadosElevar.xlsx',
-  );
-  const workbook = read(await sourceFile.arrayBuffer(), {
-    cellDates: true,
-  });
-  const sheetName =
-    workbook.SheetNames.find(
-      (candidateName) =>
-        normalizeFieldLabel(candidateName) ===
-        normalizeFieldLabel(CRONOGRAMA_WORKBOOK_SHEET),
-    ) ?? CRONOGRAMA_WORKBOOK_SHEET;
-
-  workbook.Sheets[sheetName] = utils.aoa_to_sheet([
-    sheet.columns,
-    ...sheet.rows,
-  ]);
-
-  if (!workbook.SheetNames.includes(sheetName)) {
-    workbook.SheetNames.push(sheetName);
-  }
-
-  const output = write(workbook, {
-    bookType: 'xlsx',
-    type: 'array',
-  }) as ArrayBuffer;
-  const saveResponse = await fetch('/api/base-workbook/file', {
-    method: 'PUT',
-    headers: {
-      'content-type':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    },
-    body: output,
-  });
-
-  if (!saveResponse.ok) {
-    return null;
-  }
-
-  const result = (await saveResponse.json()) as { fileName?: string };
-
-  return {
-    ...sheet,
-    fileName: result.fileName || sheet.fileName,
-  };
 };
 
 export function CalendarioPage({
@@ -1544,9 +1401,7 @@ export function CalendarioPage({
       return false;
     }
 
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === blockId,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, blockId);
 
     if (currentRowIndex < 0) {
       return false;
@@ -1561,23 +1416,31 @@ export function CalendarioPage({
       return false;
     }
 
-    const nextRow = getCronogramaRowWithBlockValues(sheet, currentRow, {
-      id: blockId,
-      turmaName: values.nextTurmaName ?? currentBlock.turma,
-      dateKey: values.nextDateKey ?? currentBlock.dateKey,
-      startMinutes: values.nextStartMinutes ?? currentBlock.startMinutes,
-      endMinutes: values.nextEndMinutes ?? currentBlock.endMinutes,
-      ...values,
-    });
+    const nextRow = buildCronogramaBlockRow(
+      sheet,
+      currentRow,
+      {
+        id: blockId,
+        turmaName: values.nextTurmaName ?? currentBlock.turma,
+        dateKey: values.nextDateKey ?? currentBlock.dateKey,
+        startMinutes: values.nextStartMinutes ?? currentBlock.startMinutes,
+        endMinutes: values.nextEndMinutes ?? currentBlock.endMinutes,
+        ...values,
+      },
+      formatTimeLabel,
+    );
 
-    if (nextRow.join('\u0000') === currentRow.join('\u0000')) {
+    if (areCronogramaRowsEqual(nextRow, currentRow)) {
       return false;
     }
 
     const nextSheet = replaceCronogramaRow(sheet, currentRowIndex, nextRow);
     latestCronogramaSheetRef.current = nextSheet;
     setCronogramaSheet(nextSheet);
-    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+    const savedSheet = await saveCronogramaSheetToActiveWorkbook(
+      nextSheet,
+      CRONOGRAMA_WORKBOOK_SHEET,
+    );
 
     if (!savedSheet) {
       latestCronogramaSheetRef.current = sheet;
@@ -1613,7 +1476,7 @@ export function CalendarioPage({
         rows: [],
       };
     const id = generateStableRecordId(CRONOGRAMA_ENTITY_ID);
-    const nextRow = getCronogramaRowWithValues(sheet, {
+    const nextRow = buildCronogramaRow(sheet, {
       [CRONOGRAMA_ID_COLUMN]: id,
       [TURMA_COLUMN]: '',
       [CRONOGRAMA_DATE_COLUMN]: formatDateKey(date),
@@ -1628,14 +1491,14 @@ export function CalendarioPage({
       [TURMA_ROOM_COLUMN]: '',
       [CRONOGRAMA_COLOR_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_COLOR,
     });
-    const nextSheet = {
-      ...sheet,
-      rows: [...sheet.rows, nextRow],
-    };
+    const nextSheet = appendCronogramaRow(sheet, nextRow);
 
     latestCronogramaSheetRef.current = nextSheet;
     setCronogramaSheet(nextSheet);
-    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+    const savedSheet = await saveCronogramaSheetToActiveWorkbook(
+      nextSheet,
+      CRONOGRAMA_WORKBOOK_SHEET,
+    );
 
     if (!savedSheet) {
       latestCronogramaSheetRef.current = sheet;
@@ -1753,23 +1616,21 @@ export function CalendarioPage({
       return;
     }
 
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === block.id,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, block.id);
 
     if (currentRowIndex < 0) {
       return;
     }
 
     const deletedRow = sheet.rows[currentRowIndex];
-    const nextSheet: SheetTable = {
-      ...sheet,
-      rows: sheet.rows.filter((_, rowIndex) => rowIndex !== currentRowIndex),
-    };
+    const nextSheet = removeCronogramaRow(sheet, currentRowIndex);
 
     latestCronogramaSheetRef.current = nextSheet;
     setCronogramaSheet(nextSheet);
-    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+    const savedSheet = await saveCronogramaSheetToActiveWorkbook(
+      nextSheet,
+      CRONOGRAMA_WORKBOOK_SHEET,
+    );
 
     if (!savedSheet) {
       latestCronogramaSheetRef.current = sheet;
@@ -1831,9 +1692,7 @@ export function CalendarioPage({
       return null;
     }
 
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === pointer.blockId,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, pointer.blockId);
 
     if (currentRowIndex < 0) {
       return null;
@@ -1881,7 +1740,7 @@ export function CalendarioPage({
       nextEnd = snapMinutes(nextEnd);
     }
 
-    const nextRow = getCronogramaRowWithBlockValues(
+    const nextRow = buildCronogramaBlockRow(
       sheet,
       sheet.rows[currentRowIndex],
       {
@@ -1891,6 +1750,7 @@ export function CalendarioPage({
         startMinutes: nextStart,
         endMinutes: nextEnd,
       },
+      formatTimeLabel,
     );
     const nextSheet = replaceCronogramaRow(sheet, currentRowIndex, nextRow);
 
@@ -1933,9 +1793,7 @@ export function CalendarioPage({
       return;
     }
 
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === blockId,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, blockId);
 
     if (currentRowIndex < 0) {
       return;
@@ -1943,11 +1801,14 @@ export function CalendarioPage({
 
     const currentRow = sheet.rows[currentRowIndex];
 
-    if (currentRow.join('\u0000') === originalRow.join('\u0000')) {
+    if (areCronogramaRowsEqual(currentRow, originalRow)) {
       return;
     }
 
-    const savedSheet = await saveCronogramaSheetToSourceFile(sheet);
+    const savedSheet = await saveCronogramaSheetToActiveWorkbook(
+      sheet,
+      CRONOGRAMA_WORKBOOK_SHEET,
+    );
 
     if (!savedSheet) {
       const revertedSheet = replaceCronogramaRow(
@@ -2010,9 +1871,7 @@ export function CalendarioPage({
       return;
     }
 
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === block.id,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, block.id);
 
     if (currentRowIndex < 0) {
       return;
@@ -2202,7 +2061,10 @@ export function CalendarioPage({
   const saveCronogramaHistorySheet = async (nextSheet: SheetTable) => {
     latestCronogramaSheetRef.current = nextSheet;
     setCronogramaSheet(nextSheet);
-    const savedSheet = await saveCronogramaSheetToSourceFile(nextSheet);
+    const savedSheet = await saveCronogramaSheetToActiveWorkbook(
+      nextSheet,
+      CRONOGRAMA_WORKBOOK_SHEET,
+    );
 
     if (!savedSheet) {
       return false;
@@ -2238,14 +2100,11 @@ export function CalendarioPage({
     if (entry.kind === 'cronograma-insert') {
       const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : [];
       const rowId = getCronogramaRowId(currentSheet, rowValues);
-      const nextSheet = {
-        ...currentSheet,
-        rows: currentSheet.rows.filter(
-          (row, rowIndex) =>
-            rowIndex !== entry.rowIndex &&
-            getCronogramaRowId(currentSheet, row) !== rowId,
-        ),
-      };
+      const nextSheet = removeCronogramaRowByIdentity(
+        currentSheet,
+        entry.rowIndex,
+        rowId,
+      );
 
       return saveCronogramaHistorySheet(nextSheet);
     }
@@ -2257,13 +2116,9 @@ export function CalendarioPage({
         return false;
       }
 
-      const nextRows = [...currentSheet.rows];
-      nextRows.splice(entry.rowIndex, 0, rowValues);
-
-      return saveCronogramaHistorySheet({
-        ...currentSheet,
-        rows: nextRows,
-      });
+      return saveCronogramaHistorySheet(
+        insertCronogramaRow(currentSheet, entry.rowIndex, rowValues),
+      );
     }
 
     if (!Array.isArray(entry.previousRowValues)) {
@@ -2299,26 +2154,19 @@ export function CalendarioPage({
         return false;
       }
 
-      const nextRows = [...currentSheet.rows];
-      nextRows.splice(entry.rowIndex, 0, rowValues);
-
-      return saveCronogramaHistorySheet({
-        ...currentSheet,
-        rows: nextRows,
-      });
+      return saveCronogramaHistorySheet(
+        insertCronogramaRow(currentSheet, entry.rowIndex, rowValues),
+      );
     }
 
     if (entry.kind === 'cronograma-delete') {
       const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : [];
       const rowId = getCronogramaRowId(currentSheet, rowValues);
-      const nextSheet = {
-        ...currentSheet,
-        rows: currentSheet.rows.filter(
-          (row, rowIndex) =>
-            rowIndex !== entry.rowIndex &&
-            getCronogramaRowId(currentSheet, row) !== rowId,
-        ),
-      };
+      const nextSheet = removeCronogramaRowByIdentity(
+        currentSheet,
+        entry.rowIndex,
+        rowId,
+      );
 
       return saveCronogramaHistorySheet(nextSheet);
     }

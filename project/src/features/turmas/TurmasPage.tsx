@@ -98,6 +98,20 @@ import {
   getCronogramaAttendanceStatusesForBlock,
 } from '../cronograma/cronogramaAttendance';
 import {
+  appendCronogramaRow,
+  areCronogramaRowsEqual,
+  buildCronogramaBlockRow,
+  buildCronogramaRow,
+  findCronogramaRowIndex,
+  getCronogramaCellValue,
+  getCronogramaRowId as readCronogramaRowId,
+  insertCronogramaRow,
+  removeCronogramaRow,
+  removeCronogramaRowByIdentity,
+  replaceCronogramaRow,
+  saveCronogramaSheetToActiveWorkbook,
+} from '../cronograma/cronogramaRows';
+import {
   ensureSheetRecordIds,
   generateStableRecordId,
   getPublicColumns,
@@ -1259,30 +1273,8 @@ const getPlanoProgressoFallbackSheet = (fileName: string): SheetTable => ({
   rows: [],
 });
 
-const getCronogramaCellValue = (
-  sheet: SheetTable,
-  row: string[],
-  columnName: string,
-) => {
-  const columnIndex = getColumnIndex(sheet, columnName);
-
-  return columnIndex >= 0 ? row[columnIndex] ?? '' : '';
-};
-
-const getCronogramaRowWithValues = (
-  sheet: SheetTable,
-  values: Record<string, string>,
-) =>
-  sheet.columns.map((column) => {
-    const matchingValue = Object.entries(values).find(
-      ([key]) => normalizeFieldLabel(key) === normalizeFieldLabel(column),
-    );
-
-    return matchingValue?.[1] ?? '';
-  });
-
 const getCronogramaRowId = (sheet: SheetTable, row: string[]) =>
-  getCronogramaCellValue(sheet, row, CRONOGRAMA_ID_COLUMN) ||
+  readCronogramaRowId(sheet, row) ||
   generateStableRecordId(CRONOGRAMA_ENTITY_ID);
 
 const buildCronogramaBlocks = (sheet: SheetTable | null): CronogramaBlock[] => {
@@ -3852,75 +3844,25 @@ export function TurmasPage({
   };
 
   const saveCronogramaSheetToSourceFile = async (sheet: SheetTable) => {
-    try {
-      const { read, utils, write } = await loadXlsx();
-      const sourceResponse = await fetch('/api/base-workbook/file', {
-        cache: 'no-store',
-      });
+    const savedSheet = await saveCronogramaSheetToActiveWorkbook(
+      sheet,
+      CRONOGRAMA_WORKBOOK_SHEET,
+    );
 
-      if (!sourceResponse.ok) {
-        throw new Error('read-failed');
-      }
-
-      const sourceFile = await responseToWorkbookFile(
-        sourceResponse,
-        'DadosElevar.xlsx',
-      );
-      const workbook = read(await sourceFile.arrayBuffer(), {
-        cellDates: true,
-      });
-      const sheetName =
-        workbook.SheetNames.find(
-          (candidateName) =>
-            normalizeFieldLabel(candidateName) ===
-            normalizeFieldLabel(CRONOGRAMA_WORKBOOK_SHEET),
-        ) ?? CRONOGRAMA_WORKBOOK_SHEET;
-
-      workbook.Sheets[sheetName] = utils.aoa_to_sheet([
-        sheet.columns,
-        ...sheet.rows,
-      ]);
-
-      if (!workbook.SheetNames.includes(sheetName)) {
-        workbook.SheetNames.push(sheetName);
-      }
-
-      const output = write(workbook, {
-        bookType: 'xlsx',
-        type: 'array',
-      }) as ArrayBuffer;
-      const saveResponse = await fetch('/api/base-workbook/file', {
-        method: 'PUT',
-        headers: {
-          'content-type':
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        },
-        body: output,
-      });
-
-      if (!saveResponse.ok) {
-        throw new Error('save-failed');
-      }
-
-      const result = (await saveResponse.json()) as { fileName?: string };
-      const savedSheet = {
-        ...sheet,
-        fileName: result.fileName || sheet.fileName,
-      };
-
-      latestCronogramaSheetRef.current = savedSheet;
-      setCronogramaSheet(savedSheet);
-      await persistCronogramaDataIndex(savedSheet);
-      await fetchRecoveryInfo();
-      window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
-
-      return savedSheet;
-    } catch {
+    if (!savedSheet) {
       setImportError(
         'A alteração ficou na tela, mas não foi possível gravar em dados.',
       );
       return null;
     }
+
+    latestCronogramaSheetRef.current = savedSheet;
+    setCronogramaSheet(savedSheet);
+    await persistCronogramaDataIndex(savedSheet);
+    await fetchRecoveryInfo();
+    window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
+
+    return savedSheet;
   };
 
   const getWorkingCronogramaSheet = () =>
@@ -3932,87 +3874,6 @@ export function TurmasPage({
     window.dispatchEvent(new Event(GLOBAL_TOOLBAR_REFRESH_REQUEST_EVENT));
     window.dispatchEvent(new Event(GLOBAL_DATA_CHANGED_EVENT));
   };
-
-  const getCronogramaRowWithBlockValues = (
-    sheet: SheetTable,
-    sourceRow: string[],
-    values: {
-      id: string;
-      turmaName: string;
-      dateKey: string;
-      startMinutes: number;
-      endMinutes: number;
-      type?: string;
-      lessonId?: string;
-      lesson?: string;
-      instructor?: string;
-      room?: string;
-      color?: string;
-    },
-  ) =>
-    sheet.columns.map((column, columnIndex) => {
-      const currentValue = sourceRow[columnIndex] ?? '';
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_ID_COLUMN)) {
-        return values.id;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_COLUMN)) {
-        return values.turmaName;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_DATE_COLUMN)) {
-        return values.dateKey;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_START_COLUMN)) {
-        return formatMinutesAsTime(values.startMinutes);
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_END_COLUMN)) {
-        return formatMinutesAsTime(values.endMinutes);
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_TYPE_COLUMN)) {
-        return values.type ?? currentValue;
-      }
-
-      if (
-        normalizeFieldLabel(column) ===
-        normalizeFieldLabel(CRONOGRAMA_LESSON_ID_COLUMN)
-      ) {
-        return values.lessonId ?? currentValue;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_LESSON_COLUMN)) {
-        return values.lesson ?? currentValue;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_INSTRUCTOR_COLUMN)) {
-        return values.instructor ?? currentValue;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(TURMA_ROOM_COLUMN)) {
-        return values.room ?? currentValue;
-      }
-
-      if (normalizeFieldLabel(column) === normalizeFieldLabel(CRONOGRAMA_COLOR_COLUMN)) {
-        return values.color ?? currentValue;
-      }
-
-      return currentValue;
-    });
-
-  const replaceCronogramaRow = (
-    sheet: SheetTable,
-    rowIndex: number,
-    nextRow: string[],
-  ): SheetTable => ({
-    ...sheet,
-    rows: sheet.rows.map((row, currentIndex) =>
-      currentIndex === rowIndex ? nextRow : row,
-    ),
-  });
 
   const updateScheduleBlockValues = async (
     blockId: string,
@@ -4031,9 +3892,7 @@ export function TurmasPage({
     }
 
     const sheet = getWorkingCronogramaSheet();
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === blockId,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, blockId);
 
     if (currentRowIndex < 0) {
       return false;
@@ -4048,16 +3907,21 @@ export function TurmasPage({
       return false;
     }
 
-    const nextRow = getCronogramaRowWithBlockValues(sheet, currentRow, {
-      id: blockId,
-      turmaName: values.nextTurmaName ?? currentBlock.turma,
-      dateKey: currentBlock.dateKey,
-      startMinutes: currentBlock.startMinutes,
-      endMinutes: currentBlock.endMinutes,
-      ...values,
-    });
+    const nextRow = buildCronogramaBlockRow(
+      sheet,
+      currentRow,
+      {
+        id: blockId,
+        turmaName: values.nextTurmaName ?? currentBlock.turma,
+        dateKey: currentBlock.dateKey,
+        startMinutes: currentBlock.startMinutes,
+        endMinutes: currentBlock.endMinutes,
+        ...values,
+      },
+      formatMinutesAsTime,
+    );
 
-    if (nextRow.join('\u0000') === currentRow.join('\u0000')) {
+    if (areCronogramaRowsEqual(nextRow, currentRow)) {
       return false;
     }
 
@@ -4500,7 +4364,7 @@ export function TurmasPage({
   ) => {
     const sheet = getWorkingCronogramaSheet();
     const id = generateStableRecordId(CRONOGRAMA_ENTITY_ID);
-    const nextRow = getCronogramaRowWithValues(sheet, {
+    const nextRow = buildCronogramaRow(sheet, {
       [CRONOGRAMA_ID_COLUMN]: id,
       [TURMA_COLUMN]: turmaName,
       [CRONOGRAMA_DATE_COLUMN]: formatScheduleDateKey(date),
@@ -4520,10 +4384,7 @@ export function TurmasPage({
       [TURMA_ROOM_COLUMN]: defaults.room,
       [CRONOGRAMA_COLOR_COLUMN]: DEFAULT_CRONOGRAMA_BLOCK_COLOR,
     });
-    const nextSheet = {
-      ...sheet,
-      rows: [...sheet.rows, nextRow],
-    };
+    const nextSheet = appendCronogramaRow(sheet, nextRow);
 
     latestCronogramaSheetRef.current = nextSheet;
     setCronogramaSheet(nextSheet);
@@ -4561,19 +4422,14 @@ export function TurmasPage({
     }
 
     const sheet = getWorkingCronogramaSheet();
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === block.id,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, block.id);
 
     if (currentRowIndex < 0) {
       return;
     }
 
     const deletedRow = sheet.rows[currentRowIndex];
-    const nextSheet = {
-      ...sheet,
-      rows: sheet.rows.filter((_, rowIndex) => rowIndex !== currentRowIndex),
-    };
+    const nextSheet = removeCronogramaRow(sheet, currentRowIndex);
 
     latestCronogramaSheetRef.current = nextSheet;
     setCronogramaSheet(nextSheet);
@@ -4609,9 +4465,7 @@ export function TurmasPage({
     }
 
     const sheet = getWorkingCronogramaSheet();
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === blockId,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, blockId);
 
     if (currentRowIndex < 0) {
       return;
@@ -4619,7 +4473,7 @@ export function TurmasPage({
 
     const currentRow = sheet.rows[currentRowIndex];
 
-    if (currentRow.join('\u0000') === originalRow.join('\u0000')) {
+    if (areCronogramaRowsEqual(currentRow, originalRow)) {
       return;
     }
 
@@ -4693,9 +4547,7 @@ export function TurmasPage({
       return null;
     }
 
-    const currentRowIndex = sheet.rows.findIndex(
-      (row) => getCronogramaRowId(sheet, row) === pointer.blockId,
-    );
+    const currentRowIndex = findCronogramaRowIndex(sheet, pointer.blockId);
 
     if (currentRowIndex < 0) {
       return null;
@@ -4798,7 +4650,7 @@ export function TurmasPage({
       );
     }
 
-    const nextRow = getCronogramaRowWithBlockValues(
+    const nextRow = buildCronogramaBlockRow(
       sheet,
       sheet.rows[currentRowIndex],
       {
@@ -4808,6 +4660,7 @@ export function TurmasPage({
         startMinutes: nextStart,
         endMinutes: nextEnd,
       },
+      formatMinutesAsTime,
     );
     const nextSheet = replaceCronogramaRow(sheet, currentRowIndex, nextRow);
 
@@ -6871,14 +6724,11 @@ export function TurmasPage({
     if (entry.kind === 'cronograma-insert') {
       const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : [];
       const rowId = getCronogramaRowId(currentSheet, rowValues);
-      const nextSheet = {
-        ...currentSheet,
-        rows: currentSheet.rows.filter(
-          (row, rowIndex) =>
-            rowIndex !== entry.rowIndex &&
-            getCronogramaRowId(currentSheet, row) !== rowId,
-        ),
-      };
+      const nextSheet = removeCronogramaRowByIdentity(
+        currentSheet,
+        entry.rowIndex,
+        rowId,
+      );
 
       latestCronogramaSheetRef.current = nextSheet;
       setCronogramaSheet(nextSheet);
@@ -6893,12 +6743,11 @@ export function TurmasPage({
         return false;
       }
 
-      const nextRows = [...currentSheet.rows];
-      nextRows.splice(entry.rowIndex, 0, rowValues);
-      const nextSheet = {
-        ...currentSheet,
-        rows: nextRows,
-      };
+      const nextSheet = insertCronogramaRow(
+        currentSheet,
+        entry.rowIndex,
+        rowValues,
+      );
 
       latestCronogramaSheetRef.current = nextSheet;
       setCronogramaSheet(nextSheet);
@@ -6937,12 +6786,11 @@ export function TurmasPage({
         return false;
       }
 
-      const nextRows = [...currentSheet.rows];
-      nextRows.splice(entry.rowIndex, 0, rowValues);
-      const nextSheet = {
-        ...currentSheet,
-        rows: nextRows,
-      };
+      const nextSheet = insertCronogramaRow(
+        currentSheet,
+        entry.rowIndex,
+        rowValues,
+      );
 
       latestCronogramaSheetRef.current = nextSheet;
       setCronogramaSheet(nextSheet);
@@ -6953,14 +6801,11 @@ export function TurmasPage({
     if (entry.kind === 'cronograma-delete') {
       const rowValues = Array.isArray(entry.rowValues) ? entry.rowValues : [];
       const rowId = getCronogramaRowId(currentSheet, rowValues);
-      const nextSheet = {
-        ...currentSheet,
-        rows: currentSheet.rows.filter(
-          (row, rowIndex) =>
-            rowIndex !== entry.rowIndex &&
-            getCronogramaRowId(currentSheet, row) !== rowId,
-        ),
-      };
+      const nextSheet = removeCronogramaRowByIdentity(
+        currentSheet,
+        entry.rowIndex,
+        rowId,
+      );
 
       latestCronogramaSheetRef.current = nextSheet;
       setCronogramaSheet(nextSheet);
