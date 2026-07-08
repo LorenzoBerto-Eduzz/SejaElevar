@@ -31,9 +31,6 @@ import {
 } from '../../shared/data/schemas';
 import { generateStableRecordId, getSheetRecordId } from '../../shared/data/stableIds';
 import {
-  type AcademicAttendanceSelection,
-  type AcademicEventSnapshot,
-  getAcademicCellValue,
   readAcademicWorkbookSheets,
   saveWorkbookSheets,
   syncAcademicWorkbookFromSource,
@@ -60,6 +57,22 @@ import {
   CronogramaEventBlock,
   type CronogramaEventField,
 } from '../cronograma/CronogramaEventBlock';
+import {
+  CRONOGRAMA_INVALID_TURMA_SELECTION_MESSAGE,
+  CRONOGRAMA_MISSING_AULA_FOR_ATTENDANCE_MESSAGE,
+  CRONOGRAMA_MISSING_TURMA_FOR_ATTENDANCE_MESSAGE,
+  getBlockedEventWithAttendanceMessage,
+  hasActivePresenceDraft,
+  hasPresentAttendanceStatus,
+  resolveLiveAulaForUnconfirmedBlock,
+  type CronogramaBlockedAction,
+} from '../cronograma/cronogramaGuards';
+import {
+  buildCronogramaEventAttendanceSnapshot,
+  buildCronogramaAttendanceSelections,
+  getCronogramaAttendanceDraft,
+  getCronogramaAttendanceStatusesForBlock,
+} from '../cronograma/cronogramaAttendance';
 import {
   pushGlobalUndoEntry,
   registerGlobalUndoController,
@@ -592,28 +605,6 @@ const buildEventSegmentsByDateAndSlot = (blocks: CalendarEventBlock[]) => {
   return segmentsByDateAndSlot;
 };
 
-const resolveLiveAulaForUnconfirmedBlock = <T extends CalendarEventBlock>(
-  block: T,
-  aulaCatalogOptions: AulaCatalogOption[],
-  hasCurrentPresence: boolean,
-): T => {
-  if (hasCurrentPresence || !block.lessonId) {
-    return block;
-  }
-
-  const liveAula = aulaCatalogOptions.find((option) => option.id === block.lessonId);
-
-  if (!liveAula) {
-    return block;
-  }
-
-  return {
-    ...block,
-    lesson: liveAula.name || block.lesson,
-    color: liveAula.color || block.color,
-  };
-};
-
 const getCronogramaRowId = (sheet: SheetTable, row: string[]) =>
   getCellValue(sheet, row, CRONOGRAMA_ID_COLUMN);
 
@@ -1121,69 +1112,34 @@ export function CalendarioPage({
     return rowIndex >= 0 ? getSheetRecordId(sheet, rowIndex, TURMAS_ENTITY_ID) : '';
   };
 
-  const getEventAttendanceSnapshot = (
-    block: CalendarEventBlock,
-  ): AcademicEventSnapshot => {
-    const snapshotBlock = resolveLiveAulaForUnconfirmedBlock(
+  const getEventAttendanceSnapshot = (block: CalendarEventBlock) =>
+    buildCronogramaEventAttendanceSnapshot(
       block,
       aulaCatalogOptions,
       blockHasAttendance(block.id),
+      getTurmaRecordId,
+      formatTimeLabel,
     );
 
-    return {
-      id: snapshotBlock.id,
-      turma: snapshotBlock.turma,
-      turmaId: getTurmaRecordId(snapshotBlock.turma),
-      date: snapshotBlock.dateKey,
-      start: formatTimeLabel(snapshotBlock.startMinutes),
-      end: formatTimeLabel(snapshotBlock.endMinutes),
-      aulaId: snapshotBlock.lessonId,
-      aula: snapshotBlock.lesson,
-      instructor: snapshotBlock.instructor,
-      room: snapshotBlock.room,
-      durationMinutes: Math.max(
-        0,
-        snapshotBlock.endMinutes - snapshotBlock.startMinutes,
-      ),
-    };
-  };
-
   const getAttendanceStatusesForBlock = (blockId: string) => {
-    const statuses = new Map<string, string>();
-    const sheet = latestPresencasSheetRef.current;
-
-    sheet?.rows.forEach((row) => {
-      if (getAcademicCellValue(sheet, row, 'Evento ID') !== blockId) {
-        return;
-      }
-
-      statuses.set(
-        getAcademicCellValue(sheet, row, 'Aprendiz ID'),
-        getAcademicCellValue(sheet, row, 'Status Presenca') ||
-          getAcademicCellValue(sheet, row, 'Status Presença'),
-      );
-    });
-
-    return statuses;
+    return getCronogramaAttendanceStatusesForBlock(
+      latestPresencasSheetRef.current,
+      blockId,
+    );
   };
 
   const blockHasAttendance = (blockId: string) => {
     if (activeAttendancePanel?.blockId === blockId) {
-      return Object.values(attendanceDraft).some(Boolean);
+      return hasActivePresenceDraft(attendanceDraft);
     }
 
     const statuses = getAttendanceStatusesForBlock(blockId);
 
-    return Array.from(statuses.values()).some(
-      (status) =>
-        normalizeFieldLabel(status) === normalizeFieldLabel('Presente'),
-    );
+    return hasPresentAttendanceStatus(statuses.values());
   };
 
-  const warnBlockedEventWithAttendance = (action: string) => {
-    showWarningToast(
-      `Este evento já possui presença registrada e não pode ser ${action} sem uma revisão.`,
-    );
+  const warnBlockedEventWithAttendance = (action: CronogramaBlockedAction) => {
+    showWarningToast(getBlockedEventWithAttendanceMessage(action));
   };
 
   const getAttendanceStudentsForBlock = (block: CalendarEventBlock) => {
@@ -1214,17 +1170,12 @@ export function CalendarioPage({
     const statuses = getAttendanceStatusesForBlock(block.id);
     const students = getAttendanceStudentsForBlock(block);
 
-    return Object.fromEntries(
-      students.map((student) => [
-        student.aprendizId,
-        statuses.get(student.aprendizId) === 'Presente',
-      ]),
-    );
+    return getCronogramaAttendanceDraft(students, statuses);
   };
 
   const openAttendancePanel = (block: CalendarEventBlock) => {
     if (!block.turma) {
-      showWarningToast('Selecione uma turma antes de registrar presença.');
+      showWarningToast(CRONOGRAMA_MISSING_TURMA_FOR_ATTENDANCE_MESSAGE);
       return;
     }
 
@@ -1276,7 +1227,7 @@ export function CalendarioPage({
     const students = getAttendanceStudentsForBlock(block);
 
     if (!block.lessonId && !block.lesson) {
-      showWarningToast('Selecione uma aula antes de registrar presença.');
+      showWarningToast(CRONOGRAMA_MISSING_AULA_FOR_ATTENDANCE_MESSAGE);
       return;
     }
 
@@ -1310,10 +1261,10 @@ export function CalendarioPage({
         'DadosElevar.xlsx';
       const previousAcademicSheets = getCurrentAttendanceUndoSnapshot(fileName);
       const eventSnapshot = getEventAttendanceSnapshot(block);
-      const selections: AcademicAttendanceSelection[] = students.map((student) => ({
-        ...student,
-        status: nextAttendanceDraft[student.aprendizId] ? 'Presente' : 'Ausente',
-      }));
+      const selections = buildCronogramaAttendanceSelections(
+        students,
+        nextAttendanceDraft,
+      );
       const validation = validateAcademicAttendance(
         latestPlanoEnsinoSheetRef.current,
         latestAulasDisciplinasSheetRef.current,
@@ -1735,7 +1686,7 @@ export function CalendarioPage({
     if (
       didUpdate &&
       activeAttendancePanel?.blockId === editor.blockId &&
-      Object.values(attendanceDraft).some(Boolean)
+      hasActivePresenceDraft(attendanceDraft)
     ) {
       const updatedBlock = buildCalendarEventBlocks(
         latestCronogramaSheetRef.current,
@@ -1774,7 +1725,7 @@ export function CalendarioPage({
     if (editor.field === 'turma' && !canonicalTurmaName) {
       showWarningToast(
         turmaNames.length > 0
-          ? 'Selecione uma turma cadastrada para vincular este evento.'
+          ? CRONOGRAMA_INVALID_TURMA_SELECTION_MESSAGE
           : 'Cadastre uma turma antes de vincular este evento.',
       );
       return;

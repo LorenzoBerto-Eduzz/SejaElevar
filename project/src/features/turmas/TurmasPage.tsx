@@ -67,14 +67,11 @@ import {
   PRESENCAS_REQUIRED_COLUMNS,
 } from '../../shared/data/schemas';
 import {
-  getAcademicCellValue,
   readAcademicWorkbookSheets,
   saveWorkbookSheets,
   syncAcademicWorkbookFromSource,
   updateAcademicAttendance,
   validateAcademicAttendance,
-  type AcademicAttendanceSelection,
-  type AcademicEventSnapshot,
 } from '../../shared/data/academicProgress';
 import {
   APRENDIZ_PROGRESS_OVERLAY_STORAGE_KEY,
@@ -86,6 +83,20 @@ import {
   CronogramaEventBlock,
   type CronogramaEventField,
 } from '../cronograma/CronogramaEventBlock';
+import {
+  CRONOGRAMA_INVALID_TURMA_SELECTION_MESSAGE,
+  CRONOGRAMA_MISSING_AULA_FOR_ATTENDANCE_MESSAGE,
+  getBlockedEventWithAttendanceMessage,
+  hasActivePresenceDraft,
+  hasPresentAttendanceStatus,
+  resolveLiveAulaForUnconfirmedBlock,
+} from '../cronograma/cronogramaGuards';
+import {
+  buildCronogramaEventAttendanceSnapshot,
+  buildCronogramaAttendanceSelections,
+  getCronogramaAttendanceDraft,
+  getCronogramaAttendanceStatusesForBlock,
+} from '../cronograma/cronogramaAttendance';
 import {
   ensureSheetRecordIds,
   generateStableRecordId,
@@ -1414,28 +1425,6 @@ const buildAulaCatalogOptions = (
       };
     })
     .filter((option): option is AulaCatalogOption => Boolean(option));
-};
-
-const resolveLiveAulaForUnconfirmedBlock = <T extends CronogramaBlock>(
-  block: T,
-  aulaCatalogOptions: AulaCatalogOption[],
-  hasCurrentPresence: boolean,
-): T => {
-  if (hasCurrentPresence || !block.lessonId) {
-    return block;
-  }
-
-  const liveAula = aulaCatalogOptions.find((option) => option.id === block.lessonId);
-
-  if (!liveAula) {
-    return block;
-  }
-
-  return {
-    ...block,
-    lesson: liveAula.name || block.lesson,
-    color: liveAula.color || block.color,
-  };
 };
 
 const doScheduleRangesOverlap = (
@@ -4037,9 +4026,7 @@ export function TurmasPage({
     },
   ) => {
     if (blockHasAttendance(blockId)) {
-      showInvalidImportToast(
-        'Este evento já possui presença registrada e não pode ser alterado sem uma revisão.',
-      );
+      showInvalidImportToast(getBlockedEventWithAttendanceMessage('alterado'));
       return false;
     }
 
@@ -4159,7 +4146,7 @@ export function TurmasPage({
     if (
       didUpdate &&
       activeAttendancePanel?.blockId === editor.blockId &&
-      Object.values(attendanceDraft).some(Boolean)
+      hasActivePresenceDraft(attendanceDraft)
     ) {
       const updatedBlock = buildCronogramaBlocks(
         latestCronogramaSheetRef.current,
@@ -4200,7 +4187,7 @@ export function TurmasPage({
     if (editor.field === 'turma' && !canonicalTurmaName) {
       showInvalidImportToast(
         turmaNames.length > 0
-          ? 'Selecione uma turma cadastrada para vincular este evento.'
+          ? CRONOGRAMA_INVALID_TURMA_SELECTION_MESSAGE
           : 'Cadastre uma turma antes de vincular este evento.',
       );
       return;
@@ -4240,63 +4227,30 @@ export function TurmasPage({
     return rowIndex >= 0 ? getSheetRecordId(sheet, rowIndex, TURMAS_ENTITY_ID) : '';
   };
 
-  const getEventAttendanceSnapshot = (
-    block: CronogramaBlock,
-  ): AcademicEventSnapshot => {
-    const snapshotBlock = resolveLiveAulaForUnconfirmedBlock(
+  const getEventAttendanceSnapshot = (block: CronogramaBlock) =>
+    buildCronogramaEventAttendanceSnapshot(
       block,
       aulaCatalogOptions,
       blockHasAttendance(block.id),
+      getTurmaRecordId,
+      formatMinutesAsTime,
     );
 
-    return {
-      id: snapshotBlock.id,
-      turma: snapshotBlock.turma,
-      turmaId: getTurmaRecordId(snapshotBlock.turma),
-      date: snapshotBlock.dateKey,
-      start: formatMinutesAsTime(snapshotBlock.startMinutes),
-      end: formatMinutesAsTime(snapshotBlock.endMinutes),
-      aulaId: snapshotBlock.lessonId,
-      aula: snapshotBlock.lesson,
-      instructor: snapshotBlock.instructor,
-      room: snapshotBlock.room,
-      durationMinutes: Math.max(
-        0,
-        snapshotBlock.endMinutes - snapshotBlock.startMinutes,
-      ),
-    };
-  };
-
   const getAttendanceStatusesForBlock = (blockId: string) => {
-    const statuses = new Map<string, string>();
-    const sheet = latestPresencasSheetRef.current;
-
-    sheet?.rows.forEach((row) => {
-      if (getAcademicCellValue(sheet, row, 'Evento ID') !== blockId) {
-        return;
-      }
-
-      statuses.set(
-        getAcademicCellValue(sheet, row, 'Aprendiz ID'),
-        getAcademicCellValue(sheet, row, 'Status Presenca') ||
-          getAcademicCellValue(sheet, row, 'Status Presença'),
-      );
-    });
-
-    return statuses;
+    return getCronogramaAttendanceStatusesForBlock(
+      latestPresencasSheetRef.current,
+      blockId,
+    );
   };
 
   const blockHasAttendance = (blockId: string) => {
     if (activeAttendancePanel?.blockId === blockId) {
-      return Object.values(attendanceDraft).some(Boolean);
+      return hasActivePresenceDraft(attendanceDraft);
     }
 
     const statuses = getAttendanceStatusesForBlock(blockId);
 
-    return Array.from(statuses.values()).some(
-      (status) =>
-        normalizeFieldLabel(status) === normalizeFieldLabel('Presente'),
-    );
+    return hasPresentAttendanceStatus(statuses.values());
   };
 
   const getAttendanceStudentsForBlock = (block: CronogramaBlock) => {
@@ -4321,12 +4275,7 @@ export function TurmasPage({
     );
     const statuses = getAttendanceStatusesForBlock(block.id);
     const students = getAttendanceStudentsForBlock(block);
-    const nextDraft = Object.fromEntries(
-      students.map((student) => [
-        student.aprendizId,
-        statuses.get(student.aprendizId) === 'Presente',
-      ]),
-    );
+    const nextDraft = getCronogramaAttendanceDraft(students, statuses);
 
     setAttendanceDraft(nextDraft);
 
@@ -4371,7 +4320,7 @@ export function TurmasPage({
     const students = getAttendanceStudentsForBlock(block);
 
     if (!block.lessonId && !block.lesson) {
-      showInvalidImportToast('Selecione uma aula antes de registrar presença.');
+      showInvalidImportToast(CRONOGRAMA_MISSING_AULA_FOR_ATTENDANCE_MESSAGE);
       return;
     }
 
@@ -4392,10 +4341,10 @@ export function TurmasPage({
         'DadosElevar.xlsx';
       const previousAcademicSheets = getCurrentAttendanceUndoSnapshot(fileName);
       const eventSnapshot = getEventAttendanceSnapshot(block);
-      const selections: AcademicAttendanceSelection[] = students.map((student) => ({
-        ...student,
-        status: nextAttendanceDraft[student.aprendizId] ? 'Presente' : 'Ausente',
-      }));
+      const selections = buildCronogramaAttendanceSelections(
+        students,
+        nextAttendanceDraft,
+      );
       const validation = validateAcademicAttendance(
         latestPlanoEnsinoSheetRef.current,
         latestAulasCoverageSheetRef.current,
@@ -4607,9 +4556,7 @@ export function TurmasPage({
 
   const deleteScheduleBlock = async (block: CronogramaBlock) => {
     if (blockHasAttendance(block.id)) {
-      showInvalidImportToast(
-        'Este evento já possui presença registrada e não pode ser deletado sem uma revisão.',
-      );
+      showInvalidImportToast(getBlockedEventWithAttendanceMessage('deletado'));
       return;
     }
 
@@ -4657,9 +4604,7 @@ export function TurmasPage({
     nextRow: string[],
   ) => {
     if (blockHasAttendance(blockId)) {
-      showInvalidImportToast(
-        'Este evento já possui presença registrada e não pode ser movido sem uma revisão.',
-      );
+      showInvalidImportToast(getBlockedEventWithAttendanceMessage('movido'));
       return;
     }
 
@@ -4883,9 +4828,7 @@ export function TurmasPage({
     event.stopPropagation();
 
     if (blockHasAttendance(block.id)) {
-      showInvalidImportToast(
-        'Este evento já possui presença registrada e não pode ser movido sem uma revisão.',
-      );
+      showInvalidImportToast(getBlockedEventWithAttendanceMessage('movido'));
       return;
     }
 

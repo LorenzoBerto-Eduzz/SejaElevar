@@ -105,6 +105,8 @@ The `Calendário` tab should be the main global Cronograma visualization area. I
 
 Current UI alignment: event blocks are a shared surface across the global `Calendário` view and filtered Turmas timetable views. The same scheduled instance should look, display, and edit the same way wherever it appears. Avoid building separate Calendar-only and Turma-only block behavior unless a context truly requires a wrapper. Event blocks now expose the linked `Turma` value as part of the block's displayed/editable instance data, so an event can be assigned or reassigned to a Turma from the block itself; in a Turma timetable, changing that Turma value should naturally make the block leave the current filtered view and appear in the other Turma/global view.
 
+Shared implementation rule: attendance status reading, draft/selection creation, event snapshot creation, live Aula resolution for unconfirmed blocks, and edit/move/delete guards belong in shared Cronograma modules. `Calendário` and `Turmas` should call those shared rules rather than maintaining equivalent local copies. Context-specific rendering and navigation may remain in each page, but the meaning of an event and its attendance must stay identical.
+
 Each Cronograma block should know:
 
 ```text
@@ -330,6 +332,7 @@ Current implementation state:
 - Reusable Aula template edits, coverage edits, or future deletes must not mutate old `Presencas`/`Horas Aplicadas`. Historical proof should keep the copied names, IDs, dates, duration, instructor, room, Turma, Aprendiz, Arco, and Disciplina context that was saved when presence counted.
 - Changing an Aprendiz's `Arco de Aprendizagem` is blocked once that Aprendiz already has rows in `Horas Aplicadas`. Future explicit migration/transfer flows can be designed later, but simple field editing must not move existing Plano de Ensino progress into another Arco by accident.
 - Presence validation should warn only for genuinely incomplete setup, such as trying to mark `Presente` on an event with no Aula selected or selecting an Aula that has no `Aulas Disciplinas` coverage rows at all. It should not block just because an Aula's coverage does not match a specific Aprendiz's Arco. In that mismatch case, the Presenca row may exist, while `Horas Aplicadas` only gets generated for coverage rows that resolve against the Aprendiz's own Plano de Ensino.
+- Shared Cronograma attendance helpers are the code-level authority for status normalization, current-presence detection, attendance drafts/selections, and historical event snapshots. Both the global Calendário and filtered Turmas surfaces must use them so warnings, snapshot contents, and historical locking cannot drift between tabs.
 
 ## Progress And Documents
 
