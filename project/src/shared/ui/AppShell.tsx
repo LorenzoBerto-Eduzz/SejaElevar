@@ -9,6 +9,7 @@ import type { AppBrand } from '../brand/appBrand';
 import type { AppTab, NavigationIcon, NavigationTab } from '../navigation/tabs';
 import { TOGGLE_ACTION_HISTORY_EVENT } from '../actionLog/ActionLogOverlay';
 import { APP_VERSION } from '../appVersion';
+import { DataHealthButton } from './DataHealthButton';
 import { GlobalWorkbookToolbar } from './GlobalWorkbookToolbar';
 import { ThemeToggleButton } from './ThemeToggleButton';
 import {
@@ -1369,6 +1370,8 @@ export function AppShell({
           {updateToast}
         </div>
       )}
+
+      <DataHealthButton />
 
       <main className="app-content">{children}</main>
     </div>
