@@ -888,6 +888,20 @@ internal static class Program
                 return;
             }
 
+            if (request.Method == "PUT" && request.Path == "/api/privacy/aprendiz-purge")
+            {
+                MarkHeartbeat();
+                await SavePrivacyPurgedWorkbookAsync(stream, request, appFolder);
+                return;
+            }
+
+            if (request.Method == "GET" && request.Path == "/api/privacy/state")
+            {
+                MarkHeartbeat();
+                await ServePrivacyStateAsync(stream, appFolder);
+                return;
+            }
+
             await ServeStaticAsync(stream, request, appFolder);
         }
         catch
@@ -1803,6 +1817,235 @@ internal static class Program
         );
     }
 
+    private static async Task SavePrivacyPurgedWorkbookAsync(
+        NetworkStream stream,
+        HttpRequest request,
+        string appFolder
+    )
+    {
+        var aprendizId =
+            request.Headers.TryGetValue("x-aprendiz-id", out var rawAprendizId)
+                ? Uri.UnescapeDataString(rawAprendizId).Trim()
+                : "";
+
+        if (
+            request.Body.Length == 0 ||
+            !request.Headers.TryGetValue("x-privacy-confirmed", out var confirmation) ||
+            !string.Equals(confirmation, "true", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(aprendizId) ||
+            !string.Equals(
+                Path.GetFileName(aprendizId),
+                aprendizId,
+                StringComparison.Ordinal
+            )
+        )
+        {
+            await WriteJsonAsync(
+                stream,
+                400,
+                new { error = "Confirmação de privacidade inválida." }
+            );
+            return;
+        }
+
+        var controlPath = GetBaseWorkbookControlPath(appFolder);
+        var control = LoadWorkbookControl(appFolder, controlPath, false);
+        var onUsePath = ResolveWorkbookPath(appFolder, control.OnUseFile);
+
+        if (onUsePath is null || !File.Exists(onUsePath))
+        {
+            await WriteJsonAsync(stream, 404, new { error = "Arquivo ativo não encontrado." });
+            return;
+        }
+
+        var temporaryPath = $"{onUsePath}.privacy-{Guid.NewGuid():N}.tmp";
+
+        try
+        {
+            await File.WriteAllBytesAsync(temporaryPath, request.Body);
+
+            var backupPath = ResolveWorkbookPath(appFolder, control.BackupFile);
+
+            if (
+                backupPath is not null &&
+                !string.Equals(backupPath, onUsePath, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(backupPath)
+            )
+            {
+                File.Delete(backupPath);
+            }
+
+            DeleteAllGlobalCheckpointsForPrivacy(appFolder);
+            DeleteFileIfExists(GetGlobalCheckpointControlPath(appFolder));
+            DeleteFileIfExists(GetDataIndexPath(appFolder));
+            CleanupInactiveRootWorkbookFiles(appFolder);
+            DeleteLegacyMetadata(appFolder);
+            var deletedDocumentCount = DeleteAprendizDocumentFolders(
+                appFolder,
+                aprendizId
+            );
+
+            control.BackupFile = null;
+            control.BackupReason = null;
+            control.RecoveryEnabled = false;
+            control.HasEditingHistory = false;
+            control.CaptureBackupOnNextSave = false;
+            SaveWorkbookControl(appFolder, control, controlPath);
+
+            File.Move(temporaryPath, onUsePath, true);
+            var historyResetId = Guid.NewGuid().ToString("N");
+            var privacyStatePath = GetPrivacyStatePath(appFolder);
+            var purgedAprendizIdHashes = LoadPurgedAprendizIdHashes(appFolder);
+            purgedAprendizIdHashes.Add(
+                Convert
+                    .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(aprendizId)))
+                    .ToLowerInvariant()
+            );
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(privacyStatePath) ?? GetDataSystemFolder(appFolder)
+            );
+            File.WriteAllText(
+                privacyStatePath,
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        historyResetId,
+                        updatedAt = DateTime.Now.ToString("O"),
+                        purgedAprendizIdHashes = purgedAprendizIdHashes.Order().ToArray()
+                    },
+                    PrettyUtf8JsonOptions
+                ),
+                Encoding.UTF8
+            );
+
+            await WriteJsonAsync(
+                stream,
+                200,
+                new
+                {
+                    ok = true,
+                    fileName = control.OnUseFile,
+                    onUseFile = control.OnUseFile,
+                    recoveryReset = true,
+                    historyResetId,
+                    deletedDocumentCount
+                }
+            );
+        }
+        finally
+        {
+            DeleteFileIfExists(temporaryPath);
+        }
+    }
+
+    private static async Task ServePrivacyStateAsync(NetworkStream stream, string appFolder)
+    {
+        var privacyStatePath = GetPrivacyStatePath(appFolder);
+
+        if (!File.Exists(privacyStatePath))
+        {
+            await WriteJsonAsync(
+                stream,
+                200,
+                new { historyResetId = (string?)null }
+            );
+            return;
+        }
+
+        try
+        {
+            var state = JsonNode.Parse(await File.ReadAllTextAsync(privacyStatePath));
+            await WriteJsonAsync(
+                stream,
+                200,
+                new
+                {
+                    historyResetId = state?["historyResetId"]?.GetValue<string>(),
+                    purgedAprendizIdHashes =
+                        state?["purgedAprendizIdHashes"]?
+                            .AsArray()
+                            .Select(value => value?.GetValue<string>())
+                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                            .ToArray() ?? []
+                }
+            );
+        }
+        catch
+        {
+            await WriteJsonAsync(
+                stream,
+                200,
+                new { historyResetId = (string?)null }
+            );
+        }
+    }
+
+    private static HashSet<string> LoadPurgedAprendizIdHashes(string appFolder)
+    {
+        var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var privacyStatePath = GetPrivacyStatePath(appFolder);
+
+        if (!File.Exists(privacyStatePath))
+        {
+            return hashes;
+        }
+
+        try
+        {
+            var state = JsonNode.Parse(File.ReadAllText(privacyStatePath));
+            var hashValues = state?["purgedAprendizIdHashes"]?.AsArray();
+
+            if (hashValues is null)
+            {
+                return hashes;
+            }
+
+            foreach (var hashValue in hashValues)
+            {
+                var hash = hashValue?.GetValue<string>()?.Trim();
+
+                if (!string.IsNullOrWhiteSpace(hash))
+                {
+                    hashes.Add(hash);
+                }
+            }
+        }
+        catch
+        {
+            // A missing/corrupt optional tombstone list is treated as empty.
+        }
+
+        return hashes;
+    }
+
+    private static int DeleteAprendizDocumentFolders(
+        string appFolder,
+        string aprendizId
+    )
+    {
+        var personalDocumentFolders = new[]
+        {
+            Path.Combine(appFolder, "documentos_gerados", "aprendizes", aprendizId),
+            Path.Combine(GetDadosFolder(appFolder), "documentos", "aprendizes", aprendizId)
+        };
+        var deletedFileCount = 0;
+
+        foreach (var folder in personalDocumentFolders)
+        {
+            if (!Directory.Exists(folder))
+            {
+                continue;
+            }
+
+            deletedFileCount += Directory
+                .EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+                .Count();
+            Directory.Delete(folder, true);
+        }
+
+        return deletedFileCount;
+    }
+
     private static async Task PatchWorkbookValuesAsync(
         NetworkStream stream,
         HttpRequest request,
@@ -2479,6 +2722,11 @@ internal static class Program
     private static string GetDataIndexPath(string appFolder)
     {
         return Path.Combine(GetDataSystemFolder(appFolder), "data-index.json");
+    }
+
+    private static string GetPrivacyStatePath(string appFolder)
+    {
+        return Path.Combine(GetDataSystemFolder(appFolder), "privacy-state.json");
     }
 
     private static string GetEmentasIndexPath(string appFolder)
@@ -3336,6 +3584,37 @@ internal static class Program
             {
                 // Old same-session undo checkpoints are best-effort cleanup.
             }
+        }
+    }
+
+    private static void DeleteAllGlobalCheckpointsForPrivacy(string appFolder)
+    {
+        var checkpointsFolder = GetGlobalCheckpointsFolder(appFolder);
+
+        if (!Directory.Exists(checkpointsFolder))
+        {
+            return;
+        }
+
+        foreach (var checkpointPath in Directory.EnumerateDirectories(checkpointsFolder))
+        {
+            Directory.Delete(checkpointPath, true);
+        }
+
+        foreach (var checkpointFile in Directory.EnumerateFiles(checkpointsFolder))
+        {
+            if (
+                string.Equals(
+                    Path.GetFileName(checkpointFile),
+                    ".gitkeep",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                continue;
+            }
+
+            File.Delete(checkpointFile);
         }
     }
 

@@ -334,6 +334,15 @@ Current implementation state:
 - Presence validation should warn only for genuinely incomplete setup, such as trying to mark `Presente` on an event with no Aula selected or selecting an Aula that has no `Aulas Disciplinas` coverage rows at all. It should not block just because an Aula's coverage does not match a specific Aprendiz's Arco. In that mismatch case, the Presenca row may exist, while `Horas Aplicadas` only gets generated for coverage rows that resolve against the Aprendiz's own Plano de Ensino.
 - Shared Cronograma attendance helpers are the code-level authority for status normalization, current-presence detection, attendance drafts/selections, and historical event snapshots. Both the global Calendário and filtered Turmas surfaces must use them so warnings, snapshot contents, and historical locking cannot drift between tabs.
 
+Aprendiz departure/privacy rule:
+
+- An Aprendiz who leaves the institution is not merely hidden or marked inactive in the current product decision. `Descadastrar Aprendiz` permanently removes that person's cadastro, individual plan/progress, attendance/hour history, and personal generated/stored documents.
+- The flow requires strong explicit confirmation and cannot be undone. Recovery checkpoints, backups, and undo/action history that could restore the person are cleared as part of the same privacy operation.
+- The stable Aprendiz ID remains only as a one-way hash tombstone so importing an old workbook cannot silently reintroduce previously purged personal data.
+- Manual removal of an Aprendiz row from an externally edited workbook is blocked on import because it does not prove that linked personal data was also removed.
+
+Deletion semantics for other entities are intentionally still pending. Turma/Aula/Arco/Disciplina removal must later distinguish live planning dependencies from frozen historical snapshots. Historical `Presencas` and `Horas Aplicadas` preserve copied labels and facts even if their former live catalog record no longer exists; current plans, future events, and active assignments may instead require blocking or reassignment.
+
 ## Progress And Documents
 
 Progress should be derived/calculated from source events and historical attendance records.

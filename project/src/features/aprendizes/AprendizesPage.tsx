@@ -36,6 +36,11 @@ import {
   readSavedProgressOverlayOpen,
 } from '../../shared/data/aprendizProgressView';
 import {
+  loadAprendizPrivacyPurgePreview,
+  purgeAprendizPersonalData,
+  type AprendizPrivacyPurgePreview,
+} from '../../shared/data/aprendizPrivacy';
+import {
   APRENDIZES_REQUIRED_COLUMNS,
   AULAS_REQUIRED_COLUMNS,
   findSchemaHeaderRowIndex,
@@ -67,6 +72,7 @@ import {
 } from '../../shared/ui/GlobalWorkbookToolbar';
 import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
 import { TruncatedProgressName } from '../../shared/ui/TruncatedProgressName';
+import { AprendizPrivacyPurgeDialog } from '../../shared/ui/AprendizPrivacyPurgeDialog';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -493,6 +499,14 @@ export function AprendizesPage({
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
+  const [privacyPurgeRequest, setPrivacyPurgeRequest] = useState<{
+    aprendizId: string;
+    aprendizName: string;
+    preview: AprendizPrivacyPurgePreview;
+  } | null>(null);
+  const [privacyPurgeConfirmation, setPrivacyPurgeConfirmation] = useState('');
+  const [privacyPurgeError, setPrivacyPurgeError] = useState('');
+  const [isPrivacyPurgePending, setIsPrivacyPurgePending] = useState(false);
   const [hasRegistrationDraftValue, setHasRegistrationDraftValue] =
     useState(false);
   const [registrationDraftVersion, setRegistrationDraftVersion] = useState(0);
@@ -1018,15 +1032,23 @@ export function AprendizesPage({
     try {
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
+
+      if (shouldImportBaseWorkbook) {
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT, {
+            detail: file,
+          }),
+        );
+        return;
+      }
+
       const parsedSheet = await readSheetFile(file);
       const [nextReferenceOptions] = await Promise.all([
         applyReferenceOptionsFromFile(file),
         applyProgressSheetsFromFile(file),
       ]);
       const response = await fetch(
-        shouldImportBaseWorkbook
-          ? '/api/base-workbook/import'
-          : '/api/aprendizes/import',
+        '/api/aprendizes/import',
         {
           method: 'POST',
           headers: {
@@ -2473,53 +2495,83 @@ export function AprendizesPage({
     return nextSheet;
   };
 
-  const deleteRow = (rowIndex: number) => {
+  const requestAprendizPrivacyPurge = async (rowIndex: number) => {
     const currentSheet = latestSheetRef.current;
-    const deletedRow = currentSheet?.rows[rowIndex];
+    const row = currentSheet?.rows[rowIndex];
 
-    if (!currentSheet || !deletedRow) {
-      return null;
+    if (!currentSheet || !row) {
+      return;
     }
 
-    const nextSheet = {
-      ...currentSheet,
-      rows: currentSheet.rows.filter((_row, index) => index !== rowIndex),
-    };
-
-    pushTableUndoEntry({
-      kind: 'row-delete',
+    const aprendizId = getSheetRecordId(
+      currentSheet,
       rowIndex,
-      rowValues: deletedRow,
-    });
-    setSelectedDetailsRow(null);
-    applyRowDetailsPanelStyle({});
-    setSessionRegisteredRowIndexes((currentIndexes) =>
-      currentIndexes
-        .filter((currentRowIndex) => currentRowIndex !== rowIndex)
-        .map((currentRowIndex) =>
-          currentRowIndex > rowIndex ? currentRowIndex - 1 : currentRowIndex,
-        ),
+      APRENDIZES_ENTITY_ID,
     );
-    setHighlightedRegisteredRowIndex((currentRowIndex) => {
-      if (currentRowIndex === null || currentRowIndex === rowIndex) {
-        return null;
-      }
+    const aprendizName =
+      (getCellValue(currentSheet, rowIndex, NAME_COLUMN) ?? '').trim() ||
+      aprendizId;
 
-      return currentRowIndex > rowIndex
-        ? currentRowIndex - 1
-        : currentRowIndex;
-    });
-    storeImportedSheet(nextSheet);
-
-    return nextSheet;
+    try {
+      const preview = await loadAprendizPrivacyPurgePreview(
+        aprendizId,
+        aprendizName,
+      );
+      setPrivacyPurgeConfirmation('');
+      setPrivacyPurgeError('');
+      setPrivacyPurgeRequest({
+        aprendizId,
+        aprendizName,
+        preview,
+      });
+    } catch {
+      showInvalidImportToast(
+        'Não foi possível verificar todos os dados vinculados ao Aprendiz.',
+      );
+    }
   };
 
-  const deleteRowAndSave = (rowIndex: number) => {
-    const nextSheet = deleteRow(rowIndex);
-
-    if (nextSheet) {
-      void writeSheetToSourceFile(nextSheet);
+  const confirmAprendizPrivacyPurge = async () => {
+    if (
+      !privacyPurgeRequest ||
+      privacyPurgeConfirmation.trim() !==
+        privacyPurgeRequest.aprendizName.trim() ||
+      isPrivacyPurgePending
+    ) {
+      return;
     }
+
+    setIsPrivacyPurgePending(true);
+    setPrivacyPurgeError('');
+
+    try {
+      await purgeAprendizPersonalData(
+        privacyPurgeRequest.aprendizId,
+        privacyPurgeRequest.aprendizName,
+      );
+      setSelectedDetailsRow(null);
+      applyRowDetailsPanelStyle({});
+      setSessionRegisteredRowIndexes([]);
+      setHighlightedRegisteredRowIndex(null);
+      setPrivacyPurgeRequest(null);
+      setPrivacyPurgeConfirmation('');
+    } catch {
+      setPrivacyPurgeError(
+        'A exclusão não foi concluída. Os dados ativos foram preservados ou a operação precisa ser repetida.',
+      );
+    } finally {
+      setIsPrivacyPurgePending(false);
+    }
+  };
+
+  const cancelAprendizPrivacyPurge = () => {
+    if (isPrivacyPurgePending) {
+      return;
+    }
+
+    setPrivacyPurgeRequest(null);
+    setPrivacyPurgeConfirmation('');
+    setPrivacyPurgeError('');
   };
 
   const beginCellEdit = (
@@ -4597,7 +4649,11 @@ export function AprendizesPage({
                   type="button"
                   aria-label="Descadastrar aprendiz"
                   title="Descadastrar Aprendiz"
-                  onClick={() => deleteRowAndSave(selectedDetailsRow.rowIndex)}
+                  onClick={() =>
+                    void requestAprendizPrivacyPurge(
+                      selectedDetailsRow.rowIndex,
+                    )
+                  }
                 >
                   <UserXIcon />
                 </button>
@@ -5140,7 +5196,9 @@ export function AprendizesPage({
                             aria-label="Descadastrar aprendiz"
                             title="Descadastrar Aprendiz"
                             onClick={() =>
-                              deleteRowAndSave(selectedDetailsRow.rowIndex)
+                              void requestAprendizPrivacyPurge(
+                                selectedDetailsRow.rowIndex,
+                              )
                             }
                           >
                             <UserXIcon />
@@ -5231,6 +5289,19 @@ export function AprendizesPage({
         </div>
       )}
       </div>
+
+      {privacyPurgeRequest && (
+        <AprendizPrivacyPurgeDialog
+          aprendizName={privacyPurgeRequest.aprendizName}
+          confirmationValue={privacyPurgeConfirmation}
+          error={privacyPurgeError}
+          isPending={isPrivacyPurgePending}
+          preview={privacyPurgeRequest.preview}
+          onCancel={cancelAprendizPrivacyPurge}
+          onChangeConfirmation={setPrivacyPurgeConfirmation}
+          onConfirm={() => void confirmAprendizPrivacyPurge()}
+        />
+      )}
 
       {isRecoveryDialogOpen && (
         <div

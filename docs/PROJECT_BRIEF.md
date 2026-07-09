@@ -42,7 +42,10 @@ Build dev local app package: cd project && npm run build:single
 Open/test dev package: project/dev/SejaElevar.exe
 Package tested dev app as local release only when user asks: cd project && npm run export:release
 Open local release: exports/SejaElevar/SejaElevar.exe
-Test: no dedicated test suite yet; use npm run build:single as the normal dev verification check. Use npm run export:release only when the user asks for a release/export/package.
+Unit/data integrity tests: `npm test`
+Isolated real-provider privacy smoke: `npm run test:privacy-provider`
+Build/package verification: `npm run build:single`
+Use `npm run export:release` only when the user asks for a release/export/package.
 ```
 
 Do not treat `dist/` as source; it is a generated build output.
@@ -59,6 +62,7 @@ Dev and release are parallel app packages. Tracked `project/dev/` is the normal 
 - The `.xlsx` workbook remains the source of truth. The app also generates `dados/sistema/data-index.json` as disposable working memory for search, document generation, and cross-tool variables. Future tools should consume that generated index or a storage adapter, not scrape visible table cells.
 - Imported/source workbooks can contain a hidden app-owned `ID SejaElevar (não editar)` column. This internal ID is not part of the user-facing table/search fields, but it should be used by the app for stable references and future relationships when available.
 - Real student/person/company data may be sensitive. Do not commit real operational data unless the user explicitly decides that the repository/privacy setup makes that acceptable.
+- `Descadastrar Aprendiz` is an irreversible privacy purge, not a normal undoable row delete. It removes the person's managed academic/history rows and personal document folders, clears recoverable copies and undo/action history, and records only a hashed stable-ID tombstone to prevent an old workbook from silently reintroducing purged data. Imports that manually remove an existing Aprendiz must be blocked and directed to this in-app flow.
 - Keep any sample/anonymized demo data separate from private local data. Demo data is optional and should not replace the real local workspace concept.
 - Design the storage boundary so future adapters can target Google Drive synced folders, Google Sheets/Drive APIs, a hosted database, or another backend without rewriting every UI feature.
 - The app should support choosing/importing a workspace. Missing required data should lead to a clear import/setup flow rather than a crash; for Aprendizes, missing a selected workbook means the table stays empty and asks for import, but the import state should not flash while an existing workbook is still being checked/loaded.

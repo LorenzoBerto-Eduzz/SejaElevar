@@ -30,6 +30,8 @@ import {
   fetchBaseWorkbookFile,
   readWorkbookSheetFile,
 } from './workspaceData';
+import { inspectManagedWorkbookDependencies } from './dependencyInspector';
+import { getSheetRecordId } from './stableIds';
 
 export type DataHealthSeverity = 'error' | 'warning' | 'info';
 
@@ -112,7 +114,7 @@ const SHEET_DEFINITIONS = {
   },
 } as const satisfies Record<string, SheetDefinition>;
 
-type HealthSheets = {
+export type ManagedWorkbookSheets = {
   aprendizes: SheetTable;
   turmas: SheetTable;
   arcos: SheetTable;
@@ -150,7 +152,9 @@ const readHealthSheet = async (file: File, definition: SheetDefinition) => {
   }
 };
 
-const readHealthSheets = async (file: File): Promise<HealthSheets> => ({
+export const readManagedWorkbookSheets = async (
+  file: File,
+): Promise<ManagedWorkbookSheets> => ({
   aprendizes: await readHealthSheet(file, SHEET_DEFINITIONS.aprendizes),
   turmas: await readHealthSheet(file, SHEET_DEFINITIONS.turmas),
   arcos: await readHealthSheet(file, SHEET_DEFINITIONS.arcos),
@@ -226,7 +230,7 @@ const pushIssue = (
 };
 
 const getCoverageDisciplineIds = (
-  sheets: HealthSheets,
+  sheets: ManagedWorkbookSheets,
   aulaId: string,
   aulaName: string,
 ) => {
@@ -248,7 +252,7 @@ const getCoverageDisciplineIds = (
 };
 
 const hasMatchingAppliedHours = (
-  sheets: HealthSheets,
+  sheets: ManagedWorkbookSheets,
   presencaId: string,
   aprendizId: string,
   coveredDisciplineIds: Set<string>,
@@ -277,7 +281,7 @@ const hasMatchingAppliedHours = (
     );
   });
 
-const buildDataHealthIssues = (sheets: HealthSheets) => {
+export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
   const issues: DataHealthIssue[] = [];
   const arcoNames = createLookup(sheets.arcos, 'Arco');
   const turmaNames = createLookup(sheets.turmas, 'Turma');
@@ -285,9 +289,13 @@ const buildDataHealthIssues = (sheets: HealthSheets) => {
   const aulaNames = createLookup(sheets.aulas, 'Aula');
   const presentePresencaIds = new Set<string>();
 
-  sheets.aprendizes.rows.forEach((row) => {
+  sheets.aprendizes.rows.forEach((row, rowIndex) => {
     const aprendiz = getCellValue(sheets.aprendizes, row, 'Nome') || 'Aprendiz';
-    const aprendizId = getCellValue(sheets.aprendizes, row, 'ID');
+    const aprendizId = getSheetRecordId(
+      sheets.aprendizes,
+      rowIndex,
+      APRENDIZES_ENTITY_ID,
+    );
     const arco = getCellValue(sheets.aprendizes, row, 'Arco de Aprendizagem');
     const turma = getCellValue(sheets.aprendizes, row, 'Turma');
 
@@ -500,6 +508,15 @@ const buildDataHealthIssues = (sheets: HealthSheets) => {
     }
   });
 
+  inspectManagedWorkbookDependencies(sheets).forEach((issue) => {
+    pushIssue(issues, {
+      severity: issue.severity,
+      area: issue.area,
+      title: issue.title,
+      detail: issue.detail,
+    });
+  });
+
   return issues;
 };
 
@@ -515,7 +532,7 @@ export const readDataHealthReport = async (): Promise<DataHealthReport> => {
     };
   }
 
-  const sheets = await readHealthSheets(file);
+  const sheets = await readManagedWorkbookSheets(file);
 
   return {
     hasWorkbook: true,

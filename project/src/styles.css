@@ -3748,6 +3748,79 @@ svg {
   filter: brightness(0.9);
 }
 
+.aprendiz-privacy-dialog {
+  width: min(620px, 100%);
+}
+
+.aprendiz-privacy-dialog-body {
+  display: grid;
+  gap: 14px;
+}
+
+.aprendiz-privacy-dialog-body ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 22px;
+  font-size: 0.9rem;
+}
+
+.aprendiz-privacy-warning {
+  color: var(--brand-delete-hint);
+  font-weight: 700;
+}
+
+.aprendiz-privacy-confirmation {
+  display: grid;
+  gap: 7px;
+  font-size: 0.88rem;
+}
+
+.aprendiz-privacy-confirmation input {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--brand-line);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--brand-text);
+  background: var(--brand-panel);
+  font: inherit;
+}
+
+.aprendiz-privacy-confirmation input:focus {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.aprendiz-privacy-error {
+  color: var(--brand-delete-hint);
+}
+
+.recovery-dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.7fr;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.recovery-dialog-actions button {
+  min-height: 40px;
+  border-radius: 6px;
+}
+
+.recovery-dialog-actions .recovery-confirm-action {
+  width: auto;
+  min-height: 40px;
+  margin-top: 0;
+}
+
+.aprendiz-privacy-confirm-action,
+.aprendiz-privacy-confirm-action:hover,
+.aprendiz-privacy-confirm-action:focus-visible {
+  color: #fff;
+  background: var(--brand-delete-hint);
+}
+
 .turma-header-dropdown {
   --turma-header-field-hover-background: color-mix(
     in srgb,

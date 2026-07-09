@@ -80,6 +80,11 @@ import {
   readSavedProgressOverlayOpen,
 } from '../../shared/data/aprendizProgressView';
 import {
+  loadAprendizPrivacyPurgePreview,
+  purgeAprendizPersonalData,
+  type AprendizPrivacyPurgePreview,
+} from '../../shared/data/aprendizPrivacy';
+import {
   CronogramaEventBlock,
   type CronogramaEventField,
 } from '../cronograma/CronogramaEventBlock';
@@ -143,6 +148,7 @@ import {
 import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
 import { MonthYearPicker } from '../../shared/ui/MonthYearPicker';
 import { TruncatedProgressName } from '../../shared/ui/TruncatedProgressName';
+import { AprendizPrivacyPurgeDialog } from '../../shared/ui/AprendizPrivacyPurgeDialog';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -1572,6 +1578,14 @@ export function TurmasPage({
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(null);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [isRecoveringBackup, setIsRecoveringBackup] = useState(false);
+  const [privacyPurgeRequest, setPrivacyPurgeRequest] = useState<{
+    aprendizId: string;
+    aprendizName: string;
+    preview: AprendizPrivacyPurgePreview;
+  } | null>(null);
+  const [privacyPurgeConfirmation, setPrivacyPurgeConfirmation] = useState('');
+  const [privacyPurgeError, setPrivacyPurgeError] = useState('');
+  const [isPrivacyPurgePending, setIsPrivacyPurgePending] = useState(false);
   const [expandedTurmas, setExpandedTurmas] = useState<Record<string, boolean>>(
     {},
   );
@@ -3183,27 +3197,80 @@ export function TurmasPage({
     return true;
   };
 
-  const deleteStudentAndSave = (rowIndex: number) => {
-    if (!aprendizesSheet) {
+  const requestAprendizPrivacyPurge = async (rowIndex: number) => {
+    const currentSheet = latestAprendizesSheetRef.current;
+    const row = currentSheet?.rows[rowIndex];
+
+    if (!currentSheet || !row) {
       return;
     }
 
-    const nextSheet = {
-      ...aprendizesSheet,
-      rows: aprendizesSheet.rows.filter((_, currentRowIndex) => {
-        return currentRowIndex !== rowIndex;
-      }),
-    };
-
-    pushTableUndoEntry({
-      kind: 'row-delete',
+    const aprendizId = getSheetRecordId(
+      currentSheet,
       rowIndex,
-      rowValues: aprendizesSheet.rows[rowIndex],
-    });
-    setAprendizesSheet(nextSheet);
-    setSelectedStudentRowIndex(null);
-    applyRowDetailsPanelStyle({});
-    void writeAprendizesSheetToSourceFile(nextSheet);
+      APRENDIZES_ENTITY_ID,
+    );
+    const aprendizName =
+      getCellValue(currentSheet, row, NAME_COLUMN).trim() || aprendizId;
+
+    try {
+      const preview = await loadAprendizPrivacyPurgePreview(
+        aprendizId,
+        aprendizName,
+      );
+      setPrivacyPurgeConfirmation('');
+      setPrivacyPurgeError('');
+      setPrivacyPurgeRequest({
+        aprendizId,
+        aprendizName,
+        preview,
+      });
+    } catch {
+      showInvalidImportToast(
+        'Não foi possível verificar todos os dados vinculados ao Aprendiz.',
+      );
+    }
+  };
+
+  const confirmAprendizPrivacyPurge = async () => {
+    if (
+      !privacyPurgeRequest ||
+      privacyPurgeConfirmation.trim() !==
+        privacyPurgeRequest.aprendizName.trim() ||
+      isPrivacyPurgePending
+    ) {
+      return;
+    }
+
+    setIsPrivacyPurgePending(true);
+    setPrivacyPurgeError('');
+
+    try {
+      await purgeAprendizPersonalData(
+        privacyPurgeRequest.aprendizId,
+        privacyPurgeRequest.aprendizName,
+      );
+      setSelectedStudentRowIndex(null);
+      applyRowDetailsPanelStyle({});
+      setPrivacyPurgeRequest(null);
+      setPrivacyPurgeConfirmation('');
+    } catch {
+      setPrivacyPurgeError(
+        'A exclusão não foi concluída. Os dados ativos foram preservados ou a operação precisa ser repetida.',
+      );
+    } finally {
+      setIsPrivacyPurgePending(false);
+    }
+  };
+
+  const cancelAprendizPrivacyPurge = () => {
+    if (isPrivacyPurgePending) {
+      return;
+    }
+
+    setPrivacyPurgeRequest(null);
+    setPrivacyPurgeConfirmation('');
+    setPrivacyPurgeError('');
   };
 
   const focusStudentDetailsField = (
@@ -5399,6 +5466,16 @@ export function TurmasPage({
     try {
       const previousUndoStack = getGlobalUndoBoundarySnapshot();
       const shouldImportBaseWorkbook = await isUnifiedWorkbookFile(file);
+
+      if (shouldImportBaseWorkbook) {
+        window.dispatchEvent(
+          new CustomEvent(GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT, {
+            detail: file,
+          }),
+        );
+        return;
+      }
+
       const parsedSheet = await readSheetFile(
         file,
         TURMAS_ENTITY_ID,
@@ -5408,7 +5485,7 @@ export function TurmasPage({
         },
       );
       const response = await fetch(
-        shouldImportBaseWorkbook ? '/api/base-workbook/import' : '/api/turmas/import',
+        '/api/turmas/import',
         {
           method: 'POST',
           headers: {
@@ -8448,7 +8525,9 @@ export function TurmasPage({
                         title="Descadastrar Aprendiz"
                         onClick={() => {
                           if (selectedStudentRowIndex !== null) {
-                            deleteStudentAndSave(selectedStudentRowIndex);
+                            void requestAprendizPrivacyPurge(
+                              selectedStudentRowIndex,
+                            );
                           }
                         }}
                       >
@@ -8510,6 +8589,19 @@ export function TurmasPage({
         <div className="app-warning-toast" role="status" aria-live="polite">
           {invalidImportToast}
         </div>
+      )}
+
+      {privacyPurgeRequest && (
+        <AprendizPrivacyPurgeDialog
+          aprendizName={privacyPurgeRequest.aprendizName}
+          confirmationValue={privacyPurgeConfirmation}
+          error={privacyPurgeError}
+          isPending={isPrivacyPurgePending}
+          preview={privacyPurgeRequest.preview}
+          onCancel={cancelAprendizPrivacyPurge}
+          onChangeConfirmation={setPrivacyPurgeConfirmation}
+          onConfirm={() => void confirmAprendizPrivacyPurge()}
+        />
       )}
 
       {turmaDeleteConfirmation && (

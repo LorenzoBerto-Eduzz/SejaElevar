@@ -17,6 +17,11 @@ import {
   validateGlobalWorkbookFile,
 } from '../data/workspaceData';
 import {
+  formatWorkbookIntegrityToast,
+} from '../data/dependencyInspector';
+import { validateWorkbookImportIntegrity } from '../data/workbookImportIntegrity';
+import { syncPrivacyHistoryReset } from '../data/aprendizPrivacy';
+import {
   getGlobalUndoBoundarySnapshot,
   pushGlobalBoundaryUndoEntry,
   pushGlobalUndoEntry,
@@ -243,6 +248,8 @@ export function GlobalWorkbookToolbar({
   };
 
   useEffect(() => {
+    void syncPrivacyHistoryReset();
+
     const unsubscribe = subscribeToGlobalToolbarState(() => {
       setHasWorkbook(latestGlobalToolbarState.hasWorkbook);
       setRecoveryInfo(latestGlobalToolbarState.recoveryInfo);
@@ -329,6 +336,7 @@ export function GlobalWorkbookToolbar({
       previousUndoStack = getGlobalUndoBoundarySnapshot();
       await validateGlobalWorkbookFile(file);
       const preparedWorkbook = await prepareManagedWorkbookFile(file);
+      await validateWorkbookImportIntegrity(preparedWorkbook.file);
       const fileBuffer = preparedWorkbook.buffer;
 
       const response = await fetch('/api/base-workbook/import', {
@@ -362,7 +370,10 @@ export function GlobalWorkbookToolbar({
       await persistManagedWorkbookDataIndexes(importedWorkbookFile);
       importSucceeded = true;
     } catch (error) {
-      showInvalidImportToast(formatWorkbookValidationToast(error));
+      showInvalidImportToast(
+        formatWorkbookIntegrityToast(error) ??
+          formatWorkbookValidationToast(error),
+      );
       return;
     }
 
