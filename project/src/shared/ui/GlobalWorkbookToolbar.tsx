@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   GLOBAL_DATA_CHANGED_EVENT,
@@ -27,7 +27,10 @@ import {
   pushGlobalUndoEntry,
 } from '../undo/globalUndo';
 import { ThemeToggleButton } from './ThemeToggleButton';
+import { DataHealthButton } from './DataHealthButton';
 import { useTimedToast } from './useTimedToast';
+
+export const OPEN_GLOBAL_RECOVERY_EVENT = 'sejaelevar:open-global-recovery';
 
 type GlobalToolbarState = {
   hasWorkbook: boolean;
@@ -182,12 +185,20 @@ type GlobalWorkbookToolbarProps = {
   className?: string;
   includeThemeToggle?: boolean;
   listenForImportRequests?: boolean;
+  listenForRecoveryRequests?: boolean;
+  showDataHealthButton?: boolean;
+  showRecoveryButton?: boolean;
+  trailingActions?: ReactNode;
 };
 
 export function GlobalWorkbookToolbar({
   className = '',
   includeThemeToggle = true,
   listenForImportRequests = true,
+  listenForRecoveryRequests = true,
+  showDataHealthButton = false,
+  showRecoveryButton = true,
+  trailingActions = null,
 }: GlobalWorkbookToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [hasWorkbook, setHasWorkbook] = useState(
@@ -281,6 +292,11 @@ export function GlobalWorkbookToolbar({
 
       importFromPicker();
     };
+    const handleRecoveryRequest = () => {
+      if (latestGlobalToolbarState.recoveryInfo?.canRecover) {
+        setIsRecoveryDialogOpen(true);
+      }
+    };
 
     window.addEventListener(GLOBAL_DATA_CHANGED_EVENT, handleGlobalDataChanged);
     window.addEventListener(
@@ -291,6 +307,12 @@ export function GlobalWorkbookToolbar({
       window.addEventListener(
         GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
         handleImportRequest,
+      );
+    }
+    if (listenForRecoveryRequests) {
+      window.addEventListener(
+        OPEN_GLOBAL_RECOVERY_EVENT,
+        handleRecoveryRequest,
       );
     }
 
@@ -307,6 +329,12 @@ export function GlobalWorkbookToolbar({
         window.removeEventListener(
           GLOBAL_WORKBOOK_IMPORT_REQUEST_EVENT,
           handleImportRequest,
+        );
+      }
+      if (listenForRecoveryRequests) {
+        window.removeEventListener(
+          OPEN_GLOBAL_RECOVERY_EVENT,
+          handleRecoveryRequest,
         );
       }
       unsubscribe();
@@ -610,20 +638,24 @@ export function GlobalWorkbookToolbar({
         >
           <ExportIcon />
         </button>
-        <button
-          className={
-            canRecoverBackup
-              ? 'square-action'
-              : 'square-action disabled'
-          }
-          type="button"
-          aria-label="Recuperar dados"
-          title="Recuperar Dados"
-          disabled={!canRecoverBackup}
-          onClick={() => setIsRecoveryDialogOpen(true)}
-        >
-          <RotateClockwiseIcon />
-        </button>
+        {showRecoveryButton && (
+          <button
+            className={
+              canRecoverBackup
+                ? 'square-action'
+                : 'square-action disabled'
+            }
+            type="button"
+            aria-label="Recuperar dados"
+            title="Recuperar Dados"
+            disabled={!canRecoverBackup}
+            onClick={() => setIsRecoveryDialogOpen(true)}
+          >
+            <RotateClockwiseIcon />
+          </button>
+        )}
+        {showDataHealthButton && <DataHealthButton placement="toolbar" />}
+        {trailingActions}
         {includeThemeToggle && <ThemeToggleButton />}
       </span>
 

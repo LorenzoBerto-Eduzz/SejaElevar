@@ -9,7 +9,11 @@ import type { AppBrand } from '../brand/appBrand';
 import type { AppTab, NavigationIcon, NavigationTab } from '../navigation/tabs';
 import { TOGGLE_ACTION_HISTORY_EVENT } from '../actionLog/ActionLogOverlay';
 import { APP_VERSION } from '../appVersion';
-import { DataHealthButton } from './DataHealthButton';
+import {
+  DATA_HEALTH_PANEL_CLOSE_EVENT,
+  DATA_HEALTH_PANEL_OPEN_EVENT,
+  DataHealthButton,
+} from './DataHealthButton';
 import { GlobalWorkbookToolbar } from './GlobalWorkbookToolbar';
 import { ThemeToggleButton } from './ThemeToggleButton';
 import {
@@ -101,6 +105,27 @@ export function AppShell({
 
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [isSearchOpen, isSidebarCollapsed]);
+
+  useEffect(() => {
+    const closeCompetingPanels = () => {
+      setIsSearchOpen(false);
+      setIsSettingsOpen(false);
+      if (isSidebarCollapsed) {
+        setIsMiniMenuOpen(true);
+      }
+    };
+
+    window.addEventListener(
+      DATA_HEALTH_PANEL_OPEN_EVENT,
+      closeCompetingPanels,
+    );
+
+    return () =>
+      window.removeEventListener(
+        DATA_HEALTH_PANEL_OPEN_EVENT,
+        closeCompetingPanels,
+      );
+  }, [isSidebarCollapsed]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -287,6 +312,7 @@ export function AppShell({
       const nextOpen = !current;
       if (nextOpen) {
         setIsSettingsOpen(false);
+        window.dispatchEvent(new Event(DATA_HEALTH_PANEL_CLOSE_EVENT));
       }
       return nextOpen;
     });
@@ -297,6 +323,9 @@ export function AppShell({
       const nextOpen = !current;
       setIsSettingsOpen(false);
       setIsMiniMenuOpen(true);
+      if (nextOpen) {
+        window.dispatchEvent(new Event(DATA_HEALTH_PANEL_CLOSE_EVENT));
+      }
 
       if (!nextOpen && isSidebarCollapsed) {
         setIsMiniMenuArmed(true);
@@ -310,6 +339,9 @@ export function AppShell({
     setIsSettingsOpen((current) => {
       const nextOpen = !current;
       setIsSearchOpen(false);
+      if (nextOpen) {
+        window.dispatchEvent(new Event(DATA_HEALTH_PANEL_CLOSE_EVENT));
+      }
 
       if (nextOpen) {
         setIsMiniMenuOpen(true);
@@ -500,19 +532,23 @@ export function AppShell({
         </nav>
 
         <div className="sidebar-actions" aria-label={"A\u00e7\u00f5es do aplicativo"}>
-          <button
-            className="icon-action square-menu-action history-menu-action"
-            type="button"
-            aria-label={"Hist\u00f3rico"}
-            title={"Hist\u00f3rico"}
-            onClick={toggleActionHistory}
-          >
-            <HistoryIcon />
-            <span>{"Hist\u00f3rico"}</span>
-          </button>
+          <DataHealthButton placement="toolbar" />
           <GlobalWorkbookToolbar
             className="sidebar-data-actions"
             includeThemeToggle={false}
+            showRecoveryButton={false}
+            trailingActions={
+              <button
+                className="icon-action square-menu-action history-menu-action"
+                type="button"
+                aria-label={"Hist\u00f3rico"}
+                title={"Hist\u00f3rico"}
+                onClick={toggleActionHistory}
+              >
+                <HistoryIcon />
+                <span>{"Hist\u00f3rico"}</span>
+              </button>
+            }
           />
           <span className="sidebar-action-spacer" aria-hidden="true" />
           <button
@@ -523,6 +559,7 @@ export function AppShell({
             aria-expanded={isSettingsOpen}
             onClick={() => {
               setIsSearchOpen(false);
+              window.dispatchEvent(new Event(DATA_HEALTH_PANEL_CLOSE_EVENT));
               setIsSettingsOpen((current) => !current);
             }}
           >
@@ -612,23 +649,28 @@ export function AppShell({
             <SearchIcon />
             <span>Pesquisar</span>
           </button>
-          <button
-            className="icon-action square-menu-action history-menu-action"
-            type="button"
-            aria-label={"Hist\u00f3rico"}
-            title={"Hist\u00f3rico"}
-            onClick={() => {
-              setIsMiniMenuArmed(false);
-              toggleActionHistory();
-            }}
-          >
-            <HistoryIcon />
-            <span>{"Hist\u00f3rico"}</span>
-          </button>
+          <DataHealthButton placement="toolbar" />
           <GlobalWorkbookToolbar
             className="mini-global-data-actions"
             includeThemeToggle={false}
             listenForImportRequests={false}
+            listenForRecoveryRequests={false}
+            showRecoveryButton={false}
+            trailingActions={
+              <button
+                className="icon-action square-menu-action history-menu-action"
+                type="button"
+                aria-label={"Hist\u00f3rico"}
+                title={"Hist\u00f3rico"}
+                onClick={() => {
+                  setIsMiniMenuArmed(false);
+                  toggleActionHistory();
+                }}
+              >
+                <HistoryIcon />
+                <span>{"Hist\u00f3rico"}</span>
+              </button>
+            }
           />
         </div>
 
@@ -654,6 +696,7 @@ export function AppShell({
             <CollapseIcon
               direction={isSidebarCollapsed ? 'show' : 'hide'}
               offset={settings.layout.collapseIconOffset}
+              verticalOffset={settings.layout.collapseIconVerticalOffset}
             />
           </span>
           <span className="collapse-label">Ocultar</span>
@@ -983,6 +1026,28 @@ export function AppShell({
                   onReset={() => resetLayout('aulasCoverageGap')}
                   className="dev-visible-slider-field"
                 />
+                <SliderField
+                  label="Icone Ocultar X"
+                  min={-12}
+                  max={12}
+                  step={1}
+                  value={settings.layout.collapseIconOffset}
+                  onChange={(value) => updateLayout('collapseIconOffset', value)}
+                  onReset={() => resetLayout('collapseIconOffset')}
+                  className="dev-visible-slider-field"
+                />
+                <SliderField
+                  label="Icone Ocultar Y"
+                  min={-12}
+                  max={12}
+                  step={1}
+                  value={settings.layout.collapseIconVerticalOffset}
+                  onChange={(value) =>
+                    updateLayout('collapseIconVerticalOffset', value)
+                  }
+                  onReset={() => resetLayout('collapseIconVerticalOffset')}
+                  className="dev-visible-slider-field"
+                />
               </>
             )}
             {false && !isReleaseMode && (
@@ -1048,6 +1113,17 @@ export function AppShell({
                   value={settings.layout.collapseIconOffset}
                   onChange={(value) => updateLayout('collapseIconOffset', value)}
                   onReset={() => resetLayout('collapseIconOffset')}
+                />
+                <SliderField
+                  label="Icone Ocultar Y"
+                  min={-12}
+                  max={12}
+                  step={1}
+                  value={settings.layout.collapseIconVerticalOffset}
+                  onChange={(value) =>
+                    updateLayout('collapseIconVerticalOffset', value)
+                  }
+                  onReset={() => resetLayout('collapseIconVerticalOffset')}
                 />
                 <SliderField
                   label="Texto Ocultar X"
@@ -1371,8 +1447,6 @@ export function AppShell({
         </div>
       )}
 
-      <DataHealthButton />
-
       <main className="app-content">{children}</main>
     </div>
   );
@@ -1615,14 +1689,19 @@ function CloseIcon() {
 type CollapseIconProps = {
   direction?: 'hide' | 'show';
   offset: number;
+  verticalOffset: number;
 };
 
-function CollapseIcon({ direction = 'hide', offset }: CollapseIconProps) {
+function CollapseIcon({
+  direction = 'hide',
+  offset,
+  verticalOffset,
+}: CollapseIconProps) {
   return (
     <svg
       viewBox="0 0 24 24"
       aria-hidden="true"
-      style={{ transform: `translateX(${offset}px)` }}
+      style={{ transform: `translate(${offset}px, ${verticalOffset}px)` }}
     >
       <path d="M5 5h14v14H5V5Z" />
       <path d="M10 5v14" />

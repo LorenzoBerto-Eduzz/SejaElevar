@@ -12,7 +12,6 @@ import {
   ARCOS_ENTITY_ID,
   CRONOGRAMA_ENTITY_ID,
   DISCIPLINAS_ENTITY_ID,
-  PRESENCAS_ENTITY_ID,
   type SheetTable,
 } from '../../shared/data/dataIndex';
 import { GLOBAL_DATA_CHANGED_EVENT } from '../../shared/data/events';
@@ -22,7 +21,6 @@ import {
   ARCOS_REQUIRED_COLUMNS,
   CRONOGRAMA_REQUIRED_COLUMNS,
   DISCIPLINAS_REQUIRED_COLUMNS,
-  PRESENCAS_REQUIRED_COLUMNS,
   normalizeFieldLabel,
 } from '../../shared/data/schemas';
 import {
@@ -61,6 +59,14 @@ import {
   type GlobalUndoEntry,
 } from '../../shared/undo/globalUndo';
 import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportState';
+import {
+  analyzeAulaDeletion,
+  getAulaDeletionBlockingMessage,
+  type AulaDeletionAnalysis,
+} from '../../shared/data/catalogDeletionPolicy';
+import { readManagedWorkbookSheets } from '../../shared/data/dataHealth';
+import { DependencyAwareDeleteDialog } from '../../shared/ui/DependencyAwareDeleteDialog';
+import { useTimedToast } from '../../shared/ui/useTimedToast';
 
 type AulasPageProps = {
   canInitialize?: boolean;
@@ -96,12 +102,6 @@ const AULA_NAME_COLUMN = 'Aula';
 const AULA_COLOR_COLUMN = 'Cor';
 const AULA_DEFAULT_INSTRUCTOR_COLUMN = 'Instrutor Padrão';
 const AULA_DEFAULT_ROOM_COLUMN = 'Sala Padrão';
-const CRONOGRAMA_LESSON_ID_COLUMN = 'Aula ID';
-const CRONOGRAMA_LESSON_COLUMN = 'Aula';
-const CRONOGRAMA_ID_COLUMN = 'ID';
-const CRONOGRAMA_COLOR_COLUMN = 'Cor';
-const PRESENCA_STATUS_COLUMN = 'Status Presença';
-const PRESENCA_EVENT_ID_COLUMN = 'Evento ID';
 const DEFAULT_AULA_COLOR = '#2069df';
 const AULA_COLOR_HISTORY_STORAGE_KEY = 'sejaelevar.aulas.colorHistory.v1';
 const AULA_COLOR_HISTORY_LIMIT = 29;
@@ -365,7 +365,9 @@ export function AulasPage({
   const [editingCoverageId, setEditingCoverageId] = useState('');
   const [aulaDeleteConfirmation, setAulaDeleteConfirmation] = useState<{
     aula: AulaItem;
+    analysis: AulaDeletionAnalysis;
   } | null>(null);
+  const { message: warningToast, showToast: showWarningToast } = useTimedToast();
   const latestAulasSheetRef = useRef<SheetTable | null>(null);
   const latestCoverageSheetRef = useRef<SheetTable | null>(null);
   const latestArcosSheetRef = useRef<SheetTable | null>(null);
@@ -835,59 +837,6 @@ export function AulasPage({
       return '';
     });
 
-  const matchesAulaReference = (
-    sheet: SheetTable,
-    row: string[],
-    aulaId: string,
-    aulaName: string,
-    idColumn: string,
-    nameColumn: string,
-  ) => {
-    const rowAulaId = getCellValue(sheet, row, idColumn);
-    const rowAulaName = getCellValue(sheet, row, nameColumn);
-
-    return (
-      (!!aulaId && rowAulaId === aulaId) ||
-      (!rowAulaId &&
-        !!aulaName &&
-        normalizeWorkbookOptionKey(rowAulaName) ===
-          normalizeWorkbookOptionKey(aulaName))
-    );
-  };
-
-  const eventHasConfirmedPresence = (
-    presencasSheet: SheetTable,
-    eventId: string,
-  ) =>
-    presencasSheet.rows.some((row) => {
-      if (
-        !eventId ||
-        getCellValue(presencasSheet, row, PRESENCA_EVENT_ID_COLUMN) !== eventId
-      ) {
-        return false;
-      }
-
-      return (
-        normalizeFieldLabel(getCellValue(presencasSheet, row, PRESENCA_STATUS_COLUMN)) ===
-        normalizeFieldLabel('Presente')
-      );
-    });
-
-  const clearCronogramaAulaReference = (sheet: SheetTable, row: string[]) =>
-    sheet.columns.map((column, columnIndex) => {
-      const columnKey = normalizeFieldLabel(column);
-
-      if (
-        columnKey === normalizeFieldLabel(CRONOGRAMA_LESSON_ID_COLUMN) ||
-        columnKey === normalizeFieldLabel(CRONOGRAMA_LESSON_COLUMN) ||
-        columnKey === normalizeFieldLabel(CRONOGRAMA_COLOR_COLUMN)
-      ) {
-        return '';
-      }
-
-      return String(row[columnIndex] ?? '');
-    });
-
   const addAulaCoverage = async (aula: AulaItem, option: AulaCoverageOption) => {
     const currentSheet =
       latestCoverageSheetRef.current ??
@@ -1242,6 +1191,39 @@ export function AulasPage({
     });
   };
 
+  const requestAulaDeletion = async (aula: AulaItem) => {
+    if (aula.isDraft) {
+      setDraftAula(null);
+      return;
+    }
+
+    try {
+      const sourceFile = await fetchBaseWorkbookFile();
+
+      if (!sourceFile) {
+        throw new Error('missing-active-workbook');
+      }
+
+      const analysis = analyzeAulaDeletion(
+        await readManagedWorkbookSheets(sourceFile),
+        {
+          id: aula.id,
+          name: aula.name,
+        },
+      );
+
+      setAulaDeleteConfirmation({ aula, analysis });
+
+      if (analysis.blocked) {
+        showWarningToast(getAulaDeletionBlockingMessage(analysis));
+      }
+    } catch {
+      showWarningToast(
+        'Não foi possível verificar os vínculos desta Aula.',
+      );
+    }
+  };
+
   const deleteAulaAndSave = async (
     aula: AulaItem,
     options: { registerUndo?: boolean } = {},
@@ -1279,59 +1261,33 @@ export function AulasPage({
       return false;
     }
 
-    const coverageSheet = await readWorkbookSheetWithFallback(
-      sourceFile,
-      AULAS_DISCIPLINAS_ENTITY_ID,
-      AULAS_DISCIPLINAS_WORKBOOK_SHEET,
-      AULAS_DISCIPLINAS_REQUIRED_COLUMNS,
-    );
-    const cronogramaSheet = await readWorkbookSheetWithFallback(
-      sourceFile,
-      CRONOGRAMA_ENTITY_ID,
-      CRONOGRAMA_WORKBOOK_SHEET,
-      CRONOGRAMA_REQUIRED_COLUMNS,
-    );
-    const presencasSheet = await readWorkbookSheetWithFallback(
-      sourceFile,
-      PRESENCAS_ENTITY_ID,
-      'Presencas',
-      PRESENCAS_REQUIRED_COLUMNS,
-    );
+    const managedSheets = await readManagedWorkbookSheets(sourceFile);
+    const deletionAnalysis = analyzeAulaDeletion(managedSheets, {
+      id: deletedAulaId,
+      name: deletedAulaName,
+    });
 
+    if (deletionAnalysis.blocked) {
+      setAulaDeleteConfirmation({
+        aula,
+        analysis: deletionAnalysis,
+      });
+      showWarningToast(getAulaDeletionBlockingMessage(deletionAnalysis));
+      return false;
+    }
+
+    const coverageSheet = managedSheets.aulasDisciplinas;
     const deletedCoverageRows = coverageSheet.rows
       .map((row, rowIndex) => ({ rowIndex, row }))
-      .filter(({ row }) =>
-        matchesAulaReference(
-          coverageSheet,
-          row,
-          deletedAulaId,
-          deletedAulaName,
-          AULA_COVERAGE_LESSON_ID_COLUMN,
-          AULA_COVERAGE_LESSON_COLUMN,
-        ),
-      );
-    const cronogramaRowUpdates = cronogramaSheet.rows
-      .map((row, rowIndex) => ({ rowIndex, row }))
-      .filter(({ row }) =>
-        matchesAulaReference(
-          cronogramaSheet,
-          row,
-          deletedAulaId,
-          deletedAulaName,
-          CRONOGRAMA_LESSON_ID_COLUMN,
-          CRONOGRAMA_LESSON_COLUMN,
-        ),
-      )
       .filter(({ row }) => {
-        const eventId = getCellValue(cronogramaSheet, row, CRONOGRAMA_ID_COLUMN);
+        const rowAulaId = getCellValue(coverageSheet, row, 'Aula ID');
+        const rowAulaName = getCellValue(coverageSheet, row, 'Aula');
 
-        return !eventHasConfirmedPresence(presencasSheet, eventId);
-      })
-      .map(({ rowIndex, row }) => ({
-        rowIndex,
-        previousRow: row.map((cell) => String(cell ?? '')),
-        nextRow: clearCronogramaAulaReference(cronogramaSheet, row),
-      }));
+        return rowAulaId
+          ? rowAulaId === deletedAulaId
+          : normalizeWorkbookOptionKey(rowAulaName) ===
+              normalizeWorkbookOptionKey(deletedAulaName);
+      });
     const nextAulasSheet = {
       ...currentSheet,
       rows: currentSheet.rows
@@ -1345,16 +1301,6 @@ export function AulasPage({
           !deletedCoverageRows.some((deleted) => deleted.rowIndex === rowIndex),
       ),
     };
-    const nextCronogramaSheet = {
-      ...cronogramaSheet,
-      rows: cronogramaSheet.rows.map((row, rowIndex) => {
-        const update = cronogramaRowUpdates.find(
-          (currentUpdate) => currentUpdate.rowIndex === rowIndex,
-        );
-
-        return update ? [...update.nextRow] : [...row];
-      }),
-    };
 
     latestAulasSheetRef.current = nextAulasSheet;
     setAulasSheet(nextAulasSheet);
@@ -1363,7 +1309,6 @@ export function AulasPage({
     const savedFile = await saveWorkbookSheetSet([
       nextAulasSheet,
       nextCoverageSheet,
-      nextCronogramaSheet,
     ]);
     const savedAulasSheet = savedFile
       ? await readAulasFromFile(savedFile)
@@ -1378,10 +1323,12 @@ export function AulasPage({
         kind: 'row-delete',
         rowIndex: currentRowIndex,
         rowData: deletedRow,
-        itemLabel: deletedAulaName || deletedAulaId || `aula#${currentRowIndex + 1}`,
+        itemLabel:
+          deletedAulaName ||
+          deletedAulaId ||
+          `aula#${currentRowIndex + 1}`,
         recordId: deletedAulaId,
         coverageRows: deletedCoverageRows,
-        cronogramaRowUpdates,
       });
     }
 
@@ -1975,12 +1922,7 @@ export function AulasPage({
                           await updateAulaName(aula, value);
                         }}
                         onRequestDelete={() => {
-                          if (aula.isDraft) {
-                            setDraftAula(null);
-                            return;
-                          }
-
-                          setAulaDeleteConfirmation({ aula });
+                          void requestAulaDeletion(aula);
                         }}
                         onChangeRoom={(value) =>
                           aula.isDraft
@@ -2062,46 +2004,29 @@ export function AulasPage({
         </div>
       )}
 
-      {aulaDeleteConfirmation && (
-        <div
-          className="page-modal-backdrop"
-          role="presentation"
-          onMouseDown={() => setAulaDeleteConfirmation(null)}
-        >
-          <div
-            className="recovery-dialog aula-delete-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="aula-delete-dialog-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="recovery-dialog-header">
-              <h2 id="aula-delete-dialog-title">Confirmar ação</h2>
-              <button
-                className="dialog-close-button"
-                type="button"
-                aria-label="Fechar"
-                onClick={() => setAulaDeleteConfirmation(null)}
-              >
-                <DeleteIcon />
-              </button>
-            </div>
-            <p>
-              Você está prestes a deletar a aula{' '}
-              {aulaDeleteConfirmation.aula.name || 'sem nome'}.
-            </p>
-            <button
-              className="primary-action recovery-confirm-action aula-delete-confirm-action"
-              type="button"
-              onClick={() =>
-                void deleteAulaAndSave(aulaDeleteConfirmation.aula)
-              }
-            >
-              <DeleteIcon />
-              Deletar aula
-            </button>
-          </div>
+      {warningToast && (
+        <div className="app-warning-toast" role="status" aria-live="polite">
+          {warningToast}
         </div>
+      )}
+
+      {aulaDeleteConfirmation && (
+        <DependencyAwareDeleteDialog
+          blocked={aulaDeleteConfirmation.analysis.blocked}
+          effects={[
+            aulaDeleteConfirmation.analysis.unconfirmedEventCount > 0
+              ? `${aulaDeleteConfirmation.analysis.unconfirmedEventCount} evento(s) editável(is) precisam ser removidos ou alterados`
+              : 'Nenhum evento editável será alterado',
+            `${aulaDeleteConfirmation.analysis.coverageRowCount} vínculo(s) com Disciplinas serão removidos`,
+            `${aulaDeleteConfirmation.analysis.historicalEventCount} evento(s) histórico(s) serão preservados`,
+          ]}
+          itemLabel="a Aula"
+          itemName={aulaDeleteConfirmation.aula.name}
+          onCancel={() => setAulaDeleteConfirmation(null)}
+          onConfirm={() =>
+            void deleteAulaAndSave(aulaDeleteConfirmation.aula)
+          }
+        />
       )}
 
     </section>

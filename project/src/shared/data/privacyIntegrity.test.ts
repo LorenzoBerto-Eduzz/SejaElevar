@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { SheetTable } from './dataIndex';
-import type { ManagedWorkbookSheets } from './dataHealth';
+import {
+  buildDataHealthIssues,
+  type ManagedWorkbookSheets,
+} from './dataHealth';
 import {
   buildAprendizPrivacyPurgedSheets,
   getAprendizPrivacyPurgePreview,
@@ -13,6 +16,10 @@ import {
   hashPrivacyRecordId,
   inspectPurgedAprendizReintroduction,
 } from './workbookImportIntegrity';
+import {
+  analyzeAulaDeletion,
+  analyzeTurmaDeletion,
+} from './catalogDeletionPolicy';
 import { SEJA_ELEVAR_ID_COLUMN } from './stableIds';
 
 const createSheet = (
@@ -289,5 +296,154 @@ describe('Workbook dependency integrity', () => {
         recordId: 'apr_ana',
       }),
     ]);
+  });
+});
+
+describe('Dependency-aware catalog deletion', () => {
+  it('blocks a Turma with assigned Aprendizes', () => {
+    const analysis = analyzeTurmaDeletion(createSheets(), 'Turma A');
+
+    expect(analysis).toMatchObject({
+      assignedAprendizCount: 2,
+      blocked: true,
+      historicalEventCount: 1,
+      unconfirmedEventCount: 0,
+    });
+  });
+
+  it('blocks an unconfirmed Turma event but allows historical-only deletion', () => {
+    const sheets = createSheets();
+    sheets.aprendizes.rows.forEach((row) => {
+      row[2] = '';
+    });
+    sheets.cronograma.rows.push([
+      'Turma A',
+      '09/07/2026',
+      '08:00',
+      '09:00',
+      'Aula',
+      'Aula Comunicação',
+      '',
+      '',
+      '#2069df',
+      'aula_com',
+      'cro_2',
+    ]);
+
+    expect(analyzeTurmaDeletion(sheets, 'Turma A')).toMatchObject({
+      blocked: true,
+      historicalEventCount: 1,
+      unconfirmedEventCount: 1,
+    });
+
+    sheets.cronograma.rows.pop();
+
+    expect(analyzeTurmaDeletion(sheets, 'Turma A')).toMatchObject({
+      assignedAprendizCount: 0,
+      blocked: false,
+      historicalEventCount: 1,
+      unconfirmedEventCount: 0,
+    });
+  });
+
+  it('preserves historical Aula use and blocks unconfirmed event use', () => {
+    const sheets = createSheets();
+    const aula = {
+      id: 'aula_com',
+      name: 'Aula Comunicação',
+    };
+
+    expect(analyzeAulaDeletion(sheets, aula)).toMatchObject({
+      blocked: false,
+      coverageRowCount: 1,
+      historicalEventCount: 1,
+      unconfirmedEventCount: 0,
+    });
+
+    sheets.cronograma.rows.push([
+      'Turma A',
+      '09/07/2026',
+      '08:00',
+      '09:00',
+      'Aula',
+      'Aula Comunicação',
+      '',
+      '',
+      '#2069df',
+      'aula_com',
+      'cro_2',
+    ]);
+
+    expect(analyzeAulaDeletion(sheets, aula)).toMatchObject({
+      blocked: true,
+      coverageRowCount: 1,
+      historicalEventCount: 1,
+      unconfirmedEventCount: 1,
+    });
+  });
+});
+
+describe('Data Health guard rules', () => {
+  it('reports duplicate catalog values and broken coverage rows', () => {
+    const sheets = createSheets();
+    sheets.turmas.rows.push(['Turma A', 'tur_b']);
+    sheets.aulasDisciplinas.rows.push([
+      'Aula Comunicação',
+      'Todos',
+      'Básico',
+      'Comunicação',
+      '',
+      '',
+      'aula_disc_broken',
+    ]);
+
+    const issues = buildDataHealthIssues(sheets);
+
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        area: 'Turmas',
+        title: 'Valor duplicado',
+      }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        area: 'Aulas Disciplinas',
+        title: 'Aula ID vazio',
+      }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        area: 'Aulas Disciplinas',
+        title: 'Disciplina ID vazio',
+      }),
+    );
+  });
+
+  it('reports invalid attendance values and stale progress cache', () => {
+    const sheets = createSheets();
+    sheets.presencas.rows[0]![1] = 'Talvez';
+    sheets.horasAplicadas.rows[0]![4] = '0';
+    sheets.planoProgresso.rows[1]![5] = '2h';
+
+    const issues = buildDataHealthIssues(sheets);
+
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        area: 'Presenças',
+        title: 'Status de presença inválido',
+      }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        area: 'Horas Aplicadas',
+        title: 'Minutos inválidos',
+      }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        area: 'Plano Progresso',
+        title: 'Carga cumprida desatualizada',
+      }),
+    );
   });
 });

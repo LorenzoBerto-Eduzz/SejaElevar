@@ -28,6 +28,7 @@ import {
 } from './schemas';
 import {
   fetchBaseWorkbookFile,
+  MissingRequiredColumnsError,
   readWorkbookSheetFile,
 } from './workspaceData';
 import { inspectManagedWorkbookDependencies } from './dependencyInspector';
@@ -55,6 +56,8 @@ type SheetDefinition = {
   sheetName: string;
   requiredColumns: readonly string[];
 };
+
+type SheetReadIssue = Omit<DataHealthIssue, 'id'>;
 
 const SHEET_DEFINITIONS = {
   aprendizes: {
@@ -152,27 +155,88 @@ const readHealthSheet = async (file: File, definition: SheetDefinition) => {
   }
 };
 
+const getSheetReadIssue = (
+  definition: SheetDefinition,
+  error: unknown,
+): SheetReadIssue => {
+  if (error instanceof MissingRequiredColumnsError) {
+    return {
+      severity: 'error',
+      area: definition.sheetName,
+      title: 'Colunas obrigatórias ausentes',
+      detail: `${definition.sheetName} não possui: ${error.missingColumns.join(', ')}.`,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : '';
+
+  if (message === 'missing-sheet') {
+    return {
+      severity: 'error',
+      area: definition.sheetName,
+      title: 'Aba obrigatória ausente',
+      detail: `A aba ${definition.sheetName} não existe no DadosElevar em uso.`,
+    };
+  }
+
+  if (message === 'empty-sheet') {
+    return {
+      severity: 'error',
+      area: definition.sheetName,
+      title: 'Aba sem cabeçalho reconhecido',
+      detail: `${definition.sheetName} existe, mas o aplicativo não encontrou um cabeçalho compatível.`,
+    };
+  }
+
+  return {
+    severity: 'error',
+    area: definition.sheetName,
+    title: 'Aba não pôde ser lida',
+    detail: `${definition.sheetName} não pôde ser verificada pelo aplicativo.`,
+  };
+};
+
+const readHealthSheetWithIssue = async (
+  file: File,
+  definition: SheetDefinition,
+) => {
+  try {
+    return {
+      issue: null,
+      sheet: await readWorkbookSheetFile(file, {
+        entityId: definition.entityId,
+        ensureRecordIds: false,
+        preferredSheetName: definition.sheetName,
+        requiredColumns: definition.requiredColumns,
+      }),
+    };
+  } catch (error) {
+    return {
+      issue: getSheetReadIssue(definition, error),
+      sheet: createEmptySheet(file.name, definition),
+    };
+  }
+};
+
+const readManagedWorkbookSheetsWithIssues = async (file: File) => {
+  const entries = await Promise.all(
+    Object.entries(SHEET_DEFINITIONS).map(async ([key, definition]) => ({
+      key,
+      ...(await readHealthSheetWithIssue(file, definition)),
+    })),
+  );
+  const sheets = Object.fromEntries(
+    entries.map(({ key, sheet }) => [key, sheet]),
+  ) as ManagedWorkbookSheets;
+  const issues = entries.flatMap(({ issue }) => (issue ? [issue] : []));
+
+  return { issues, sheets };
+};
+
 export const readManagedWorkbookSheets = async (
   file: File,
-): Promise<ManagedWorkbookSheets> => ({
-  aprendizes: await readHealthSheet(file, SHEET_DEFINITIONS.aprendizes),
-  turmas: await readHealthSheet(file, SHEET_DEFINITIONS.turmas),
-  arcos: await readHealthSheet(file, SHEET_DEFINITIONS.arcos),
-  disciplinas: await readHealthSheet(file, SHEET_DEFINITIONS.disciplinas),
-  aulas: await readHealthSheet(file, SHEET_DEFINITIONS.aulas),
-  aulasDisciplinas: await readHealthSheet(
-    file,
-    SHEET_DEFINITIONS.aulasDisciplinas,
-  ),
-  cronograma: await readHealthSheet(file, SHEET_DEFINITIONS.cronograma),
-  presencas: await readHealthSheet(file, SHEET_DEFINITIONS.presencas),
-  horasAplicadas: await readHealthSheet(
-    file,
-    SHEET_DEFINITIONS.horasAplicadas,
-  ),
-  planoEnsino: await readHealthSheet(file, SHEET_DEFINITIONS.planoEnsino),
-  planoProgresso: await readHealthSheet(file, SHEET_DEFINITIONS.planoProgresso),
-});
+): Promise<ManagedWorkbookSheets> =>
+  (await readManagedWorkbookSheetsWithIssues(file)).sheets;
 
 const getColumnIndex = (sheet: SheetTable, columnName: string) =>
   sheet.columns.findIndex(
@@ -219,6 +283,16 @@ const createLookup = (sheet: SheetTable, columnName: string) => {
   return lookup;
 };
 
+const parseNumber = (value: string) => {
+  const normalized = value
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\.(?=\d{3}(\D|$))/g, '')
+    .replace(',', '.');
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const pushIssue = (
   issues: DataHealthIssue[],
   issue: Omit<DataHealthIssue, 'id'>,
@@ -226,6 +300,91 @@ const pushIssue = (
   issues.push({
     id: `${issue.area}-${issue.title}-${issues.length}`,
     ...issue,
+  });
+};
+
+const severityOrder: Record<DataHealthSeverity, number> = {
+  error: 0,
+  warning: 1,
+  info: 2,
+};
+
+const sortIssuesBySeverity = (issues: DataHealthIssue[]) =>
+  [...issues].sort(
+    (left, right) =>
+      severityOrder[left.severity] - severityOrder[right.severity] ||
+      left.area.localeCompare(right.area, 'pt-BR') ||
+      left.title.localeCompare(right.title, 'pt-BR'),
+  );
+
+const pushDuplicateValueIssues = (
+  issues: DataHealthIssue[],
+  sheet: SheetTable,
+  {
+    area,
+    columns,
+    detailLabel,
+    severity = 'error',
+  }: {
+    area: string;
+    columns: string[];
+    detailLabel: string;
+    severity?: DataHealthSeverity;
+  },
+) => {
+  const values = new Map<string, { label: string; count: number }>();
+
+  sheet.rows.forEach((row) => {
+    const parts = columns.map((column) => getCellValue(sheet, row, column));
+
+    if (parts.some((part) => !part)) {
+      return;
+    }
+
+    const key = parts.map(normalizeFieldLabel).join('|');
+    const current = values.get(key);
+
+    values.set(key, {
+      label: current?.label ?? parts.join(' / '),
+      count: (current?.count ?? 0) + 1,
+    });
+  });
+
+  values.forEach(({ count, label }) => {
+    if (count <= 1) {
+      return;
+    }
+
+    pushIssue(issues, {
+      severity,
+      area,
+      title: 'Valor duplicado',
+      detail: `${detailLabel} "${label}" aparece ${count} vezes.`,
+    });
+  });
+};
+
+const pushBlankRequiredValueIssue = (
+  issues: DataHealthIssue[],
+  {
+    area,
+    rowIndex,
+    field,
+    label,
+    severity = 'error',
+  }: {
+    area: string;
+    rowIndex: number;
+    field: string;
+    label: string;
+    severity?: DataHealthSeverity;
+  },
+) => {
+  pushIssue(issues, {
+    severity,
+    area,
+    title: `${field} vazio`,
+    detail: `${label} na linha ${rowIndex + 1} não possui ${field}.`,
   });
 };
 
@@ -288,6 +447,138 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
   const aulaIds = createLookup(sheets.aulas, 'ID');
   const aulaNames = createLookup(sheets.aulas, 'Aula');
   const presentePresencaIds = new Set<string>();
+  const appliedMinutesByPlanKey = new Map<string, number>();
+
+  pushDuplicateValueIssues(issues, sheets.arcos, {
+    area: 'Arcos',
+    columns: ['Arco'],
+    detailLabel: 'O Arco',
+  });
+  pushDuplicateValueIssues(issues, sheets.turmas, {
+    area: 'Turmas',
+    columns: ['Turma'],
+    detailLabel: 'A Turma',
+  });
+  pushDuplicateValueIssues(issues, sheets.aulas, {
+    area: 'Aulas',
+    columns: ['Aula'],
+    detailLabel: 'A Aula',
+  });
+  pushDuplicateValueIssues(issues, sheets.disciplinas, {
+    area: 'Disciplinas',
+    columns: ['Arco', 'Módulo', 'Disciplina'],
+    detailLabel: 'A Disciplina',
+  });
+  pushDuplicateValueIssues(issues, sheets.aulasDisciplinas, {
+    area: 'Aulas Disciplinas',
+    columns: ['Aula ID', 'Disciplina ID'],
+    detailLabel: 'A cobertura',
+    severity: 'warning',
+  });
+
+  sheets.turmas.rows.forEach((row, rowIndex) => {
+    if (!getCellValue(sheets.turmas, row, 'Turma')) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Turmas',
+        rowIndex,
+        field: 'Turma',
+        label: 'Registro de Turma',
+      });
+    }
+  });
+
+  sheets.arcos.rows.forEach((row, rowIndex) => {
+    if (!getCellValue(sheets.arcos, row, 'Arco')) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Arcos',
+        rowIndex,
+        field: 'Arco',
+        label: 'Registro de Arco',
+      });
+    }
+  });
+
+  sheets.disciplinas.rows.forEach((row, rowIndex) => {
+    const disciplina = getCellValue(sheets.disciplinas, row, 'Disciplina');
+    const modulo = getCellValue(sheets.disciplinas, row, 'Módulo');
+    const arco = getCellValue(sheets.disciplinas, row, 'Arco');
+    const cargaHoraria = getCellValue(sheets.disciplinas, row, 'Carga Horária');
+    const cargaHorariaNumber = parseNumber(cargaHoraria);
+
+    if (!disciplina) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Disciplinas',
+        rowIndex,
+        field: 'Disciplina',
+        label: 'Registro de Disciplina',
+      });
+    }
+
+    if (!modulo) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Disciplinas',
+        rowIndex,
+        field: 'Módulo',
+        label: disciplina || 'Registro de Disciplina',
+      });
+    }
+
+    if (!arco) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Disciplinas',
+        rowIndex,
+        field: 'Arco',
+        label: disciplina || 'Registro de Disciplina',
+      });
+    }
+
+    if (!cargaHoraria || cargaHorariaNumber === null || cargaHorariaNumber <= 0) {
+      pushIssue(issues, {
+        severity: 'error',
+        area: 'Disciplinas',
+        title: 'Carga horária inválida',
+        detail: `${disciplina || `Linha ${rowIndex + 1}`} possui carga horária "${cargaHoraria || 'vazia'}".`,
+      });
+    }
+  });
+
+  sheets.aulas.rows.forEach((row, rowIndex) => {
+    if (!getCellValue(sheets.aulas, row, 'Aula')) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Aulas',
+        rowIndex,
+        field: 'Aula',
+        label: 'Registro de Aula',
+      });
+    }
+  });
+
+  sheets.aulasDisciplinas.rows.forEach((row, rowIndex) => {
+    const aula = getCellValue(sheets.aulasDisciplinas, row, 'Aula');
+    const disciplina = getCellValue(
+      sheets.aulasDisciplinas,
+      row,
+      'Disciplina',
+    );
+
+    if (!getCellValue(sheets.aulasDisciplinas, row, 'Aula ID')) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Aulas Disciplinas',
+        rowIndex,
+        field: 'Aula ID',
+        label: aula || 'Cobertura',
+      });
+    }
+
+    if (!getCellValue(sheets.aulasDisciplinas, row, 'Disciplina ID')) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Aulas Disciplinas',
+        rowIndex,
+        field: 'Disciplina ID',
+        label: disciplina || 'Cobertura',
+      });
+    }
+  });
 
   sheets.aprendizes.rows.forEach((row, rowIndex) => {
     const aprendiz = getCellValue(sheets.aprendizes, row, 'Nome') || 'Aprendiz';
@@ -298,6 +589,15 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
     );
     const arco = getCellValue(sheets.aprendizes, row, 'Arco de Aprendizagem');
     const turma = getCellValue(sheets.aprendizes, row, 'Turma');
+
+    if (!getCellValue(sheets.aprendizes, row, 'Nome')) {
+      pushBlankRequiredValueIssue(issues, {
+        area: 'Aprendizes',
+        rowIndex,
+        field: 'Nome',
+        label: 'Registro de Aprendiz',
+      });
+    }
 
     if (!arco) {
       pushIssue(issues, {
@@ -371,9 +671,19 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
   sheets.cronograma.rows.forEach((row) => {
     const data = getCellValue(sheets.cronograma, row, 'Data') || '-';
     const inicio = getCellValue(sheets.cronograma, row, 'Início') || '-';
+    const fim = getCellValue(sheets.cronograma, row, 'Fim') || '-';
     const aula = getCellValue(sheets.cronograma, row, 'Aula');
     const aulaId = getCellValue(sheets.cronograma, row, 'Aula ID');
     const turma = getCellValue(sheets.cronograma, row, 'Turma');
+
+    if (data === '-' || inicio === '-' || fim === '-') {
+      pushIssue(issues, {
+        severity: 'error',
+        area: 'Cronograma',
+        title: 'Evento sem data ou horário',
+        detail: `Evento "${aula || turma || 'sem identificação'}" possui Data/Início/Fim incompletos.`,
+      });
+    }
 
     if (!turma) {
       pushIssue(issues, {
@@ -418,7 +728,22 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
   sheets.presencas.rows.forEach((row) => {
     const status = getCellValue(sheets.presencas, row, 'Status Presença');
 
-    if (normalizeFieldLabel(status) !== 'presente') {
+    const normalizedStatus = normalizeFieldLabel(status);
+
+    if (
+      status &&
+      normalizedStatus !== 'presente' &&
+      normalizedStatus !== 'ausente'
+    ) {
+      pushIssue(issues, {
+        severity: 'error',
+        area: 'Presenças',
+        title: 'Status de presença inválido',
+        detail: `Status "${status}" não é Presente nem Ausente.`,
+      });
+    }
+
+    if (normalizedStatus !== 'presente') {
       return;
     }
 
@@ -473,7 +798,6 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
     const aprendiz = getCellValue(sheets.horasAplicadas, row, 'Aprendiz') || 'Aprendiz';
     const disciplina =
       getCellValue(sheets.horasAplicadas, row, 'Disciplina') || 'Disciplina';
-
     if (presencaId && !presentePresencaIds.has(presencaId)) {
       pushIssue(issues, {
         severity: 'error',
@@ -481,6 +805,43 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
         title: 'Horas sem presença ativa',
         detail: `${aprendiz} possui horas em "${disciplina}", mas a Presença vinculada não está como Presente.`,
       });
+    }
+  });
+
+  sheets.horasAplicadas.rows.forEach((row) => {
+    const aprendiz =
+      getCellValue(sheets.horasAplicadas, row, 'Aprendiz') || 'Aprendiz';
+    const disciplina =
+      getCellValue(sheets.horasAplicadas, row, 'Disciplina') || 'Disciplina';
+    const aprendizId = getCellValue(sheets.horasAplicadas, row, 'Aprendiz ID');
+    const disciplinaId = getCellValue(
+      sheets.horasAplicadas,
+      row,
+      'Disciplina ID',
+    );
+    const minutos = getCellValue(
+      sheets.horasAplicadas,
+      row,
+      'Minutos Aplicados',
+    );
+    const parsedMinutes = parseNumber(minutos);
+
+    if (parsedMinutes === null || parsedMinutes <= 0) {
+      pushIssue(issues, {
+        severity: 'error',
+        area: 'Horas Aplicadas',
+        title: 'Minutos inválidos',
+        detail: `${aprendiz} possui "${disciplina}" com minutos aplicados "${minutos || 'vazio'}".`,
+      });
+    }
+
+    if (aprendizId && disciplinaId && parsedMinutes !== null) {
+      const planKey = `${aprendizId}|${disciplinaId}`;
+
+      appliedMinutesByPlanKey.set(
+        planKey,
+        (appliedMinutesByPlanKey.get(planKey) ?? 0) + parsedMinutes,
+      );
     }
   });
 
@@ -508,6 +869,60 @@ export const buildDataHealthIssues = (sheets: ManagedWorkbookSheets) => {
     }
   });
 
+  sheets.planoProgresso.rows.forEach((row) => {
+    const aprendiz =
+      getCellValue(sheets.planoProgresso, row, 'Aprendiz') || 'Aprendiz';
+    const disciplina =
+      getCellValue(sheets.planoProgresso, row, 'Disciplina') || 'Disciplina';
+    const aprendizId = getCellValue(sheets.planoProgresso, row, 'Aprendiz ID');
+    const disciplinaId = getCellValue(
+      sheets.planoProgresso,
+      row,
+      'Disciplina ID',
+    );
+    const totalHours = parseNumber(
+      getCellValue(sheets.planoProgresso, row, 'Carga Horária Total'),
+    );
+    const fulfilledHours = parseNumber(
+      getCellValue(sheets.planoProgresso, row, 'Carga Horária Cumprida'),
+    );
+    const excessHours = parseNumber(
+      getCellValue(sheets.planoProgresso, row, 'Excedente'),
+    );
+    const appliedMinutes = appliedMinutesByPlanKey.get(
+      `${aprendizId}|${disciplinaId}`,
+    );
+    const appliedHours =
+      appliedMinutes === undefined ? null : appliedMinutes / 60;
+
+    if (appliedHours !== null && fulfilledHours !== null) {
+      const difference = Math.abs(fulfilledHours - appliedHours);
+
+      if (difference > 0.01) {
+        pushIssue(issues, {
+          severity: 'error',
+          area: 'Plano Progresso',
+          title: 'Carga cumprida desatualizada',
+          detail: `${aprendiz} / ${disciplina} mostra ${fulfilledHours}h, mas Horas Aplicadas somam ${appliedHours}h.`,
+        });
+      }
+    }
+
+    if (totalHours !== null && appliedHours !== null && excessHours !== null) {
+      const expectedExcess = Math.max(0, appliedHours - totalHours);
+      const difference = Math.abs(excessHours - expectedExcess);
+
+      if (difference > 0.01) {
+        pushIssue(issues, {
+          severity: 'warning',
+          area: 'Plano Progresso',
+          title: 'Excedente desatualizado',
+          detail: `${aprendiz} / ${disciplina} mostra excedente ${excessHours}h, mas o esperado é ${expectedExcess}h.`,
+        });
+      }
+    }
+  });
+
   inspectManagedWorkbookDependencies(sheets).forEach((issue) => {
     pushIssue(issues, {
       severity: issue.severity,
@@ -532,12 +947,19 @@ export const readDataHealthReport = async (): Promise<DataHealthReport> => {
     };
   }
 
-  const sheets = await readManagedWorkbookSheets(file);
+  const { issues: readIssues, sheets } =
+    await readManagedWorkbookSheetsWithIssues(file);
 
   return {
     hasWorkbook: true,
     checkedAt: new Date().toISOString(),
     fileName: file.name,
-    issues: buildDataHealthIssues(sheets),
+    issues: sortIssuesBySeverity([
+      ...readIssues.map((issue, index) => ({
+        id: `${issue.area}-${issue.title}-estrutura-${index}`,
+        ...issue,
+      })),
+      ...buildDataHealthIssues(sheets),
+    ]),
   };
 };

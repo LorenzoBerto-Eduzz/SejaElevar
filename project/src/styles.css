@@ -710,6 +710,29 @@ svg {
   z-index: 1200;
 }
 
+.data-health-widget.placement-settings {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.data-health-widget.placement-toolbar {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--menu-button-size);
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+}
+
 .data-health-button {
   position: relative;
   display: grid;
@@ -724,11 +747,57 @@ svg {
   cursor: pointer;
 }
 
+.data-health-widget.placement-toolbar .data-health-button {
+  width: var(--menu-button-size);
+  height: var(--menu-button-size);
+  border: 0;
+  color: #426172;
+  background: transparent;
+}
+
+.data-health-widget.placement-settings .data-health-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  border-color: var(--brand-line);
+  padding: 0 12px;
+  color: var(--brand-primary);
+  background: var(--brand-panel);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.data-health-button-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .data-health-button:hover,
 .data-health-button:focus-visible,
 .data-health-button[aria-expanded="true"] {
   border-color: var(--brand-primary);
   outline: none;
+}
+
+.data-health-widget.placement-toolbar .data-health-button:hover,
+.data-health-widget.placement-toolbar .data-health-button:focus-visible {
+  color: #426172;
+  background: var(--brand-page-background);
+}
+
+.data-health-widget.placement-settings .data-health-button:hover,
+.data-health-widget.placement-settings .data-health-button:focus-visible,
+.data-health-widget.placement-settings .data-health-button[aria-expanded="true"] {
+  color: var(--light-active-icon, #fff);
+  background: var(--brand-primary);
 }
 
 .data-health-button svg {
@@ -741,8 +810,45 @@ svg {
   stroke-linejoin: round;
 }
 
+.data-health-button svg text {
+  fill: currentColor;
+  stroke: none;
+  font-size: 10.2px;
+  font-weight: 900;
+}
+
+.data-health-button.severity-error svg text {
+  fill: #b3261e;
+}
+
+.data-health-button.severity-warning svg text {
+  fill: #a15c00;
+}
+
 .data-health-button.has-issues {
   color: #b3261e;
+}
+
+.data-health-button.severity-warning {
+  color: #a15c00;
+}
+
+.data-health-button.severity-info,
+.data-health-button.severity-ok {
+  color: var(--brand-primary);
+}
+
+.data-health-widget.placement-toolbar .data-health-button.has-issues,
+.data-health-widget.placement-toolbar .data-health-button.severity-warning,
+.data-health-widget.placement-toolbar .data-health-button.severity-info,
+.data-health-widget.placement-toolbar .data-health-button.severity-ok {
+  color: #426172;
+}
+
+.data-health-widget.placement-toolbar .data-health-button svg {
+  width: 32px;
+  height: 32px;
+  stroke-width: 1.85;
 }
 
 .data-health-count {
@@ -763,6 +869,16 @@ svg {
   line-height: 1;
 }
 
+.data-health-count.severity-warning {
+  background: #a15c00;
+}
+
+.data-health-widget.placement-settings .data-health-count {
+  right: 8px;
+  bottom: 50%;
+  transform: translateY(50%);
+}
+
 .data-health-panel {
   position: absolute;
   top: 36px;
@@ -776,6 +892,29 @@ svg {
   background: var(--brand-tertiary);
   box-shadow: 0 18px 40px rgba(27, 36, 48, 0.2);
   overflow: hidden;
+}
+
+.data-health-panel.placement-settings {
+  position: static;
+  width: 100%;
+  max-height: 330px;
+  box-shadow: none;
+}
+
+.data-health-panel.placement-toolbar {
+  position: fixed;
+  top: auto;
+  left: 262px;
+  bottom: 18px;
+  width: 360px;
+  max-height: min(560px, calc(100vh - 42px));
+  z-index: 80;
+}
+
+.sidebar-collapsed .data-health-panel.placement-toolbar {
+  left: calc(14px + var(--menu-button-size) + 12px);
+  bottom: calc(var(--menu-toggle-bottom) + var(--menu-button-size) + 11px);
+  width: min(360px, calc(100vw - 92px));
 }
 
 .data-health-header {
@@ -1326,34 +1465,87 @@ svg {
 
 .action-history-panel {
   position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1490;
-  width: min(520px, 46vw);
-  height: 100vh;
-  border-right: 1px solid #0f5fbf;
-  color: #0b1724;
-  background: rgb(246 250 255 / 48%);
-  box-shadow: 16px 0 36px rgb(0 0 0 / 20%);
-  pointer-events: none;
+  left: 254px;
+  bottom: 18px;
+  z-index: 42;
+  display: flex;
+  flex-direction: column;
+  width: min(430px, calc(100vw - 278px));
+  max-height: min(560px, calc(100vh - 42px));
+  border: 1px solid var(--brand-line);
+  border-radius: 10px;
+  padding: 16px;
+  color: var(--brand-text);
+  background: var(--brand-tertiary);
+  box-shadow: 0 18px 42px rgb(27 36 48 / 24%);
+  pointer-events: auto;
 }
 
 .dark-mode .action-history-panel {
-  color: #dce7f5;
-  background: rgb(9 18 28 / 52%);
+  color: var(--brand-text);
+  background: var(--brand-tertiary);
+}
+
+.sidebar-collapsed .action-history-panel {
+  left: calc(14px + var(--menu-button-size) + 12px);
+  bottom: calc(var(--menu-toggle-bottom) + var(--menu-button-size) + 11px);
+  width: min(430px, calc(100vw - 92px));
+}
+
+.action-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.action-history-header h2 {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 1.05rem;
+}
+
+.action-history-close {
+  flex: 0 0 auto;
+}
+
+.action-history-recovery-button {
+  margin-bottom: 10px;
+}
+
+.action-history-recovery-button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .action-history-list {
   overflow: auto;
   width: 100%;
-  height: 100%;
-  padding: 4px 6px 8px;
-  pointer-events: none;
-  scrollbar-width: none;
+  min-height: 190px;
+  max-height: min(360px, calc(100vh - 210px));
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  padding: 7px 8px 9px;
+  background: var(--brand-panel);
+  pointer-events: auto;
+  scrollbar-color: var(--brand-scroll-thumb) transparent;
+  scrollbar-width: thin;
 }
 
 .action-history-list::-webkit-scrollbar {
-  display: none;
+  width: 8px;
+  height: 8px;
+}
+
+.action-history-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.action-history-list::-webkit-scrollbar-thumb {
+  border: 2px solid var(--brand-panel);
+  border-radius: 999px;
+  background: var(--brand-scroll-thumb);
 }
 
 .action-history-line {
@@ -3796,6 +3988,23 @@ svg {
   color: var(--brand-delete-hint);
 }
 
+.dependency-delete-dialog {
+  width: min(560px, 100%);
+}
+
+.dependency-delete-dialog-body {
+  display: grid;
+  gap: 12px;
+}
+
+.dependency-delete-dialog-body ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 22px;
+  font-size: 0.9rem;
+}
+
 .recovery-dialog-actions {
   display: grid;
   grid-template-columns: 1fr 1.7fr;
@@ -3816,7 +4025,10 @@ svg {
 
 .aprendiz-privacy-confirm-action,
 .aprendiz-privacy-confirm-action:hover,
-.aprendiz-privacy-confirm-action:focus-visible {
+.aprendiz-privacy-confirm-action:focus-visible,
+.dependency-delete-confirm-action,
+.dependency-delete-confirm-action:hover,
+.dependency-delete-confirm-action:focus-visible {
   color: #fff;
   background: var(--brand-delete-hint);
 }
@@ -5967,6 +6179,7 @@ input.turma-schedule-block-field {
 .dark-mode .sidebar-actions .square-action,
 .dark-mode .actions-popover .square-action,
 .dark-mode .mini-menu-button-crop .square-action,
+.dark-mode .data-health-widget.placement-toolbar .data-health-button,
 .dark-mode .square-menu-action {
   color: var(--brand-text);
   background: transparent;
@@ -5988,6 +6201,8 @@ input.turma-schedule-block-field {
 .dark-mode .mini-menu-button-crop .square-action:hover,
 .dark-mode .mini-menu-button-crop .square-action:focus-visible,
 .dark-mode .mini-menu-button-crop .square-action.active,
+.dark-mode .data-health-widget.placement-toolbar .data-health-button:hover,
+.dark-mode .data-health-widget.placement-toolbar .data-health-button:focus-visible,
 .dark-mode .square-menu-action:hover,
 .dark-mode .square-menu-action:focus-visible {
   color: var(--brand-text);

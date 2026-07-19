@@ -54,6 +54,7 @@ export function ThemeToggleButton({ className = '' }: ThemeToggleButtonProps) {
       });
     });
   };
+  const nextModeLabel = isDarkMode ? 'Ativar Modo Claro' : 'Ativar Modo Escuro';
 
   return (
     <button
@@ -64,9 +65,9 @@ export function ThemeToggleButton({ className = '' }: ThemeToggleButtonProps) {
         .filter(Boolean)
         .join(' ')}
       type="button"
-      aria-label="Ativar modo escuro"
+      aria-label={nextModeLabel}
       aria-pressed={isDarkMode}
-      title="Ativar Modo Escuro"
+      title={nextModeLabel}
       onClick={toggleDarkMode}
     >
       {isDarkMode ? <MoonIcon /> : <SunIcon />}

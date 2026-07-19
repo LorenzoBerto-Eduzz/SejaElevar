@@ -85,6 +85,12 @@ import {
   type AprendizPrivacyPurgePreview,
 } from '../../shared/data/aprendizPrivacy';
 import {
+  analyzeTurmaDeletion,
+  getTurmaDeletionBlockingMessage,
+  type TurmaDeletionAnalysis,
+} from '../../shared/data/catalogDeletionPolicy';
+import { readManagedWorkbookSheets } from '../../shared/data/dataHealth';
+import {
   CronogramaEventBlock,
   type CronogramaEventField,
 } from '../cronograma/CronogramaEventBlock';
@@ -149,6 +155,7 @@ import { EmptyWorkbookImportState } from '../../shared/ui/EmptyWorkbookImportSta
 import { MonthYearPicker } from '../../shared/ui/MonthYearPicker';
 import { TruncatedProgressName } from '../../shared/ui/TruncatedProgressName';
 import { AprendizPrivacyPurgeDialog } from '../../shared/ui/AprendizPrivacyPurgeDialog';
+import { DependencyAwareDeleteDialog } from '../../shared/ui/DependencyAwareDeleteDialog';
 import {
   getGlobalUndoBoundarySnapshot,
   handleGlobalUndoShortcut,
@@ -1591,6 +1598,7 @@ export function TurmasPage({
   );
   const [turmaDraft, setTurmaDraft] = useState<TurmaDraftRow | null>(null);
   const [turmaDeleteConfirmation, setTurmaDeleteConfirmation] = useState<{
+    analysis: TurmaDeletionAnalysis;
     rowIndex: number;
     turmaName: string;
   } | null>(null);
@@ -2979,51 +2987,6 @@ export function TurmasPage({
     return true;
   };
 
-  const getAprendizesSheetWithClearedTurma = (
-    sheet: SheetTable | null,
-    turmaName: string,
-  ) => {
-    if (!sheet || !turmaName.trim()) {
-      return { sheet: null, clearedAprendizTurmas: [] };
-    }
-
-    const turmaColumnIndex = getColumnIndex(sheet, TURMA_COLUMN);
-
-    if (turmaColumnIndex < 0) {
-      return { sheet: null, clearedAprendizTurmas: [] };
-    }
-
-    const clearedAprendizTurmas: ClearedAprendizTurma[] = [];
-    const nextRows = sheet.rows.map((row, rowIndex) => {
-      const value = row[turmaColumnIndex] || '';
-      const shouldClear =
-        value === turmaName ||
-        getCanonicalDropdownValue(value, [turmaName]) === turmaName;
-
-      if (!shouldClear) {
-        return row;
-      }
-
-      clearedAprendizTurmas.push({
-        rowIndex,
-        previousValue: value,
-      });
-      const nextRow = [...row];
-      nextRow[turmaColumnIndex] = '';
-      return nextRow;
-    });
-
-    return clearedAprendizTurmas.length > 0
-      ? {
-          sheet: {
-            ...sheet,
-            rows: nextRows,
-          },
-          clearedAprendizTurmas,
-        }
-      : { sheet: null, clearedAprendizTurmas: [] };
-  };
-
   const getAprendizesSheetWithRestoredTurmas = (
     sheet: SheetTable | null,
     clearedAprendizTurmas: ClearedAprendizTurma[] = [],
@@ -3129,6 +3092,38 @@ export function TurmasPage({
     return true;
   };
 
+  const requestTurmaDeletion = async (
+    rowIndex: number,
+    turmaName: string,
+  ) => {
+    try {
+      const sourceFile = await fetchBaseWorkbookFile();
+
+      if (!sourceFile) {
+        throw new Error('missing-active-workbook');
+      }
+
+      const analysis = analyzeTurmaDeletion(
+        await readManagedWorkbookSheets(sourceFile),
+        turmaName,
+      );
+
+      setTurmaDeleteConfirmation({
+        analysis,
+        rowIndex,
+        turmaName,
+      });
+
+      if (analysis.blocked) {
+        showInvalidImportToast(getTurmaDeletionBlockingMessage(analysis));
+      }
+    } catch {
+      showInvalidImportToast(
+        'Não foi possível verificar os vínculos desta Turma.',
+      );
+    }
+  };
+
   const deleteTurmaRowAndSave = async (
     rowIndex: number,
     options: { trackUndo?: boolean } = {},
@@ -3141,26 +3136,42 @@ export function TurmasPage({
     }
 
     const turmaName = getCellValue(currentTurmasSheet, deletedRow, TURMA_COLUMN);
+    const sourceFile = await fetchBaseWorkbookFile();
+
+    if (!sourceFile) {
+      return false;
+    }
+
+    const deletionAnalysis = analyzeTurmaDeletion(
+      await readManagedWorkbookSheets(sourceFile),
+      turmaName,
+    );
+
+    if (deletionAnalysis.blocked) {
+      setTurmaDeleteConfirmation({
+        analysis: deletionAnalysis,
+        rowIndex,
+        turmaName,
+      });
+      showInvalidImportToast(
+        getTurmaDeletionBlockingMessage(deletionAnalysis),
+      );
+      return false;
+    }
+
     const nextTurmasSheet = {
       ...currentTurmasSheet,
       rows: currentTurmasSheet.rows.filter(
         (_row, currentRowIndex) => currentRowIndex !== rowIndex,
       ),
     };
-    const { sheet: clearedAprendizesSheet, clearedAprendizTurmas } =
-      getAprendizesSheetWithClearedTurma(
-        latestAprendizesSheetRef.current,
-        turmaName,
-      );
-    const nextAprendizesSheet =
-      clearedAprendizesSheet ?? latestAprendizesSheetRef.current;
     const nextTurmaNames = getUniqueValues(
       nextTurmasSheet.rows.map((row) =>
         getCellValue(nextTurmasSheet, row, TURMA_COLUMN),
       ),
     );
-    const nextStudentsByClass = nextAprendizesSheet
-      ? buildStudentsByClass(nextAprendizesSheet, nextTurmaNames)
+    const nextStudentsByClass = latestAprendizesSheetRef.current
+      ? buildStudentsByClass(latestAprendizesSheetRef.current, nextTurmaNames)
       : undefined;
 
     if (options.trackUndo !== false) {
@@ -3172,7 +3183,6 @@ export function TurmasPage({
         itemLabel: turmaName || getTurmaActionRef(rowIndex),
         rowIndex,
         rowValues: deletedRow,
-        clearedAprendizTurmas,
       });
     }
 
@@ -3180,19 +3190,7 @@ export function TurmasPage({
     setTurmasSheet(nextTurmasSheet);
     setTurmaDeleteConfirmation(null);
 
-    if (clearedAprendizesSheet) {
-      latestAprendizesSheetRef.current = clearedAprendizesSheet;
-      setAprendizesSheet(clearedAprendizesSheet);
-    }
-
     await writeTurmasSheetToSourceFile(nextTurmasSheet, nextStudentsByClass);
-
-    if (clearedAprendizesSheet) {
-      await writeAprendizesSheetToSourceFile(clearedAprendizesSheet, {
-        patchColumns: [TURMA_COLUMN],
-        syncTurmas: false,
-      });
-    }
 
     return true;
   };
@@ -7907,10 +7905,10 @@ export function TurmasPage({
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   if (typeof turmaRowIndex === 'number') {
-                                    setTurmaDeleteConfirmation({
-                                      rowIndex: turmaRowIndex,
+                                    void requestTurmaDeletion(
+                                      turmaRowIndex,
                                       turmaName,
-                                    });
+                                    );
                                   }
                                 }}
                               >
@@ -8605,45 +8603,24 @@ export function TurmasPage({
       )}
 
       {turmaDeleteConfirmation && (
-        <div
-          className="page-modal-backdrop"
-          role="presentation"
-          onMouseDown={() => setTurmaDeleteConfirmation(null)}
-        >
-          <div
-            className="recovery-dialog turma-delete-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="turma-delete-dialog-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="recovery-dialog-header">
-              <h2 id="turma-delete-dialog-title">Confirmar ação</h2>
-              <button
-                className="dialog-close-button"
-                type="button"
-                aria-label="Fechar"
-                onClick={() => setTurmaDeleteConfirmation(null)}
-              >
-                <CloseIcon />
-              </button>
-            </div>
-            <p>
-              Você está prestes a deletar a turma{' '}
-              {turmaDeleteConfirmation.turmaName || 'sem nome'}.
-            </p>
-            <button
-              className="primary-action recovery-confirm-action turma-delete-confirm-action"
-              type="button"
-              onClick={() =>
-                void deleteTurmaRowAndSave(turmaDeleteConfirmation.rowIndex)
-              }
-            >
-              <CloseIcon />
-              Deletar turma
-            </button>
-          </div>
-        </div>
+        <DependencyAwareDeleteDialog
+          blocked={turmaDeleteConfirmation.analysis.blocked}
+          effects={[
+            turmaDeleteConfirmation.analysis.assignedAprendizCount > 0
+              ? `${turmaDeleteConfirmation.analysis.assignedAprendizCount} Aprendiz(es) precisam ser transferidos ou desvinculados`
+              : 'Nenhum Aprendiz está vinculado',
+            turmaDeleteConfirmation.analysis.unconfirmedEventCount > 0
+              ? `${turmaDeleteConfirmation.analysis.unconfirmedEventCount} evento(s) editável(is) precisam ser removidos ou transferidos`
+              : 'Nenhum evento editável será alterado',
+            `${turmaDeleteConfirmation.analysis.historicalEventCount} evento(s) histórico(s) serão preservados`,
+          ]}
+          itemLabel="a Turma"
+          itemName={turmaDeleteConfirmation.turmaName}
+          onCancel={() => setTurmaDeleteConfirmation(null)}
+          onConfirm={() =>
+            void deleteTurmaRowAndSave(turmaDeleteConfirmation.rowIndex)
+          }
+        />
       )}
 
       {isRecoveryDialogOpen && (

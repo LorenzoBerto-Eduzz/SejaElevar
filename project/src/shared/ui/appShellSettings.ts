@@ -44,6 +44,7 @@ export type LayoutSettings = {
   contentTopOffset: number;
   gearOuterOffset: number;
   collapseIconOffset: number;
+  collapseIconVerticalOffset: number;
   collapseLabelOffset: number;
   collapseLabelVerticalOffset: number;
   collapseButtonVerticalOffset: number;
@@ -149,6 +150,7 @@ export const createDefaultAppSettings = (brand: AppBrand): AppSettings => ({
     contentTopOffset: 22,
     gearOuterOffset: 1.5,
     collapseIconOffset: -1,
+    collapseIconVerticalOffset: 0,
     collapseLabelOffset: -1,
     collapseLabelVerticalOffset: -1,
     collapseButtonVerticalOffset: 1,
